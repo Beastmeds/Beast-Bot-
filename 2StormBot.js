@@ -2680,19 +2680,32 @@ case 'video': {
       text: `🎬 Video wird heruntergeladen:\n❏ Titel: ${title}\n❏ Kanal: ${channel.name}\n❏ Dauer: ${Math.floor(durationInSec/60)}:${durationInSec%60}\n> ${botName}`
     }, { quoted: msg });
 
-    const ytDlpPath = path.join(__dirname, 'yt-dlp');
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
 
-    await new Promise((resolve, reject) => {
-      exec(
-        `"${ytDlpPath}" -f "best[height<=360]" -o "${filePath}" "${url}"`,
-        (error, stdout, stderr) => {
-          if (error) return reject(stderr || error.message);
-          resolve(stdout);
-        }
-      );
-    });
+    const ytCmds = [
+      `"${path.join(__dirname, 'yt-dlp')}"`,
+      'yt-dlp',
+      'yt-dlp.exe',
+      'npx yt-dlp'
+    ];
+    let dlErr = null;
+    let dlSuccess = false;
+    for (const cmd of ytCmds) {
+      try {
+        await new Promise((resolve, reject) => {
+          exec(`${cmd} -f "best[height<=360]" -o "${filePath}" "${url}"`, (error, stdout, stderr) => {
+            if (error) return reject(stderr || error.message);
+            resolve(stdout);
+          });
+        });
+        dlSuccess = true;
+        break;
+      } catch (e) {
+        dlErr = e;
+      }
+    }
+    if (!dlSuccess) throw new Error(dlErr || 'yt-dlp not found');
 
     const videoBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
@@ -5749,19 +5762,32 @@ case 'spotify': {
     await sock.sendMessage(chatId, { react: { text: '🎧', key: msg.key } });
 
     // --- YouTube Download (wie /play) ---
-    const ytDlpPath = path.join(__dirname, 'yt-dlp');
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
 
-    await new Promise((resolve, reject) => {
-      exec(
-        `"${ytDlpPath}" -x --audio-format mp3 --ffmpeg-location "${ffmpeg.path}" -o "${filePath}" "${url}"`,
-        (error, stdout, stderr) => {
-          if (error) return reject(stderr || error.message);
-          resolve(stdout);
-        }
-      );
-    });
+    const ytCmds = [
+      `"${path.join(__dirname, 'yt-dlp')}"`,
+      'yt-dlp',
+      'yt-dlp.exe',
+      'npx yt-dlp'
+    ];
+    let dlErr = null;
+    let dlSuccess = false;
+    for (const cmd of ytCmds) {
+      try {
+        await new Promise((resolve, reject) => {
+          exec(`${cmd} -x --audio-format mp3 --ffmpeg-location "${ffmpeg.path}" -o "${filePath}" "${url}"`, (error, stdout, stderr) => {
+            if (error) return reject(stderr || error.message);
+            resolve(stdout);
+          });
+        });
+        dlSuccess = true;
+        break;
+      } catch (e) {
+        dlErr = e;
+      }
+    }
+    if (!dlSuccess) throw new Error(dlErr || 'yt-dlp not found');
 
     const audioBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
