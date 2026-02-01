@@ -168,7 +168,21 @@ async function startSock(sessionName, mode) {
     console.log('[a] Alle Sessions starten');
     console.log('[n] Neue Session starten');
 
-    const choice = await askQuestion('> ');
+    // Allow automatic selection via environment variable or CLI arg
+    // Examples: PM2_SESSION=1 pm2 start index.js   OR   pm2 start index.js -- --session=1
+    let choice = null;
+    const envChoice = process.env.PM2_SESSION || process.env.AUTO_SESSION;
+    const argMatch = process.argv.find(a => a.startsWith('--session=')) || process.argv[2];
+    const argChoice = argMatch && argMatch.toString().includes('=') ? argMatch.split('=')[1] : argMatch;
+    if (envChoice) {
+      choice = envChoice.toString();
+      console.log(`> Auto-Choice from ENV: ${choice}`);
+    } else if (argChoice) {
+      choice = argChoice.toString();
+      console.log(`> Auto-Choice from argv: ${choice}`);
+    } else {
+      choice = await askQuestion('> ');
+    }
 
     if (choice.toLowerCase() === 'n') {
       const newSessionName = await askQuestion('Neuen Session-Namen eingeben:\n> ');
