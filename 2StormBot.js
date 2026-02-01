@@ -113,6 +113,18 @@ const loadWelcome = () => JSON.parse(fs.readFileSync(welcomeFile));
 const saveWelcome = (data) =>
   fs.writeFileSync(welcomeFile, JSON.stringify(data, null, 2));
 
+// Registrations (separate small store to avoid DB schema changes)
+const registrationsFile = path.join(welcomeDataDir, 'registrations.json');
+if (!fs.existsSync(registrationsFile)) fs.writeFileSync(registrationsFile, JSON.stringify({}, null, 2));
+function loadRegistrations() {
+  try {
+    return JSON.parse(fs.readFileSync(registrationsFile, 'utf8')) || {};
+  } catch (e) { return {}; }
+}
+function saveRegistrations(data) {
+  fs.writeFileSync(registrationsFile, JSON.stringify(data, null, 2));
+}
+
 
 const { decryptMedia } = require('@onedevil405/baileys');
 
@@ -700,6 +712,26 @@ sock.ev.on('messages.upsert', async (m) => {
     }, 2000);
   }
 
+  // Autoreact: reagiert automatisch auf eingehende Nachrichten, wenn aktiviert
+  try {
+    const featuresFile = path.join(__dirname, 'featureTests.json');
+    let features = { autoreact: false };
+    if (fs.existsSync(featuresFile)) {
+      const raw = fs.readFileSync(featuresFile, 'utf8');
+      const parsed = JSON.parse(raw || '{}');
+      features = Object.assign({}, features, parsed);
+    }
+    if (features.autoreact && !body.startsWith(prefix)) {
+      try {
+        await sock.sendMessage(chatId, { react: { text: '😊', key: msg.key } });
+      } catch (e) {
+        console.error('Autoreact failed:', e && e.message ? e.message : e);
+      }
+    }
+  } catch (e) {
+    // ignore feature read errors
+  }
+
   // continue handling message updates (anti-delete, logging, etc.)
 
   saveDeletedMessage(msg);
@@ -1004,6 +1036,137 @@ const isFromIOS = !isFromWeb && !isFromAndroid;
 
 const device = isFromWeb ? 'Web' : isFromAndroid ? 'Android' : 'iOS';
 const deviceEmoji = isFromWeb ? '💻' : isFromAndroid ? '📱' : '🍏';
+
+// === Testfeature: Leveling & Antilink (per-message handling) ===
+try {
+  const featuresFile = path.join(__dirname, 'featureTests.json');
+  let features = { leveling: false, antilink: false, antispam: false, antinsfw: false, autosticker: false, badwords: [] };
+  if (fs.existsSync(featuresFile)) {
+    const raw = fs.readFileSync(featuresFile, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    features = Object.assign({}, features, parsed);
+  }
+
+  // Anti-NSFW: lösche Bilder sofort, wenn aktiviert
+  if (features.antinsfw && isGroupChat) {
+    try {
+      if (msg.message?.imageMessage || msg.message?.videoMessage?.mimetype?.includes('image')) {
+        try {
+          await sock.sendMessage(chatId, { delete: msg.key });
+          await sock.sendMessage(chatId, { text: '🔞 NSFW-Bilder sind nicht erlaubt. Bild entfernt.' }, { quoted: msg });
+        } catch (delErr) {
+          console.error('Antinsfw delete failed:', delErr && delErr.message ? delErr.message : delErr);
+        }
+        return;
+      }
+    } catch (e) {
+      // proceed
+    }
+  }
+
+  // Autosticker: lösche Sticker-Nachrichten, wenn aktiviert
+  if (features.autosticker && isGroupChat) {
+    try {
+      if (msg.message?.stickerMessage) {
+        try {
+          await sock.sendMessage(chatId, { delete: msg.key });
+          await sock.sendMessage(chatId, { text: '� sticker sind in dieser Gruppe nicht erlaubt. Sticker entfernt.' }, { quoted: msg });
+        } catch (delErr) {
+          console.error('Autosticker delete failed:', delErr && delErr.message ? delErr.message : delErr);
+        }
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Antispam: wenn gleiche User innerhalb 5s erneut sendet, löschen und warnen
+  if (features.antispam && isGroupChat) {
+    try {
+      global._lastMsgTimes = global._lastMsgTimes || {};
+      const userKey = msg.key.participant || msg.key.remoteJid || chatId;
+      const nowTs = Date.now();
+      const lastTs = global._lastMsgTimes[userKey] || 0;
+      if (nowTs - lastTs < 5000) {
+        try {
+          await sock.sendMessage(chatId, { delete: msg.key });
+          await sock.sendMessage(chatId, { text: `🚫 Bitte nicht spammen, @${userKey.split('@')[0]}!` , mentions: [userKey] }, { quoted: msg });
+        } catch (delErr) {
+          console.error('Antispam delete failed:', delErr && delErr.message ? delErr.message : delErr);
+        }
+        return;
+      }
+      global._lastMsgTimes[userKey] = nowTs;
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Leveling: jede Nachricht +1 XP (wenn aktiviert)
+  if (features.leveling) {
+    try {
+      const userJid = msg.key.participant || msg.key.remoteJid || chatId;
+      ensureUser(userJid, msg.pushName || userJid.split('@')[0]);
+      addXP(userJid, 1);
+    } catch (e) {
+      console.error('Leveling error:', e && e.message ? e.message : e);
+    }
+  }
+
+  // Antilink: Lösche Nachrichten in Gruppen, die Links enthalten
+  if (features.antilink && isGroupChat) {
+    const urlRegex = /(https?:\/\/|www\.)[\w\-]+(\.[\w\-]+)+([\w.,@?^=%&:/~+#\-]*[\w@?^=%&/~+#\-])?/i;
+    if (urlRegex.test(body)) {
+      try {
+        await sock.sendMessage(chatId, { delete: msg.key });
+        await sock.sendMessage(chatId, { text: '🔗 Links sind in dieser Gruppe nicht erlaubt. Nachricht entfernt.' }, { quoted: msg });
+      } catch (delErr) {
+        console.error('Antilink delete failed:', delErr && delErr.message ? delErr.message : delErr);
+      }
+      return;
+    }
+  }
+
+  // Badwords: lösche Nachrichten, die ein verbotenes Wort enthalten
+  try {
+    if (Array.isArray(features.badwords) && features.badwords.length > 0) {
+      const textContent = (body || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || msg.message?.extendedTextMessage?.text || '').toString();
+      const lower = textContent.toLowerCase();
+      const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      for (const bad of features.badwords) {
+        if (!bad) continue;
+        const pattern = new RegExp('\\b' + escapeRegExp(bad.toLowerCase()) + '\\b', 'i');
+        if (pattern.test(lower)) {
+          try {
+            await sock.sendMessage(chatId, { delete: msg.key });
+            await sock.sendMessage(chatId, { text: `🚫 Bitte keine Schimpfwörter, @${(msg.key.participant||msg.key.remoteJid||chatId).split('@')[0]}!`, mentions: [msg.key.participant || msg.key.remoteJid || chatId] }, { quoted: msg });
+          } catch (delErr) {
+            console.error('Badwords delete failed:', delErr && delErr.message ? delErr.message : delErr);
+          }
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  // MuteGC: setze Gruppe auf Nur-Admins, falls aktiviert (einmalig pro Gruppe)
+  if (features.mutegc && isGroupChat) {
+    try {
+      global._mutedGroups = global._mutedGroups || new Set();
+      if (!global._mutedGroups.has(chatId)) {
+        await sock.groupSettingUpdate(chatId, 'announcement');
+        global._mutedGroups.add(chatId);
+        await sock.sendMessage(chatId, { text: '🔇 Gruppenmodus: Nur-Admins dürfen schreiben (MuteGC aktiviert).' });
+      }
+    } catch (mutErr) {
+      console.error('MuteGC failed:', mutErr && mutErr.message ? mutErr.message : mutErr);
+    }
+  }
+} catch (e) {
+  // ignore feature file errors
+}
 
 
 const senderJid = isGroupChat
@@ -1362,21 +1525,60 @@ sock.ev.on('group-participants.update', async (update) => {
     const db = loadWelcome();
     const groupId = update.id;
 
-    if (!db[groupId]?.enabled) return; 
+    // Load global feature toggles (testfeatures)
+    let features = { welcome: false, goodbye: false, antibot: false };
+    try {
+      const featuresFile = path.join(__dirname, 'featureTests.json');
+      if (fs.existsSync(featuresFile)) {
+        const raw = fs.readFileSync(featuresFile, 'utf8');
+        const parsed = JSON.parse(raw || '{}');
+        features = Object.assign({}, features, parsed);
+      }
+    } catch (e) {
+      // ignore feature load errors
+    }
 
     for (const user of update.participants) {
-      if (update.action === 'add') {
-     
+      try {
         const name = user.split('@')[0];
 
-      
-        const welcomeText = db[groupId].text.replace(/@user/gi, `@${name}`);
+        // JOIN
+        if (update.action === 'add') {
+          // per-group welcome (db) or global testfeature
+          if (db[groupId]?.enabled || features.welcome) {
+            const welcomeText = (db[groupId]?.text || 'Willkommen @user 🎉').replace(/@user/gi, `@${name}`);
+            await sock.sendMessage(groupId, { text: welcomeText, mentions: [user] });
+          }
 
-      
-        await sock.sendMessage(groupId, {
-          text: welcomeText,
-          mentions: [user] 
-        });
+          // Antibot: entferne heuristische Bot-Accounts, falls aktiviert
+          if (features.antibot) {
+            try {
+              const contactInfo = await sock.onWhatsApp(user).catch(() => null);
+              const notify = contactInfo && contactInfo[0] && contactInfo[0].notify ? contactInfo[0].notify : '';
+              const isBot = /bot/i.test(notify) || /bot/i.test(user);
+              if (isBot) {
+                try {
+                  await sock.groupParticipantsUpdate(groupId, [user], 'remove');
+                  await sock.sendMessage(groupId, { text: `🤖 Bot erkannt und entfernt: @${user.split('@')[0]}`, mentions: [user] });
+                } catch (kickErr) {
+                  console.error('Antibot kick failed:', kickErr && kickErr.message ? kickErr.message : kickErr);
+                }
+              }
+            } catch (errBot) {
+              // ignore per-user check errors
+            }
+          }
+        }
+
+        // LEAVE / REMOVE
+        if (update.action === 'remove' || update.action === 'leave') {
+          if (db[groupId]?.goodbye || features.goodbye) {
+            const goodbyeText = (db[groupId]?.goodbyeText || 'Tschüss @user 👋').replace(/@user/gi, `@${name}`);
+            await sock.sendMessage(groupId, { text: goodbyeText, mentions: [user] });
+          }
+        }
+      } catch (innerErr) {
+        console.error('Fehler beim Verarbeiten eines Participants-Eintrags:', innerErr);
       }
     }
   } catch (err) {
@@ -5242,6 +5444,13 @@ case 'register': {
   }
 
   ensureUser(jid, name);
+  // persist a registration timestamp (small JSON store)
+  try {
+    const regs = loadRegistrations();
+    regs[jid] = Date.now();
+    saveRegistrations(regs);
+  } catch (e) { console.error('Failed to save registration timestamp', e); }
+
   await sock.sendMessage(chatId, { 
     text: `🎉 ${name}, du wurdest erfolgreich registriert!\nStart-Guthaben: 100 💸, Level 1, 0 XP\n> ${botName}` 
   }, { quoted: msg });
@@ -5259,11 +5468,29 @@ case 'profile': {
     profilePicUrl = await sock.profilePictureUrl(userJid, 'image');
   } catch {}
 
-  const text = `📜 *Dein Profil*\n\n` +
-               `👤 Name: ${u.name}\n` +
-               `💸 Coins: ${u.balance}\n` +
-               `⭐ XP: ${u.xp}\n` +
-               `⬆️ Level: ${u.level}`;
+  // load registration timestamp
+  const regs = loadRegistrations();
+  const regTs = regs[userJid] || regs[msg.sender] || null;
+  const regDate = regTs ? new Date(regTs).toLocaleString('de-DE') : '...';
+
+  // level progress (uses 100 XP per level in current logic)
+  const xp = u.xp || 0;
+  const level = u.level || 0;
+  const xpToLevel = 100;
+  const percent = Math.max(0, Math.min(100, Math.floor((xp / xpToLevel) * 100)));
+
+  const contact = (userJid || '').split('@')[0];
+
+  const text = `💬 ══ ✨ Dein Profil ✨ ══\n\n` +
+               `👤 Name: ${u.name || '...'}\n` +
+               `🎂 Alter: ${u.age || '...'}\n` +
+               `👥 Kontakt: ${contact}\n` +
+               `📅 Registriert: ${regDate}\n` +
+               `⭐ Status: ${u.rank || 'Member'}\n\n` +
+               `🎮 Level: ${level}/${(level + 1)}\n` +
+               `📊 XP: ${xp} (${percent}% zum nächsten Level)\n` +
+               `📝 Offene To-dos: 0\n\n` +
+               `💡 Tipps:\n• einfach tips  so soll es ausehen`;
 
   if (profilePicUrl) {
     await sock.sendMessage(chatId, {
