@@ -2680,7 +2680,7 @@ case 'video': {
       text: `🎬 Video wird heruntergeladen:\n❏ Titel: ${title}\n❏ Kanal: ${channel.name}\n❏ Dauer: ${Math.floor(durationInSec/60)}:${durationInSec%60}\n> ${botName}`
     }, { quoted: msg });
 
-    const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
+    const ytDlpPath = path.join(__dirname, 'yt-dlp');
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
 
@@ -5749,7 +5749,7 @@ case 'spotify': {
     await sock.sendMessage(chatId, { react: { text: '🎧', key: msg.key } });
 
     // --- YouTube Download (wie /play) ---
-    const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
+    const ytDlpPath = path.join(__dirname, 'yt-dlp');
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
 
@@ -5849,7 +5849,7 @@ case 'play': {
     await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
     // === yt-dlp + ffmpeg ===
-    const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
+    const ytDlpPath = path.join(__dirname, 'yt-dlp');
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
 
