@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>BeastBot — Terminal</title>
+<link rel="icon" href="data:," />
+<style>
+  :root{
+    --bg:#01050a; --panel:#071018; --text:#cfe6ff; --accent:#6ad1ff; --muted:#8ea6be;
+    --ok:#7ef0a6; --err:#ff6b6b;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;}
+  .wrap{height:100%;display:flex;flex-direction:column}
+  header{padding:10px 14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);display:flex;align-items:center;gap:12px}
+  header a{color:var(--muted);text-decoration:none;font-size:14px}
+  header .title{color:var(--accent);font-weight:700}
+  .controls { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .btn { background:#1f6feb; border:none; padding:6px 10px; border-radius:6px; color:#fff; font-weight:700; cursor:pointer; }
+  .btn.kill { background:#e55353; }
+  .status { margin-left:12px; font-size:13px; color:var(--muted); }
+  .term{flex:1;padding:12px;overflow:auto;background:linear-gradient(180deg, rgba(0,0,0,0.3), transparent);box-sizing:border-box}
+  .line{white-space:pre-wrap;margin:0 0 6px 0}
+  .line.cmd{color:var(--accent)}
+  .line.out{color:var(--text)}
+  .line.err{color:var(--err)}
+  .input-bar{display:flex;padding:10px 12px;background:linear-gradient(180deg,transparent,rgba(255,255,255,0.01))}
+  .prompt{padding:8px 10px;border-radius:6px;background:#061020;color:var(--muted);margin-right:8px;min-width:80px;text-align:center}
+  .input{flex:1;padding:10px 12px;border-radius:6px;border:none;background:#06131b;color:var(--text);font-family:inherit;outline:none}
+  .small{font-size:12px;color:var(--muted);margin-left:12px}
+  @media(max-width:600px){ .prompt{min-width:60px;font-size:12px} .controls { margin-left:8px; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="title">BeastBot — Terminal</div>
+        <a href="/admin.html">↩ Dashboard</a>
+        <div class="status" id="status">connecting…</div>
+      </div>
+
+      <div class="controls">
+        <button id="startBtn" class="btn">▶ Start CMD</button>
+        <button id="stopBtn" class="btn">⏹ Stop</button>
+        <button id="killBtn" class="btn kill" title="Sofortigen Kill senden">✖ Kill</button>
+      </div>
+    </header>
+
+    <div id="term" class="term" tabindex="0" role="log" aria-live="polite"></div>
+
+    <div class="input-bar">
+      <div class="prompt">C:\&gt;</div>
+      <input id="input" class="input" autocomplete="off" placeholder="Befehl eingeben — Enter sendet. 'exit' beendet." />
+    </div>
+  </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(() => {
+  const socket = io();
+  const term = document.getElementById('term');
+  const input = document.getElementById('input');
+  const status = document.getElementById('status');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const killBtn = document.getElementById('killBtn');
+
+  let sessionActive = false;
+  let lastKillRequested = 0;
+
+  function append(text, cls){
+    const el = document.createElement('div');
+    el.className = 'line ' + (cls || '');
+    el.textContent = text;
+    term.appendChild(el);
+    while(term.children.length > 1200) term.removeChild(term.firstChild);
+    term.scrollTop = term.scrollHeight;
+  }
+
+  function setStatus(s, color){
+    status.textContent = s;
+    status.style.color = color || '';
+  }
+
+  socket.on('connect', () => {
+    setStatus('connected', 'var(--accent)');
+    socket.emit('startCmdSession'); // probiere sofort
+    append('ℹ️ Socket verbunden — versuche CMD zu starten...', 'cmd');
+  });
+
+  socket.on('disconnect', () => {
+    setStatus('disconnected', 'var(--err)');
+    append('ℹ️ Socket getrennt.', 'err');
+    sessionActive = false;
+  });
+
+  socket.on('connect_error', (err) => {
+    setStatus('connect error', 'var(--err)');
+    append('⚠️ Socket error: ' + (err && err.message ? err.message : err), 'err');
+  });
+
+  socket.on('cmdOutput', (payload) => {
+    if(!payload) return;
+    const text = payload.output ?? String(payload);
+    const cls = payload.error ? 'err' : payload.info ? 'cmd' : 'out';
+    append(text.replace(/\r/g,''), cls);
+
+    if (/CMD-Sitzung gestartet|cmd.exe gestartet/i.test(text)) {
+      sessionActive = true; setStatus('online', 'var(--ok)');
+    }
+    if (/cmd.exe beendet|CMD-Sitzung beendet/i.test(text) || /\bexit\b/i.test(text)) {
+      sessionActive = false; setStatus('offline', 'var(--err)');
+    }
+  });
+
+  function sendCmd(cmd){
+    if(!cmd) return;
+    append('> ' + cmd, 'cmd');
+    socket.emit('runCmd', cmd);
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      const raw = input.value.replace(/\n/g,'');
+      const cmd = raw.trim();
+      if(!cmd) { input.value=''; return; }
+      sendCmd(cmd);
+      input.value = '';
+      if(cmd.toLowerCase() === 'exit') {
+        sessionActive = false;
+        setStatus('closing', 'var(--muted)');
+      }
+    }
+    if(e.key.toLowerCase() === 'c' && e.ctrlKey){
+      socket.emit('runCmd', '\x03');
+      append('^C', 'cmd');
+    }
+  });
+
+  startBtn.addEventListener('click', () => {
+    append('ℹ️ Starte CMD-Sitzung…', 'cmd');
+    setStatus('starting', 'var(--warn)');
+    socket.emit('startCmdSession');
+  });
+
+  stopBtn.addEventListener('click', () => {
+    if(!confirm('Bot stoppen? Sitzung beenden?')) return;
+    append('ℹ️ Beende CMD-Sitzung…', 'cmd');
+    socket.emit('stopCmdSession');
+  });
+
+  killBtn.addEventListener('click', () => {
+    if(!confirm('Kill CMD sofort? Dies beendet den Prozess abrupt.')) return;
+    // double-click protection: if clicked twice within 2s, skip duplicate
+    const now = Date.now();
+    if (now - lastKillRequested < 2000) { append('ℹ️ Kill bereits angefragt.', 'err'); return; }
+    lastKillRequested = now;
+    append('⚠️ Sende Kill-Signal an Server…', 'err');
+    // send killCmd (server should handle if implemented). Also send stopCmdSession as fallback.
+    socket.emit('killCmd');
+    // fallback: stop politely after short delay
+    setTimeout(() => socket.emit('stopCmdSession'), 150);
+  });
+
+  // focus etc.
+  term.addEventListener('click', () => input.focus());
+  input.focus();
+
+  // ensure we attempt cleanup on unload
+  window.addEventListener('beforeunload', () => {
+    try { socket.emit('stopCmdSession'); } catch(e) {}
+  });
+})();
+</script>
+</body>
+</html>

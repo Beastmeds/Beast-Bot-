@@ -1,0 +1,118 @@
+[24.10.2025 23:34:52] 🌐 Dashboard läuft auf http://localhost:3000/login
+[24.10.2025 23:35:17] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[24.10.2025 23:35:27] ❌ Socket getrennt
+[24.10.2025 23:35:59] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[24.10.2025 23:36:55] ❌ Socket getrennt
+[24.10.2025 23:37:34] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[24.10.2025 23:37:50] ❌ Socket getrennt
+[24.10.2025 23:38:48] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[24.10.2025 23:39:11] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:39:33] ❌ Socket getrennt
+[24.10.2025 23:39:33] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:40:18] ❌ Socket getrennt
+[24.10.2025 23:40:18] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:42:29] ❌ Socket getrennt
+[24.10.2025 23:42:29] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:42:33] ❌ Socket getrennt
+[24.10.2025 23:42:33] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:42:34] ❌ Socket getrennt
+[24.10.2025 23:42:34] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:42:36] ❌ Socket getrennt
+[24.10.2025 23:42:38] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:42:41] ❌ Socket getrennt
+[24.10.2025 23:42:41] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:42:50] 🌐 Dashboard läuft auf http://193.111.249.187:3000/login
+[24.10.2025 23:42:53] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:43:48] ❌ Socket getrennt
+[24.10.2025 23:43:49] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:43:56] 🌐 Dashboard läuft auf http://193.111.249.187:3000/login
+[24.10.2025 23:43:59] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:45:19] ❌ Socket getrennt
+[24.10.2025 23:45:19] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[24.10.2025 23:45:26] 🌐 Dashboard läuft auf http://193.111.249.187:3000/login
+[24.10.2025 23:45:28] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[25.10.2025 00:04:38] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 00:04:43] ❌ Socket getrennt
+[25.10.2025 00:04:52] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 00:14:47] ❌ Socket getrennt
+[25.10.2025 00:14:47] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 00:16:13] ❌ Socket getrennt
+[25.10.2025 00:16:13] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 00:17:58] ❌ Socket getrennt
+[25.10.2025 00:17:58] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 00:18:00] ❌ Socket getrennt
+[25.10.2025 00:18:00] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 00:38:51] ❌ Socket getrennt
+[25.10.2025 00:54:09] ❌ Socket getrennt
+[25.10.2025 01:17:36] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 01:17:43] ❌ Socket getrennt
+[25.10.2025 01:18:09] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[25.10.2025 01:25:06] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 01:25:15] ❌ Socket getrennt
+[25.10.2025 01:25:26] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 01:26:35] ❌ Socket getrennt
+[25.10.2025 01:26:36] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 01:27:11] ❌ Socket getrennt
+[25.10.2025 01:28:10] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 01:28:20] ❌ Socket getrennt
+[25.10.2025 02:18:54] ❌ Socket getrennt
+[25.10.2025 10:29:43] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 10:29:47] ❌ Socket getrennt
+[25.10.2025 10:33:50] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 10:33:56] ❌ Socket getrennt
+[25.10.2025 10:42:18] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[25.10.2025 11:08:00] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:08:15] ❌ Socket getrennt
+[25.10.2025 11:08:15] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:13:31] ❌ Socket getrennt
+[25.10.2025 11:13:31] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:14:33] ❌ Socket getrennt
+[25.10.2025 11:14:33] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:28:01] ❌ Socket getrennt
+[25.10.2025 11:28:01] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:28:21] ❌ Socket getrennt
+[25.10.2025 11:28:21] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:28:40] ❌ Socket getrennt
+[25.10.2025 11:28:40] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:39:44] ❌ Socket getrennt
+[25.10.2025 11:39:44] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:39:45] ❌ Socket getrennt
+[25.10.2025 11:39:45] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:39:46] ❌ Socket getrennt
+[25.10.2025 11:39:46] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:39:46] ❌ Socket getrennt
+[25.10.2025 11:39:46] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:39:47] ❌ Socket getrennt
+[25.10.2025 11:39:47] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 11:41:21] ❌ Socket getrennt
+[25.10.2025 11:41:22] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 12:01:00] ❌ Socket getrennt
+[25.10.2025 12:16:10] ❌ Socket getrennt
+[25.10.2025 13:39:33] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:39:50] ❌ Socket getrennt
+[25.10.2025 13:39:51] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:39:58] ❌ Socket getrennt
+[25.10.2025 13:40:05] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:40:10] ❌ Socket getrennt
+[25.10.2025 13:40:12] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:41:01] ❌ Socket getrennt
+[25.10.2025 13:42:32] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:45:49] ❌ Socket getrennt
+[25.10.2025 13:45:50] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:47:52] ❌ Socket getrennt
+[25.10.2025 13:48:24] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:48:27] ❌ Socket getrennt
+[25.10.2025 13:48:37] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:50:11] ❌ Socket getrennt
+[25.10.2025 13:50:51] ✅ Socket verbunden (auth) — Client IP: 109.43.48.168
+[25.10.2025 13:53:08] ❌ Socket getrennt
+[25.10.2025 16:31:35] ✅ Socket verbunden (auth) — Client IP: 80.153.168.215
+[25.10.2025 16:31:38] ❌ Socket getrennt
+[25.10.2025 18:37:36] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 18:37:46] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 18:37:47] ❌ Socket getrennt
+[25.10.2025 18:37:48] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[25.10.2025 18:38:09] ❌ Socket getrennt
+[25.10.2025 18:38:21] ❌ Socket getrennt
+[25.10.2025 22:40:18] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
+[25.10.2025 23:15:45] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13

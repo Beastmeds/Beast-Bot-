@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>BeastBot-System</title>
+<style>
+:root{
+  --bg:#0a0f18; --header:#131c2a; --text:#e1e8f0; --accent:#62727c;
+  --success:#2dd36f; --error:#ff0022; --btn:#3a3e46; --btn-hover:#000000;
+}
+[data-theme="light"]{
+  --bg:#fdfdfd; --header:#e3e6ea; --text:#222222; --accent:#1da1f2;
+  --success:#10dc60; --error:#ff3860; --btn:#0d6efd; --btn-hover:#0b5ed7;
+}
+
+body{
+  margin:0; font-family:Segoe UI, system-ui, -apple-system; background:var(--bg); color:var(--text);
+  display:flex; flex-direction:column; height:100vh;
+}
+
+/* Header */
+header{
+  background:var(--header); padding:14px 24px; display:flex; justify-content:space-between; align-items:center;
+  box-shadow:0 4px 8px rgba(0,0,0,0.35); z-index:10;
+}
+header h1{ margin:0; color:var(--accent); font-size:1.5rem; font-weight:700; letter-spacing:0.5px;}
+header a{ color:var(--error); text-decoration:none; font-weight:600; font-size:0.95rem; transition:all .2s;}
+header a:hover{ color:var(--accent); }
+
+/* Buttons oben */
+.button-bar{
+  display:flex; align-items:center; gap:12px; padding:12px 24px; background:var(--header); box-shadow:0 3px 6px rgba(0,0,0,0.25);
+  flex-wrap:wrap; z-index:9;
+}
+.button-bar .btn{
+  padding:10px 16px; border-radius:10px; border:none; cursor:pointer; font-weight:600; background:var(--btn); color:#fff; transition:all .15s;
+}
+.button-bar .btn:hover{ background:var(--btn-hover); transform:translateY(-2px);}
+#botStatus{ margin-left:auto; font-weight:700; font-size:1rem; padding:4px 10px; border-radius:6px; background:rgba(255,255,255,0.1); color:var(--error); }
+
+/* Container */
+.container{ flex:1; display:flex; overflow:hidden; flex-direction:column; padding:12px 24px; margin-top:6px;}
+.log-box{ flex:1; margin:0; padding:14px; border-radius:12px; background:rgba(0,0,0,0.2); font-family:monospace; font-size:0.9rem; overflow:auto; box-shadow:inset 0 0 12px rgba(0,0,0,0.45);}
+.log-line{ opacity:0; animation:fadeIn .25s forwards; margin-bottom:4px; white-space:pre-wrap; word-break:break-word;}
+.log-stdout{ color:var(--text);}
+.log-error{ color:var(--error);}
+.log-info{ color:var(--accent);}
+@keyframes fadeIn{ to{ opacity:1; } }
+
+/* Modal */
+.modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.55);}
+.modal.show{ display:flex; }
+.modal .card{ width:90%; max-width:900px; background:var(--header); color:var(--text); border-radius:12px; padding:18px; box-shadow:0 12px 36px rgba(0,0,0,0.55);}
+.modal pre{ max-height:60vh; overflow:auto; background:#0b1018; padding:14px; border-radius:8px; color:#e6f3ff; font-family:monospace; white-space:pre-wrap; word-break:break-word;}
+.modal .close{ margin-top:12px; text-align:right;}
+
+/* Theme toggle */
+.theme-toggle{ margin-left:12px; padding:8px 14px; border-radius:10px; text-align:center; cursor:pointer; background:var(--btn); color:#fff; transition:all .15s; }
+
+/* Responsive */
+@media(max-width:768px){ .container{ flex-direction:column;} .button-bar{flex-wrap:wrap;} }
+</style>
+</head>
+<body data-theme="dark">
+
+<header>
+  <h1>BeastBot-System</h1>
+  <a href="/logout">Logout</a>
+</header>
+
+<div class="button-bar">
+  <button class="btn" id="startBtn">▶️ Start</button>
+  <button class="btn" id="stopBtn">⏹️ Stop</button>
+  <button class="btn" id="restartBtn">♻️ Restart</button>
+  <button class="btn" id="cmdBtn" onclick="location.href='/cmd.html'">💻 CMD</button>
+  <button class="btn" id="bannedBtn">🔒 Banned Users</button>
+ <span id="botStatus">Offline</span>
+ 
+</div>
+<div class="modal" id="sysInfoModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="card">
+    <h3>System Infos</h3>
+    <pre id="sysInfoContent">Lade...</pre>
+    <div class="close"><button class="btn small" id="closeSysInfo">Schließen</button></div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="log-box" id="logBox" aria-live="polite" aria-atomic="false"></div>
+</div>
+
+<!-- Modal for banned users -->
+<div class="modal" id="bannedModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="card">
+    <h3>Banned Users (./data/bannedu.json)</h3>
+    <pre id="bannedContent">Lade...</pre>
+    <div class="close"><button class="btn small" id="closeBanned">Schließen</button></div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const logBox = document.getElementById('logBox');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const restartBtn = document.getElementById('restartBtn');
+const bannedBtn = document.getElementById('bannedBtn');
+const botStatus = document.getElementById('botStatus');
+const themeToggle = document.getElementById('themeToggle');
+const bannedModal = document.getElementById('bannedModal');
+const bannedContent = document.getElementById('bannedContent');
+const closeBanned = document.getElementById('closeBanned');
+
+function appendLog(msg){
+  const d = document.createElement('div');
+  d.classList.add('log-line');
+  if(msg.startsWith('[stderr]')) d.classList.add('log-error');
+  else if(msg.includes('ℹ️') || msg.includes('♻️')) d.classList.add('log-info');
+  else d.classList.add('log-stdout');
+  d.textContent = msg;
+  logBox.appendChild(d);
+  while(logBox.children.length>150) logBox.removeChild(logBox.firstChild);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+socket.on('logUpdate', msg => appendLog(msg));
+socket.on('botStatus', status => {
+  if(botStatus){ botStatus.textContent=status; botStatus.style.color=status==='Online'? 'var(--success)':'var(--error)'; }
+});
+
+startBtn.addEventListener('click', ()=>{ socket.emit('startBot'); });
+stopBtn.addEventListener('click', ()=>{ if(confirm('Bot stoppen?')) socket.emit('stopBot'); });
+restartBtn.addEventListener('click', ()=>{ if(confirm('Bot neu starten?')) socket.emit('restartBot'); });
+
+bannedBtn.addEventListener('click', ()=>{
+  bannedContent.textContent='Lade...';
+  bannedModal.classList.add('show');
+  bannedModal.setAttribute('aria-hidden','false');
+  socket.emit('getBanned');
+});
+closeBanned.addEventListener('click', ()=>{
+  bannedModal.classList.remove('show');
+  bannedModal.setAttribute('aria-hidden','true');
+});
+socket.on('bannedList', (payload)=>{
+  if(!payload){ bannedContent.textContent='Fehler: kein Payload'; return; }
+  if(!payload.ok){ bannedContent.textContent='Fehler: '+(payload.error||'unknown'); return; }
+  try{ bannedContent.textContent=JSON.stringify(payload.data,null,2); } catch(e){ bannedContent.textContent='Fehler beim Anzeigen: '+e.message; }
+});
+
+themeToggle.addEventListener('click', ()=>{
+  const cur=document.body.getAttribute('data-theme')||'dark';
+  document.body.setAttribute('data-theme', cur==='dark'?'light':'dark');
+});
+const sysInfoBtn = document.getElementById('sysInfoBtn');
+const sysInfoModal = document.getElementById('sysInfoModal');
+const sysInfoContent = document.getElementById('sysInfoContent');
+const closeSysInfo = document.getElementById('closeSysInfo');
+
+sysInfoBtn.addEventListener('click', ()=>{
+  sysInfoContent.textContent='Lade...';
+  sysInfoModal.classList.add('show');
+  sysInfoModal.setAttribute('aria-hidden','false');
+  socket.emit('getSysInfo'); // wir senden Request an Server
+});
+
+closeSysInfo.addEventListener('click', ()=>{
+  sysInfoModal.classList.remove('show');
+  sysInfoModal.setAttribute('aria-hidden','true');
+});
+
+// Empfang vom Server
+socket.on('sysInfo', (data)=>{
+  sysInfoContent.textContent = data;
+});
+
+</script>
+</body>
+</html>

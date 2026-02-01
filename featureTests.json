@@ -1,0 +1,13 @@
+{
+  "welcome": false,
+  "goodbye": false,
+  "leveling": false,
+  "antilink": false,
+  "antispam": false,
+  "antinsfw": false,
+  "antibot": false,
+  "autosticker": false,
+  "mutegc": false,
+  "autoreact": true,
+  "badwords": []
+}

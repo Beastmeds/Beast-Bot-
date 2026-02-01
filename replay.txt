@@ -1,0 +1,5 @@
+ if (!access.isAllowed(cleanedSender)) {
+    return reply('⛔ Du hast keinen Zugriff auf diesen Befehl.');
+  }
+
+  const access = require('./bot-access');

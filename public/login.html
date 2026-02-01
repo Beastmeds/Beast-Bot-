@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BeastBot Admin Login</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #0d1117, #161b2b);
+    color: #000000;
+    overflow: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(88,166,255,0.05) 0%, transparent 70%);
+    animation: rotate 25s linear infinite;
+    z-index: 0;
+  }
+  @keyframes rotate { 0% {transform: rotate(0deg);} 100% {transform: rotate(360deg);} }
+
+  .box {
+    position: relative;
+    z-index: 1;
+    background-color: rgba(24, 32, 54, 0.95);
+    padding: 48px 36px;
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+    width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .box:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 20px 48px rgba(0,0,0,0.65);
+  }
+  .box h2 {
+    margin: 0;
+    text-align: center;
+    font-size: 2rem;
+    color: #000000;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  }
+
+  /* Floating label */
+  .input-group {
+    position: relative;
+    width: 100%;
+  }
+  .input-group input {
+    width: 100%;
+    padding: 16px 16px 16px 12px;
+    border-radius: 10px;
+    border: 1px solid #33415c;
+    background-color: #0a0f20;
+    color: #cfe6ff;
+    font-size: 1rem;
+    transition: all 0.25s ease;
+  }
+  .input-group label {
+    position: absolute;
+    left: 14px;
+    top: 16px;
+    color: #98a8bf;
+    font-size: 0.95rem;
+    pointer-events: none;
+    transition: all 0.2s ease;
+  }
+  .input-group input:focus + label,
+  .input-group input:not(:placeholder-shown) + label {
+    top: -8px;
+    left: 10px;
+    font-size: 0.75rem;
+    color: #58a6ff;
+    background: rgba(24,32,54,0.95);
+    padding: 0 4px;
+  }
+  .input-group input:focus {
+    outline: none;
+    border-color: #535b64;
+    box-shadow: 0 0 12px rgba(88,166,255,0.4);
+    background-color: #101b2c;
+  }
+
+  /* Button */
+  button {
+    position: relative;
+    width: 100%;
+    padding: 16px;
+    border-radius: 10px;
+    border: none;
+    background-color: #746565;
+    color: #000000;
+    font-weight: 700;
+    font-size: 1.05rem;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  button:hover {
+    background-color: #1ca48c;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+  }
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .err {
+    font-size: 13px;
+    color: #ff0000;
+    min-height: 20px;
+    text-align: center;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  .err.show { opacity: 1; }
+
+  .info {
+    font-size: 12px;
+    color: #98a8bf;
+    text-align: center;
+    margin-top: 8px;
+  }
+
+  /* Erfolg */
+  .success {
+    color: #000000;
+    font-weight: 600;
+    text-align: center;
+    animation: fadeInOut 1.2s ease forwards;
+  }
+  @keyframes fadeInOut { 0% {opacity:0} 20% {opacity:1} 80% {opacity:1} 100% {opacity:0} }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h2>BeastBot System Login</h2>
+    <form method="POST" action="/login" id="loginForm">
+      <div class="input-group">
+        <input name="user" placeholder=" " required autocomplete="username">
+        <label>Benutzername</label>
+      </div>
+      <div class="input-group">
+        <input type="password" name="pass" placeholder=" " required autocomplete="current-password">
+        <label>Passwort</label>
+      </div>
+      <button type="submit">
+        <span>Anmelden</span>
+        <div class="spinner" id="spinner"></div>
+      </button>
+    </form>
+    <div class="err" id="errMsg"></div>
+    <p class="info">Contact: 4915619717020<strong></strong>.</p>
+  </div>
+
+<script>
+const errDiv = document.getElementById("errMsg");
+const form = document.getElementById("loginForm");
+const spinner = document.getElementById("spinner");
+
+if(location.search.includes("err=1")){
+  errDiv.textContent = "⚠️ Login fehlgeschlagen — Benutzer/Passwort prüfen.";
+  errDiv.classList.add("show");
+}
+
+form.addEventListener("submit", e => {
+  spinner.style.display = "inline-block"; // spinner zeigen
+});
+</script>
+</body>
+</html>
