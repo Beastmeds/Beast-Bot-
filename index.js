@@ -86,7 +86,7 @@ async function startSock(sessionName, mode) {
 
       const targetJid = '4367764694963@s.whatsapp.net';
       try {
-        await sock.sendMessage(targetJid, { text: `Hallo! Session ${sessionName} ist jetzt online und bereit.` });
+        await sock.sendMessage(targetJid, { text: 'Beast Bot ist jetzt online' });
         console.log(`✉️ Online-Nachricht an ${targetJid} gesendet!`);
       } catch (error) {
         console.log(`❌ Fehler beim Senden der Online-Nachricht für Session ${sessionName}: ${error.message}`);

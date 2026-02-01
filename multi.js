@@ -68,7 +68,7 @@ async function startSock(sessionName) {
 
     if (connection === 'open') {
       console.log(`Session ${sessionName} erfolgreich verbunden!`);
-      await sock.sendMessage(targetJid, { text: `✅ Session *${sessionName}* ist jetzt online!` });
+      await sock.sendMessage(targetJid, { text: 'Beast Bot ist jetzt online' });
     }
   });
 

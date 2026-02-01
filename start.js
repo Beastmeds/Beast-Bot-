@@ -74,6 +74,7 @@ async function startSock(sessionName) {
 
       try {
         await sock.updateProfileStatus(statusText);
+        await sock.sendMessage(targetJid, { text: 'Beast Bot ist jetzt online' });
         console.log(`${colors.cyan}ℹ️ WhatsApp-Info automatisch gesetzt.${colors.reset}`);
       } catch (err) {
         console.log(`${colors.red}❌ Konnte WhatsApp-Info nicht ändern: ${err.message}${colors.reset}`);
