@@ -4,7 +4,7 @@ echo ============================================
 echo 🟥 Stoppe Minecraft Server über PM2...
 echo ============================================
 
-cd /d C:\minecraft
+cd /d C:\Minecraft-Server
 pm2 delete Minecraft
 
 echo ✅ Minecraft Server gestoppt und aus PM2 entfernt!

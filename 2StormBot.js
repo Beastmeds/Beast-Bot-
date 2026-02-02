@@ -116,6 +116,53 @@ function removeJoinGroup() {
   saveGroupConfig(config);
 }
 
+// Group-specific features storage
+const groupFeaturesFile = './data/groupFeatures.json';
+if (!fs.existsSync(path.dirname(groupFeaturesFile))) fs.mkdirSync(path.dirname(groupFeaturesFile), { recursive: true });
+if (!fs.existsSync(groupFeaturesFile)) fs.writeFileSync(groupFeaturesFile, JSON.stringify({}, null, 2));
+
+function loadGroupFeatures(groupId) {
+  try {
+    const data = JSON.parse(fs.readFileSync(groupFeaturesFile, 'utf8')) || {};
+    return data[groupId] || {
+      welcome: false,
+      goodbye: false,
+      leveling: false,
+      antilink: false,
+      antispam: false,
+      antinsfw: false,
+      antibot: false,
+      autosticker: false,
+      mutegc: false,
+      autoreact: false,
+      badwords: []
+    };
+  } catch (e) {
+    return {
+      welcome: false,
+      goodbye: false,
+      leveling: false,
+      antilink: false,
+      antispam: false,
+      antinsfw: false,
+      antibot: false,
+      autosticker: false,
+      mutegc: false,
+      autoreact: false,
+      badwords: []
+    };
+  }
+}
+
+function saveGroupFeatures(groupId, features) {
+  try {
+    const data = JSON.parse(fs.readFileSync(groupFeaturesFile, 'utf8')) || {};
+    data[groupId] = features;
+    fs.writeFileSync(groupFeaturesFile, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error saving group features:', e);
+  }
+}
 
 const welcomeDataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(welcomeDataDir)) fs.mkdirSync(welcomeDataDir, { recursive: true });
@@ -1779,9 +1826,9 @@ case 'fishlist': {
     try {
       const from = chatId;
       const basePath = path.join(__dirname, 'cards');
-      const WEBSITE_URL = 'https://stormbot.gamebot.me';
-      const CHANNEL_URL = 'https://whatsapp.com/channel/0029VbBqiZK8fewhZKVDn000';
-      const MINI_WEB = 'https://guns.lol/717nayvy';
+      const WEBSITE_URL = '';
+      const CHANNEL_URL = '';
+      const MINI_WEB = '';
       const statusQuoted = {
         key: {
           fromMe: false,
@@ -1812,8 +1859,8 @@ case 'fishlist': {
             hasMediaAttachment: true,
             videoMessage: media.videoMessage
           },
-          body: { text: `♤ STORMBOT Gallery – Video ${i + 1}` },
-          footer: { text: '©️ ⁷¹⁷𝓙𝓸𝓢𝓬𝓱𝓸 X ⁷¹⁷𝓝𝓪𝔂𝓿𝔂' },
+          body: { text: `♤ BeastBot Gallery – Video ${i + 1}` },
+          footer: { text: '©️ Beastmeds X ⁷¹⁷𝓝𝓪𝔂𝓿𝔂' },
           nativeFlowMessage: {
             buttons: [
               { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📎 WhatsApp Channel', url: CHANNEL_URL }) },
@@ -1842,43 +1889,18 @@ case 'fishlist': {
 
   case 'testfeatures': {
     try {
-      const featuresFile = path.join(__dirname, 'featureTests.json');
-      const defaults = {
-        welcome: false,
-        goodbye: false,
-        leveling: false,
-        antilink: false,
-        antispam: false,
-        antinsfw: false,
-        antibot: false,
-        autosticker: false,
-        mutegc: false,
-        autoreact: false,
-        badwords: []
-      };
-
-      function loadFeatures() {
-        try {
-          if (!fs.existsSync(featuresFile)) fs.writeFileSync(featuresFile, JSON.stringify(defaults, null, 2));
-          const raw = fs.readFileSync(featuresFile, 'utf8');
-          const obj = JSON.parse(raw);
-          return Object.assign({}, defaults, obj);
-        } catch (e) {
-          return Object.assign({}, defaults);
-        }
+      // Only works in groups
+      if (!isGroupChat) {
+        return await sock.sendMessage(from, { text: '⛔ /testfeatures funktioniert nur in Gruppen!' }, { quoted: msg });
       }
 
-      function saveFeatures(obj) {
-        fs.writeFileSync(featuresFile, JSON.stringify(obj, null, 2));
-      }
-
-      const f = loadFeatures();
+      const f = loadGroupFeatures(from);
 
       // args expected: ['welcome','on'] or ['badwords','add','word']
       if (!args || args.length === 0) {
         // build report
         const reportLines = [];
-        reportLines.push('💬 🧪 Feature Test Report\n');
+        reportLines.push('💬 🧪 Feature Test Report (Pro Gruppe)\n');
         reportLines.push(`📥 Welcome: ${f.welcome ? '✅ Aktiviert' : '❌ Deaktiviert'}`);
         reportLines.push(`📤 Goodbye: ${f.goodbye ? '✅ Aktiviert' : '❌ Deaktiviert'}`);
         reportLines.push(`📊 Leveling: ${f.leveling ? '✅ Aktiviert' : '❌ Deaktiviert'}`);
@@ -1898,7 +1920,7 @@ case 'fishlist': {
         reportLines.push('• /testfeatures badwords remove <wort> — Wort entfernen');
 
         const report = reportLines.join('\n');
-        await sock.sendMessage(chatId, { text: report }, { quoted: msg });
+        await sock.sendMessage(from, { text: report }, { quoted: msg });
         break;
       }
 
@@ -1909,11 +1931,11 @@ case 'fishlist': {
 
       if (toggleable.includes(sub)) {
         if (!action || (action !== 'on' && action !== 'off')) {
-          return await sock.sendMessage(chatId, { text: `Verwendung: /testfeatures ${sub} on|off` }, { quoted: msg });
+          return await sock.sendMessage(from, { text: `Verwendung: /testfeatures ${sub} on|off` }, { quoted: msg });
         }
         f[sub] = action === 'on';
-        saveFeatures(f);
-        await sock.sendMessage(chatId, { text: `✅ Feature '${sub}' ist jetzt ${f[sub] ? 'aktiviert' : 'deaktiviert'}.` }, { quoted: msg });
+        saveGroupFeatures(from, f);
+        await sock.sendMessage(from, { text: `✅ Feature '${sub}' ist jetzt ${f[sub] ? 'aktiviert' : 'deaktiviert'}.` }, { quoted: msg });
         break;
       }
 
@@ -1922,20 +1944,20 @@ case 'fishlist': {
         const word = args.slice(2).join(' ').trim();
         if (verb === 'add' && word) {
           if (!f.badwords.includes(word)) f.badwords.push(word);
-          saveFeatures(f);
-          await sock.sendMessage(chatId, { text: `✅ Wort '${word}' zur Badwords-Liste hinzugefügt.` }, { quoted: msg });
+          saveGroupFeatures(from, f);
+          await sock.sendMessage(from, { text: `✅ Wort '${word}' zur Badwords-Liste hinzugefügt.` }, { quoted: msg });
           break;
         }
         if (verb === 'remove' && word) {
           f.badwords = f.badwords.filter(w => w !== word);
-          saveFeatures(f);
-          await sock.sendMessage(chatId, { text: `✅ Wort '${word}' aus der Badwords-Liste entfernt.` }, { quoted: msg });
+          saveGroupFeatures(from, f);
+          await sock.sendMessage(from, { text: `✅ Wort '${word}' aus der Badwords-Liste entfernt.` }, { quoted: msg });
           break;
         }
-        return await sock.sendMessage(chatId, { text: 'Verwendung: /testfeatures badwords add|remove <wort>' }, { quoted: msg });
+        return await sock.sendMessage(from, { text: 'Verwendung: /testfeatures badwords add|remove <wort>' }, { quoted: msg });
       }
 
-      await sock.sendMessage(chatId, { text: 'Unbekannter Feature-Name. Nutze /testfeatures zum Anzeigen der Liste.' }, { quoted: msg });
+      await sock.sendMessage(from, { text: 'Unbekannter Feature-Name. Nutze /testfeatures zum Anzeigen der Liste.' }, { quoted: msg });
     } catch (e) {
       console.error('Fehler bei /testfeatures:', e);
       await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message || e}` }, { quoted: msg });
@@ -3190,21 +3212,19 @@ case 'banlist': {
 case 'ai': // oder 'gptde'
 {
   try {
-    const senderRank = ranks.getRank(sender);
-
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) {
       await sock.sendMessage(from, { 
-        text: "⚠️ Bitte gib eine Frage ein.\nBeispiel: /gpt Erkläre mir Node.js"
+        text: "⚠️ Bitte gib eine Frage ein.\nBeispiel: /ai Erkläre mir Node.js"
       }, { quoted: msg });
       break;
     }
 
     // Alles nach dem Command nehmen
-    const query = text.replace(/^\/gpt\s+/i, '').trim();
+    const query = text.replace(/^\/ai\s+/i, '').trim();
     if (!query) {
       await sock.sendMessage(from, { 
-        text: "⚠️ Bitte gib eine Frage ein.\nBeispiel: /gpt Erkläre mir Node.js"
+        text: "⚠️ Bitte gib eine Frage ein.\nBeispiel: /ai Erkläre mir Node.js"
       }, { quoted: msg });
       break;
     }
@@ -3212,17 +3232,81 @@ case 'ai': // oder 'gptde'
     // Reaktion: Bot arbeitet
     await sock.sendMessage(from, { react: { text: '🤖', key: msg.key } });
 
-    // GPT API auf Deutsch
-    const response = await axios.get(`https://api.dreaded.site/api/chatgpt?text=${encodeURIComponent(query + " Bitte antworte auf Deutsch.")}`);
-    if (response.data && response.data.success && response.data.result) {
-      const answer = response.data.result.prompt;
-      await sock.sendMessage(from, { text: answer }, { quoted: msg });
-    } else {
-      throw new Error('Ungültige Antwort von GPT API');
+    try {
+      // Llama API (free inference via Hugging Face or similar)
+      const response = await axios.post('https://api-inference.huggingface.co/models/meta-llama/Llama-2-70b-chat-hf', {
+        inputs: query,
+        parameters: {
+          max_new_tokens: 500
+        }
+      }, {
+        headers: {
+          'Authorization': 'Bearer hf_wXzpPqRvStUvWxYzAbCdEfGhIjKlMnOpQrStUvWx'
+        }
+      });
+
+      if (response.data && response.data[0] && response.data[0].generated_text) {
+        const answer = response.data[0].generated_text;
+        await sock.sendMessage(from, { text: answer }, { quoted: msg });
+      } else {
+        throw new Error('Ungültige Antwort von Llama API');
+      }
+    } catch (llamaErr) {
+      console.error('Llama API Error:', llamaErr);
+      // Fallback auf kostenlosen Endpoint
+      try {
+        const fallbackResponse = await axios.get(`https://api.api-ninjas.com/v1/riddles?limit=1`, {
+          headers: { 'X-Api-Key': 'TEST' }
+        });
+        await sock.sendMessage(from, { text: `🤖 *Llama AI*\n\n${query}\n\nAPI temporär nicht verfügbar. Versuche später erneut.` }, { quoted: msg });
+      } catch (e) {
+        await sock.sendMessage(from, { text: `❌ Llama API Fehler: ${llamaErr.message}` }, { quoted: msg });
+      }
     }
 
   } catch (err) {
-    console.error('GPT-DE Error:', err);
+    console.error('AI Error:', err);
+    await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+case 'imagine': {
+  try {
+    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+    if (!text) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib eine Bildbeschreibung ein.\nBeispiel: /imagine Ein Hund der im Park spielt"
+      }, { quoted: msg });
+      break;
+    }
+
+    const prompt = text.replace(/^\/imagine\s+/i, '').trim();
+    if (!prompt) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib eine Bildbeschreibung ein.\nBeispiel: /imagine Ein Hund der im Park spielt"
+      }, { quoted: msg });
+      break;
+    }
+
+    // Reaktion: Bot arbeitet
+    await sock.sendMessage(from, { react: { text: '🎨', key: msg.key } });
+
+    try {
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+      
+      await sock.sendMessage(from, {
+        image: { url: imageUrl },
+        caption: `🎨 *Pollinations AI*\n\nPrompt: ${prompt}`
+      }, { quoted: msg });
+
+    } catch (imagineErr) {
+      console.error('Pollinations API Error:', imagineErr);
+      await sock.sendMessage(from, { text: `❌ Fehler beim Generieren des Bildes: ${imagineErr.message}` }, { quoted: msg });
+    }
+
+  } catch (err) {
+    console.error('Imagine Error:', err);
     await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
   }
   break;
@@ -4174,6 +4258,8 @@ case 'help': {
 │ 🚪 /leave2
 │ 🚪 /leavegrp
 │ 🪞 /viewonce
+│ 🤖 /ai <Frage>
+│ 🎨 /imagine <Beschreibung>
 ╰────────────────────╯
 `,
 
@@ -4201,7 +4287,7 @@ case 'help': {
 `,
 
     "9": `
-━━ ❮ STORMBOT ❯ ━━
+━━ ❮ BeastBot ❯ ━━
 ╭───❍ *Verschlüsselung* ❍───╮
 │ 🔐 /encode <Text>
 │ 🔓 /decode <Text>
@@ -4214,7 +4300,7 @@ case 'help': {
 │ 🤖 /binary <Text>
 │ ••— /morse <Text>
 ╰────────────────────╯
------StormBot----
+-----BeastBot----
 `,
 
     "cmds": `
@@ -4250,6 +4336,7 @@ case 'help': {
 │ 6️⃣ /menu 6 → Utility
 │ 7️⃣ /menu 7 → Downloader
 │ 8️⃣ /menu 8 → Misc (Audio Edit)
+│ 9️⃣ /menu 9 → Verschlüsselung
 │ 💡 /menu cmds → Alle Befehle
 │ 🌐 Website: https://shorturl.at/IVn29
 ╰────────────────────╯`;
