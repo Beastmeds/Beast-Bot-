@@ -5763,12 +5763,20 @@ case 'speedtest': {
   }
 
   const { spawn } = require('child_process');
-  const speedtestPath = 'C:\\speedtest\\speedtest.exe';
+  const os = require('os');
+
+  // Choose speedtest binary depending on platform. On Windows we expect the Ookla
+  // binary at C:\speedtest\speedtest.exe; on Unix-like systems try `speedtest` from PATH.
+  const speedtestPath = process.platform === 'win32' ? 'C:\\speedtest\\speedtest.exe' : 'speedtest';
 
   await sock.sendMessage(from, { text: 'Speedtest wird gestartet… Bitte warten!' }, { quoted: msg });
 
   try {
     const test = spawn(speedtestPath);
+    test.on('error', async (err) => {
+      await sock.sendMessage(from, { text: 'Fehler: Speedtest-Binary nicht gefunden oder kann nicht gestartet werden. Bitte installiere `speedtest` (Ookla) oder `speedtest-cli` und versuche es erneut.' }, { quoted: msg });
+      console.error('Speedtest spawn error:', err);
+    });
 
     let outputData = '';
     test.stdout.on('data', chunk => outputData += chunk.toString());
