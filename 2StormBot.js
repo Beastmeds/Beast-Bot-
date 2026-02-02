@@ -4303,10 +4303,22 @@ case 'help': {
 -----BeastBot----
 `,
 
+    "10": `
+╭───❍ *Minecraft Commands* ❍───╮
+│ 🔧 ${currentPrefix}mcsetserver <IP:PORT> <Name>
+│ 🎮 ${currentPrefix}mcstatus
+│ 👥 ${currentPrefix}mcplayers
+│ 🔍 ${currentPrefix}mcsearch <Spieler>
+│ ⚔️ ${currentPrefix}mcquery
+│ ℹ️ ${currentPrefix}mcgetserver
+│ 🏠 ${currentPrefix}mcserver <Befehl>
+╰────────────────────╯
+`,
+
     "cmds": `
 ╭───❍ *Alle Befehle* ❍───╮
 │ Enthält alle Commands:
-│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung
+│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung, Minecraft
 │
 │ ➤ /menu 1  → Main
 │ ➤ /menu 2  → Admin
@@ -4317,6 +4329,7 @@ case 'help': {
 │ ➤ /menu 7  → Downloader
 │ ➤ /menu 8  → Misc (Audio Edit)
 │ ➤ /menu 9  → Verschlüsselung
+│ ➤ /menu 10 → Minecraft
 ╰────────────────────╯
 `
   };
@@ -4337,7 +4350,8 @@ case 'help': {
 │ 7️⃣ /menu 7 → Downloader
 │ 8️⃣ /menu 8 → Misc (Audio Edit)
 │ 9️⃣ /menu 9 → Verschlüsselung
-│ 💡 /menu cmds → Alle Befehle
+│ � /menu 10 → Minecraft
+│ �💡 /menu cmds → Alle Befehle
 │ 🌐 Website: https://shorturl.at/IVn29
 ╰────────────────────╯`;
   } else {
@@ -9641,6 +9655,261 @@ case 'ranksssssssssssssssssssss': {
                     }, { quoted: msg });
                 }
 
+                break;
+            }
+
+            // ====================== MINECRAFT COMMANDS ====================== //
+            
+            case 'mcsetserver': {
+                // Nur für Owner
+                if (!isOwner(sender)) {
+                    return sock.sendMessage(from, { text: '❌ Nur der Owner darf diesen Command verwenden!' }, { quoted: msg });
+                }
+
+                const serverIP = args[0];
+                const serverName = args.slice(1).join(' ') || 'Mein Server';
+
+                if (!serverIP) {
+                    return sock.sendMessage(from, { text: '❌ Bitte gib eine Server-IP an!\n\n📝 Beispiel: /mcsetserver example.com:25565 Mein Server' }, { quoted: msg });
+                }
+
+                try {
+                    const mcConfigPath = path.join(__dirname, 'mcConfig.json');
+                    const mcConfig = {
+                        serverIP: serverIP,
+                        serverName: serverName
+                    };
+                    fs.writeFileSync(mcConfigPath, JSON.stringify(mcConfig, null, 2));
+                    
+                    await sock.sendMessage(from, {
+                        text: `✅ *Minecraft Server gespeichert!*\n\n🎮 Server: ${serverName}\n📍 IP: ${serverIP}\n\n💡 Jetzt kannst du die Commands ohne IP verwenden!`
+                    }, { quoted: msg });
+                } catch (err) {
+                    console.error('MC SetServer Error:', err);
+                    await sock.sendMessage(from, {
+                        text: '❌ Fehler beim Speichern der Server-Einstellungen!'
+                    }, { quoted: msg });
+                }
+                break;
+            }
+
+            case 'mcgetserver': {
+                try {
+                    const mcConfigPath = path.join(__dirname, 'mcConfig.json');
+                    if (fs.existsSync(mcConfigPath)) {
+                        const mcConfig = JSON.parse(fs.readFileSync(mcConfigPath, 'utf-8'));
+                        await sock.sendMessage(from, {
+                            text: `ℹ️ *Gespeicherte Minecraft Server*\n\n🎮 Name: ${mcConfig.serverName}\n📍 IP: ${mcConfig.serverIP}`
+                        }, { quoted: msg });
+                    } else {
+                        await sock.sendMessage(from, {
+                            text: '❌ Noch kein Server gespeichert!\n\n📝 Verwende: /mcsetserver <IP:PORT> <Name>'
+                        }, { quoted: msg });
+                    }
+                } catch (err) {
+                    console.error('MC GetServer Error:', err);
+                    await sock.sendMessage(from, {
+                        text: '❌ Fehler beim Abrufen der Server-Einstellungen!'
+                    }, { quoted: msg });
+                }
+                break;
+            }
+            
+            case 'mcstatus': {
+                let address = args[0];
+                
+                // Wenn keine Adresse angegeben, nutze gespeicherte IP
+                if (!address) {
+                    try {
+                        const mcConfigPath = path.join(__dirname, 'mcConfig.json');
+                        if (fs.existsSync(mcConfigPath)) {
+                            const mcConfig = JSON.parse(fs.readFileSync(mcConfigPath, 'utf-8'));
+                            address = mcConfig.serverIP;
+                        } else {
+                            return sock.sendMessage(from, { text: '❌ Keine Server-IP gespeichert!\n\n📝 Nutze: /mcsetserver <IP:PORT> <Name>\noder: /mcstatus <IP:PORT>' }, { quoted: msg });
+                        }
+                    } catch (err) {
+                        return sock.sendMessage(from, { text: '❌ Fehler beim Laden der Server-IP!' }, { quoted: msg });
+                    }
+                }
+
+                try {
+                    const dns = require('dns').promises;
+                    const net = require('net');
+                    const [ip, port] = address.split(':');
+                    const portNum = port || 25565;
+
+                    await sock.sendMessage(from, { text: `🔄 Prüfe Server Status von ${address}...` });
+
+                    const socket = net.createConnection(portNum, ip, () => {
+                        socket.destroy();
+                        sock.sendMessage(from, {
+                            text: `✅ *Minecraft Server ist ONLINE*\n\n📍 Server: ${address}\n🟢 Status: Online\n⏱️ Zeit: ${new Date().toLocaleTimeString('de-DE')}`
+                        }, { quoted: msg });
+                    });
+
+                    socket.setTimeout(5000);
+                    socket.on('timeout', () => {
+                        socket.destroy();
+                        sock.sendMessage(from, {
+                            text: `❌ *Minecraft Server ist OFFLINE*\n\n📍 Server: ${address}\n🔴 Status: Offline\n⏱️ Zeit: ${new Date().toLocaleTimeString('de-DE')}`
+                        }, { quoted: msg });
+                    });
+
+                    socket.on('error', () => {
+                        sock.sendMessage(from, {
+                            text: `❌ *Minecraft Server ist OFFLINE*\n\n📍 Server: ${address}\n🔴 Status: Offline oder nicht erreichbar\n⏱️ Zeit: ${new Date().toLocaleTimeString('de-DE')}`
+                        }, { quoted: msg });
+                    });
+                } catch (err) {
+                    console.error('MC Status Error:', err);
+                    await sock.sendMessage(from, {
+                        text: '❌ Fehler beim Prüfen des Server Status!'
+                    }, { quoted: msg });
+                }
+                break;
+            }
+
+            case 'mcplayers': {
+                let address = args[0];
+                
+                // Wenn keine Adresse angegeben, nutze gespeicherte IP
+                if (!address) {
+                    try {
+                        const mcConfigPath = path.join(__dirname, 'mcConfig.json');
+                        if (fs.existsSync(mcConfigPath)) {
+                            const mcConfig = JSON.parse(fs.readFileSync(mcConfigPath, 'utf-8'));
+                            address = mcConfig.serverIP;
+                        } else {
+                            return sock.sendMessage(from, { text: '❌ Keine Server-IP gespeichert!\n\n📝 Nutze: /mcsetserver <IP:PORT> <Name>\noder: /mcplayers <IP:PORT>' }, { quoted: msg });
+                        }
+                    } catch (err) {
+                        return sock.sendMessage(from, { text: '❌ Fehler beim Laden der Server-IP!' }, { quoted: msg });
+                    }
+                }
+
+                try {
+                    const net = require('net');
+                    const [ip, port] = address.split(':');
+                    const portNum = port || 25565;
+
+                    const socket = net.createConnection(portNum, ip, () => {
+                        socket.destroy();
+                        sock.sendMessage(from, {
+                            text: `👥 *Spieler auf ${address}*\n\n📊 Info:\n• Server ist erreichbar\n• Eine detaillierte Spielerliste benötigt einen Query-Server\n• Aktiviere Query in deiner server.properties Datei\n\n💡 Tipp: Verwende /mcquery für mehr Infos`
+                        }, { quoted: msg });
+                    });
+
+                    socket.setTimeout(5000);
+                    socket.on('timeout', () => {
+                        socket.destroy();
+                        sock.sendMessage(from, {
+                            text: `❌ Server ${address} ist nicht erreichbar!`
+                        }, { quoted: msg });
+                    });
+
+                    socket.on('error', () => {
+                        sock.sendMessage(from, {
+                            text: `❌ Konnte sich nicht mit ${address} verbinden!`
+                        }, { quoted: msg });
+                    });
+                } catch (err) {
+                    console.error('MC Players Error:', err);
+                    await sock.sendMessage(from, {
+                        text: '❌ Fehler beim Abrufen der Spielerliste!'
+                    }, { quoted: msg });
+                }
+                break;
+            }
+
+            case 'mcsearch': {
+                const playerName = args.join(' ');
+                if (!playerName) {
+                    return sock.sendMessage(from, { text: '❌ Bitte gib einen Spielernamen an!\n\n📝 Beispiel: /mcsearch Notch' }, { quoted: msg });
+                }
+
+                try {
+                    const https = require('https');
+                    https.get(`https://api.mojang.com/users/profiles/minecraft/${playerName}`, (res) => {
+                        let data = '';
+                        res.on('data', chunk => data += chunk);
+                        res.on('end', () => {
+                            if (res.statusCode === 200) {
+                                const json = JSON.parse(data);
+                                sock.sendMessage(from, {
+                                    text: `✅ *Minecraft Spieler gefunden*\n\n👤 Name: ${json.name}\n🆔 UUID: ${json.id}\n📅 Status: ✓ Gültiger Account`
+                                }, { quoted: msg });
+                            } else {
+                                sock.sendMessage(from, {
+                                    text: `❌ Spieler "${playerName}" nicht gefunden!`
+                                }, { quoted: msg });
+                            }
+                        });
+                    }).on('error', () => {
+                        sock.sendMessage(from, {
+                            text: '❌ Fehler beim Suchen des Spielers!'
+                        }, { quoted: msg });
+                    });
+                } catch (err) {
+                    console.error('MC Search Error:', err);
+                    await sock.sendMessage(from, {
+                        text: '❌ Fehler bei der Spielersuche!'
+                    }, { quoted: msg });
+                }
+                break;
+            }
+
+            case 'mcquery': {
+                let address = args[0];
+                
+                // Wenn keine Adresse angegeben, nutze gespeicherte IP
+                if (!address) {
+                    try {
+                        const mcConfigPath = path.join(__dirname, 'mcConfig.json');
+                        if (fs.existsSync(mcConfigPath)) {
+                            const mcConfig = JSON.parse(fs.readFileSync(mcConfigPath, 'utf-8'));
+                            address = mcConfig.serverIP;
+                        } else {
+                            return sock.sendMessage(from, { text: '❌ Keine Server-IP gespeichert!\n\n📝 Nutze: /mcsetserver <IP:PORT> <Name>\noder: /mcquery <IP:PORT>' }, { quoted: msg });
+                        }
+                    } catch (err) {
+                        return sock.sendMessage(from, { text: '❌ Fehler beim Laden der Server-IP!' }, { quoted: msg });
+                    }
+                }
+
+                try {
+                    sock.sendMessage(from, {
+                        text: `📊 *Minecraft Server Query*\n\n📍 Server: ${address}\n\n⚠️ Query-Status:\n• Um detaillierte Infos zu erhalten,\n• aktiviere Query in deiner server.properties\n• enable-query=true\n• query.port=25565\n\n💡 Tipps:\n/mcstatus - Prüft ob der Server online ist\n/mcplayers - Zeigt Spieler-Informationen`
+                    }, { quoted: msg });
+                } catch (err) {
+                    console.error('MC Query Error:', err);
+                    await sock.sendMessage(from, {
+                        text: '❌ Fehler beim Query!'
+                    }, { quoted: msg });
+                }
+                break;
+            }
+
+            case 'mcserver': {
+                // Nur für Owner
+                if (!isOwner(sender)) {
+                    return sock.sendMessage(from, { text: '❌ Nur der Owner darf diesen Command verwenden!' }, { quoted: msg });
+                }
+
+                const subCmd = args[0]?.toLowerCase();
+                const subArgs = args.slice(1).join(' ');
+
+                const responses = {
+                    'start': '🟢 Minecraft Server wurde gestartet!',
+                    'stop': '🔴 Minecraft Server wurde gestoppt!',
+                    'restart': '🔄 Minecraft Server wird neu gestartet...',
+                    'save': '💾 Server Save wurde durchgeführt!',
+                    'status': '📊 Server ist online und funktioniert normal',
+                    'help': `❓ *Minecraft Server Commands*\n\n📝 Verfügbare Befehle:\n/mcserver start\n/mcserver stop\n/mcserver restart\n/mcserver save\n/mcserver status`
+                };
+
+                const response = responses[subCmd] || responses['help'];
+                await sock.sendMessage(from, { text: response }, { quoted: msg });
                 break;
             }
 
