@@ -2663,11 +2663,133 @@ case 'supportgroup': {
   break;
 }
 
+  // ========== JOINGROUP (set/show/remove) ==========
+  case 'joingroup': {
+    try {
+      const senderRank = ranks.getRank(sender);
+      const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+
+      if (!allowed.includes(senderRank)) {
+        return await sock.sendMessage(from, { text: '⛔ Nur Team darf diesen Befehl nutzen.' }, { quoted: msg });
+      }
+
+      const action = args[0]?.toLowerCase();
+
+      if (action === 'set') {
+        if (!isGroupChat) {
+          return await sock.sendMessage(from, { text: '⛔ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+        }
+
+        setJoinGroup(from);
+        await sock.sendMessage(from, { 
+          text: `✅ Diese Gruppe ist jetzt die *Join-Anfragen-Gruppe*!
+  \n📝 Beitritsanfragen werden hier verwaltet.`,
+          mentions: [sender]
+        }, { quoted: msg });
+
+      } else if (action === 'show') {
+        const joinGrp = getJoinGroup();
+        if (!joinGrp) {
+          return await sock.sendMessage(from, { text: '❌ Keine Join-Anfragen-Gruppe konfiguriert.' }, { quoted: msg });
+        }
+        await sock.sendMessage(from, { text: `✅ Join-Anfragen-Gruppe: ${joinGrp}` }, { quoted: msg });
+
+      } else if (action === 'remove' || action === 'delete') {
+        removeJoinGroup();
+        await sock.sendMessage(from, { 
+          text: `✅ Join-Anfragen-Gruppe wurde entfernt.`,
+          mentions: [sender]
+        }, { quoted: msg });
+
+      } else {
+        await sock.sendMessage(from, { text: `❗ Usage: ${getPrefixForChat(from)}joingroup <set|show|remove>` }, { quoted: msg });
+      }
+
+    } catch (e) {
+      console.error('Fehler bei joingroup:', e);
+      await sock.sendMessage(from, { text: '❌ Fehler beim Befehl.' }, { quoted: msg });
+    }
+    break;
+  }
+
 case 'join': {
+  try {
+    const action = args[0]?.toLowerCase();
+
+    // Admin actions: set/show/remove
+    if (['set', 'show', 'remove'].includes(action)) {
+      const senderRank = ranks.getRank(sender);
+      const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+      if (!allowed.includes(senderRank)) {
+        return await sock.sendMessage(from, { text: '⛔ Nur Team darf diesen Befehl nutzen.' }, { quoted: msg });
+      }
+
+      if (action === 'set') {
+        if (!isGroupChat) {
+          return await sock.sendMessage(from, { text: '⛔ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+        }
+
+        setJoinGroup(from);
+        await sock.sendMessage(from, { 
+          text: `✅ Diese Gruppe ist jetzt die *Join-Anfragen-Gruppe*!\n\n📝 Beitritsanfragen werden hier verwaltet.`,
+          mentions: [sender]
+        }, { quoted: msg });
+
+      } else if (action === 'show') {
+        const joinGrp = getJoinGroup();
+        if (!joinGrp) {
+          return await sock.sendMessage(from, { text: '❌ Keine Join-Anfragen-Gruppe konfiguriert.' }, { quoted: msg });
+        }
+        await sock.sendMessage(from, { text: `✅ Join-Anfragen-Gruppe: ${joinGrp}` }, { quoted: msg });
+
+      } else if (action === 'remove') {
+        removeJoinGroup();
+        await sock.sendMessage(from, { 
+          text: `✅ Join-Anfragen-Gruppe wurde entfernt.`,
+          mentions: [sender]
+        }, { quoted: msg });
+      }
+
+    } else {
+      // Public user action: send join request to configured join group
+      try {
+        const joinGrp = getJoinGroup();
+        if (!joinGrp) {
+          return await sock.sendMessage(from, { text: '❌ Es wurde keine Join-Gruppe konfiguriert. Bitte kontaktiere das Team.' }, { quoted: msg });
+        }
+
+        const senderName = pushName || sender.split('@')[0];
+        const chatName = isGroupChat ? (metadata.subject || from) : 'Privatchat';
+        const reason = args.join(' ') || 'Keine Nachricht angegeben.';
+
+        const reqText = `📨 *Beitrittsanfrage von* @${sender.split('@')[0]}\n\n` +
+                        `👤 Name: ${senderName}\n` +
+                        `💬 Chat: ${chatName}\n` +
+                        `💡 Nachricht: ${reason}\n\n` +
+                        `To accept: use the group management commands`;
+
+        await sock.sendMessage(joinGrp, { text: reqText, mentions: [sender] });
+        await sock.sendMessage(from, { text: '✅ Deine Beitrittsanfrage wurde an das Team gesendet.' }, { quoted: msg });
+      } catch (err) {
+        console.error('Fehler beim Senden der Join-Anfrage:', err);
+        await sock.sendMessage(from, { text: '❌ Fehler beim Senden der Join-Anfrage.' }, { quoted: msg });
+      }
+
+    }
+
+  } catch (e) {
+    console.error('Fehler bei join:', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Befehl.' }, { quoted: msg });
+  }
+  break;
+}
+
+// ========== SUPPORTGROUP (set/show/remove) ==========
+case 'supportgroup': {
   try {
     const senderRank = ranks.getRank(sender);
     const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
-    
+
     if (!allowed.includes(senderRank)) {
       return await sock.sendMessage(from, { text: '⛔ Nur Team darf diesen Befehl nutzen.' }, { quoted: msg });
     }
@@ -2679,32 +2801,33 @@ case 'join': {
         return await sock.sendMessage(from, { text: '⛔ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
       }
 
-      setJoinGroup(from);
+      setSupportGroup(from);
       await sock.sendMessage(from, { 
-        text: `✅ Diese Gruppe ist jetzt die *Join-Anfragen-Gruppe*!\n\n📝 Beitritsanfragen werden hier verwaltet.`,
+        text: `✅ Diese Gruppe ist jetzt die *Support-Gruppe*!
+\n📝 Support-Anfragen werden hier empfangen.`,
         mentions: [sender]
       }, { quoted: msg });
 
     } else if (action === 'show') {
-      const joinGrp = getJoinGroup();
-      if (!joinGrp) {
-        return await sock.sendMessage(from, { text: '❌ Keine Join-Anfragen-Gruppe konfiguriert.' }, { quoted: msg });
+      const supGrp = getSupportGroup();
+      if (!supGrp) {
+        return await sock.sendMessage(from, { text: '❌ Keine Support-Gruppe konfiguriert.' }, { quoted: msg });
       }
-      await sock.sendMessage(from, { text: `✅ Join-Anfragen-Gruppe: \`${joinGrp}\`` }, { quoted: msg });
+      await sock.sendMessage(from, { text: `✅ Support-Gruppe: ${supGrp}` }, { quoted: msg });
 
-    } else if (action === 'remove') {
-      removeJoinGroup();
+    } else if (action === 'remove' || action === 'delete') {
+      removeSupportGroup();
       await sock.sendMessage(from, { 
-        text: `✅ Join-Anfragen-Gruppe wurde entfernt.`,
+        text: `✅ Support-Gruppe wurde entfernt.`,
         mentions: [sender]
       }, { quoted: msg });
 
     } else {
-      await sock.sendMessage(from, { text: `❗ Usage: ${getPrefixForChat(from)}join <set|show|remove>` }, { quoted: msg });
+      await sock.sendMessage(from, { text: `❗ Usage: ${getPrefixForChat(from)}supportgroup <set|show|remove>` }, { quoted: msg });
     }
 
   } catch (e) {
-    console.error('Fehler bei join:', e);
+    console.error('Fehler bei supportgroup:', e);
     await sock.sendMessage(from, { text: '❌ Fehler beim Befehl.' }, { quoted: msg });
   }
   break;
@@ -3223,7 +3346,7 @@ case 'join': {
 case 'support': {
   try {
     const query = args.join(" ");
-    const supportGroup = "120363419556165028@g.us"; // Supportgruppen-ID
+    const supportGroup = getSupportGroup(); // Supportgruppen-ID aus Konfiguration
 
     if (!query)
       return await sock.sendMessage(from, {
@@ -3245,6 +3368,11 @@ case 'support': {
     saveSupportData(data);
 
     const supportText = `🆘 *Neue Supportanfrage #${newId}*\n\n👤 *Von:* @${sender.split("@")[0]}\n🌍 *Chat:* ${from}\n\n📩 *Nachricht:*\n${query}\n\n💡 *Zum Antworten:* \`/reply ${newId} <Antwort>\``;
+
+    if (!supportGroup) {
+      await sock.sendMessage(from, { text: '❌ Es ist keine Support-Gruppe konfiguriert. Bitte richte sie mit `supportgroup set` ein.' }, { quoted: msg });
+      return;
+    }
 
     await sock.sendMessage(supportGroup, {
       text: supportText,
@@ -7772,24 +7900,46 @@ case 'server': {
     const freeMem = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
     const usedMem = (totalMem - freeMem).toFixed(2);
 
+    const isWin = process.platform === 'win32';
+
+    // Disk info
     let diskInfo = '❌ Nicht verfügbar';
     try {
-      const output = execSync('C:\\Windows\\System32\\wbem\\wmic.exe logicaldisk get caption,freespace,size').toString();
-      const lines = output.trim().split('\n').slice(1);
-      const cLine = lines.find(line => line.trim().startsWith('C:'));
-      if (cLine) {
-        const parts = cLine.trim().split(/\s+/);
-        const free = parts[1] ? (parseInt(parts[1]) / 1024 / 1024 / 1024).toFixed(1) : 0;
-        const size = parts[2] ? (parseInt(parts[2]) / 1024 / 1024 / 1024).toFixed(1) : 0;
-        diskInfo = `${free} GB / ${size} GB`;
+      if (isWin) {
+        const output = execSync('C:\\Windows\\System32\\wbem\\wmic.exe logicaldisk get caption,freespace,size').toString();
+        const lines = output.trim().split('\n').slice(1);
+        const cLine = lines.find(line => line.trim().startsWith('C:'));
+        if (cLine) {
+          const parts = cLine.trim().split(/\s+/);
+          const free = parts[1] ? (parseInt(parts[1]) / 1024 / 1024 / 1024).toFixed(1) : 0;
+          const size = parts[2] ? (parseInt(parts[2]) / 1024 / 1024 / 1024).toFixed(1) : 0;
+          diskInfo = `${free} GB / ${size} GB`;
+        }
+      } else {
+        const output = execSync('df -h /').toString();
+        const lines = output.trim().split('\n');
+        if (lines.length >= 2) {
+          const parts = lines[1].trim().split(/\s+/);
+          // parts: Filesystem Size Used Avail Use% Mounted
+          const size = parts[1] || '—';
+          const avail = parts[3] || '—';
+          diskInfo = `${avail} / ${size}`;
+        }
       }
     } catch (e) {}
 
+    // Ping
     let ping = '❌';
     try {
-      const output = execSync('ping -n 1 8.8.8.8').toString();
-      const match = output.match(/Zeit[=<]\s*(\d+)\s*ms/i);
-      if (match) ping = `${match[1]} ms`;
+      if (isWin) {
+        const output = execSync('ping -n 1 8.8.8.8').toString();
+        const match = output.match(/Zeit[=<]\s*(\d+)\s*ms/i);
+        if (match) ping = `${match[1]} ms`;
+      } else {
+        const output = execSync('ping -c 1 8.8.8.8').toString();
+        const match = output.match(/time=([\d.]+)\s*ms/i);
+        if (match) ping = `${match[1]} ms`;
+      }
     } catch (e) {}
 
     const cpuUsage = await getCpuUsage();
@@ -7801,15 +7951,29 @@ case 'server': {
 
     let netName = '❌ Nicht erkannt';
     try {
-      const wlan = execSync('netsh wlan show interfaces').toString();
-      const ssidMatch = wlan.match(/SSID\s*:\s*(.+)/i);
-      if (ssidMatch) {
-        netName = `WLAN: ${ssidMatch[1].trim()}`;
+      if (isWin) {
+        const wlan = execSync('netsh wlan show interfaces').toString();
+        const ssidMatch = wlan.match(/SSID\s*:\s*(.+)/i);
+        if (ssidMatch) {
+          netName = `WLAN: ${ssidMatch[1].trim()}`;
+        } else {
+          const lan = execSync('netsh interface show interface').toString();
+          const connected = lan.split('\n').find(line => line.includes('Connected'));
+          if (connected) {
+            netName = `LAN: ${connected.trim().split(/\s+/).pop()}`;
+          }
+        }
       } else {
-        const lan = execSync('netsh interface show interface').toString();
-        const connected = lan.split('\n').find(line => line.includes('Connected'));
-        if (connected) {
-          netName = `LAN: ${connected.trim().split(/\s+/).pop()}`;
+        // try iwgetid for SSID, fallback to interface from route
+        try {
+          const ssid = execSync('iwgetid -r').toString().trim();
+          if (ssid) netName = `WLAN: ${ssid}`;
+        } catch (e) {
+          try {
+            const route = execSync('ip route get 8.8.8.8').toString();
+            const devMatch = route.match(/dev\s+(\S+)/);
+            if (devMatch) netName = `IF: ${devMatch[1]}`;
+          } catch (e) {}
         }
       }
     } catch (e) {}
@@ -7823,7 +7987,7 @@ case 'server': {
 💾 RAM: ${usedMem} GB / ${totalMem} GB
 📀 Speicher: ${diskInfo}
 🌐 Ping: ${ping}
-📡 Netzwerk: LAN - Netzwerk3
+📡 Netzwerk: ${netName}
 
 🛠 OS: ${osType}
 🕒 Uptime: ${uptime}h
