@@ -4194,10 +4194,27 @@ case 'help': {
 ╰────────────────────╯
 `,
 
+    "9": `
+━━ ❮ STORMBOT ❯ ━━
+╭───❍ *Verschlüsselung* ❍───╮
+│ 🔐 /encode <Text>
+│ 🔓 /decode <Text>
+│ 🔑 /encodehex <Text>
+│ 🗝️ /decodehex <Text>
+│ 🌀 /rot13 <Text>
+│ 🔗 /urlencode <Text>
+│ 🌐 /urldecode <Text>
+│ 📜 /caesar <Shift> <Text>
+│ 🤖 /binary <Text>
+│ ••— /morse <Text>
+╰────────────────────╯
+-----StormBot----
+`,
+
     "cmds": `
 ╭───❍ *Alle Befehle* ❍───╮
 │ Enthält alle Commands:
-│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc
+│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung
 │
 │ ➤ /menu 1  → Main
 │ ➤ /menu 2  → Admin
@@ -4207,6 +4224,7 @@ case 'help': {
 │ ➤ /menu 6  → Utility
 │ ➤ /menu 7  → Downloader
 │ ➤ /menu 8  → Misc (Audio Edit)
+│ ➤ /menu 9  → Verschlüsselung
 ╰────────────────────╯
 `
   };
@@ -4549,6 +4567,116 @@ case 'earrape': {
     break;
 }
 
+// ========== ENCRYPTION / VERSCHLÜSSELUNG ==========
+case 'encode': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Text an.\n\nBeispiel: /encode hello' }, { quoted: msg });
+  const text = args.join(' ');
+  const encoded = Buffer.from(text).toString('base64');
+  await sock.sendMessage(from, { text: `🔐 *Encoded:*\n\`${encoded}\`` }, { quoted: msg });
+  break;
+}
+
+case 'decode': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Base64-Text an.' }, { quoted: msg });
+  try {
+    const text = args.join(' ');
+    const decoded = Buffer.from(text, 'base64').toString('utf8');
+    await sock.sendMessage(from, { text: `🔓 *Decoded:*\n\`${decoded}\`` }, { quoted: msg });
+  } catch (e) {
+    await sock.sendMessage(from, { text: '❌ Fehler beim Dekodieren. Ist es ein valider Base64-String?' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'encodehex': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Text an.' }, { quoted: msg });
+  const text = args.join(' ');
+  const hex = Buffer.from(text, 'utf8').toString('hex');
+  await sock.sendMessage(from, { text: `🔑 *Hex Encoded:*\n\`${hex}\`` }, { quoted: msg });
+  break;
+}
+
+case 'decodehex': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Hex-String an.' }, { quoted: msg });
+  try {
+    const hex = args.join('').replace(/\s/g, '');
+    const text = Buffer.from(hex, 'hex').toString('utf8');
+    await sock.sendMessage(from, { text: `🗝️ *Hex Decoded:*\n\`${text}\`` }, { quoted: msg });
+  } catch (e) {
+    await sock.sendMessage(from, { text: '❌ Fehler beim Dekodieren. Ist es ein valider Hex-String?' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'rot13': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Text an.' }, { quoted: msg });
+  const text = args.join(' ');
+  const rot13 = text.replace(/[a-zA-Z]/g, c => String.fromCharCode((c <= 'Z' ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26));
+  await sock.sendMessage(from, { text: `🌀 *ROT13:*\n\`${rot13}\`` }, { quoted: msg });
+  break;
+}
+
+case 'urlencode': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Text an.' }, { quoted: msg });
+  const text = args.join(' ');
+  const encoded = encodeURIComponent(text);
+  await sock.sendMessage(from, { text: `🔗 *URL Encoded:*\n\`${encoded}\`` }, { quoted: msg });
+  break;
+}
+
+case 'urldecode': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen URL-codierten Text an.' }, { quoted: msg });
+  try {
+    const text = args.join(' ');
+    const decoded = decodeURIComponent(text);
+    await sock.sendMessage(from, { text: `🌐 *URL Decoded:*\n\`${decoded}\`` }, { quoted: msg });
+  } catch (e) {
+    await sock.sendMessage(from, { text: '❌ Fehler beim Dekodieren.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'caesar': {
+  if (!args[0] || !args[1]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Shift-Wert und einen Text an.\n\nBeispiel: /caesar 3 hello' }, { quoted: msg });
+  const shift = parseInt(args[0]);
+  const text = args.slice(1).join(' ');
+  if (isNaN(shift)) return await sock.sendMessage(from, { text: '❌ Der Shift-Wert muss eine Zahl sein.' }, { quoted: msg });
+  
+  const caesar = text.replace(/[a-zA-Z]/g, c => {
+    const base = c <= 'Z' ? 65 : 97;
+    return String.fromCharCode(base + (c.charCodeAt(0) - base + shift) % 26);
+  });
+  await sock.sendMessage(from, { text: `📜 *Caesar (Shift ${shift}):*\n\`${caesar}\`` }, { quoted: msg });
+  break;
+}
+
+case 'binary':
+case 'binär': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Text an.\n\nBeispiel: /binary hello' }, { quoted: msg });
+  const text = args.join(' ');
+  const binary = text.split('').map(c => c.charCodeAt(0).toString(2)).join(' ');
+  await sock.sendMessage(from, { text: `🤖 *Binary:*\n\`${binary}\`` }, { quoted: msg });
+  break;
+}
+
+case 'morse': {
+  if (!args[0]) return await sock.sendMessage(from, { text: '❌ Bitte gib einen Text an.\n\nBeispiel: /morse hello' }, { quoted: msg });
+  const morseCode = {
+    'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+    'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+    'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+    'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+    'Y': '-.--', 'Z': '--..', '0': '-----', '1': '.----', '2': '..---', '3': '...--',
+    '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
+    '.': '.-.-.-', ',': '--..--', '?': '..--..', "'": '.----.',  '!': '-.-.--', '/': '-..-.',
+    '(': '-.--.', ')': '-.--.-', '&': '.-...', ':': '---...', ';': '-.-.-.', '=': '-...-',
+    '+': '.-.-.', '-': '-....-', '_': '..--.-', '"': '.-..-.', '$': '...-..-', '@': '.--.-.'
+  };
+  const text = args.join(' ').toUpperCase();
+  const morse = text.split('').map(c => morseCode[c] || c).join(' | ');
+  await sock.sendMessage(from, { text: `••— *Morse Code:*\n\`${morse}\`` }, { quoted: msg });
+  break;
+}
 
 case 'c': {
   const senderRank = ranks.getRank(sender); // Rang des Command-Senders
