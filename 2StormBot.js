@@ -2501,9 +2501,15 @@ case 'ig': {
 
 case 'setup': {
   try {
+    // Prüfe ob in Gruppe
+    if (!isGroupChat) {
+      return await sock.sendMessage(from, { text: '⛔ /setup funktioniert nur in Gruppen!' }, { quoted: msg });
+    }
+
     const metadata = await sock.groupMetadata(from);
     const participants = metadata.participants;
 
+    // Prüfe ob Sender Admin
     const senderIsAdmin = participants.some(p => p.id === sender && (p.admin === 'admin' || p.admin === 'superadmin'));
     if (!senderIsAdmin) {
       return await sock.sendMessage(from, { text: '⛔ Nur Gruppenadmins dürfen das Setup ausführen.' }, { quoted: msg });
@@ -2516,7 +2522,7 @@ case 'setup': {
             `• Die Gruppenbeschreibung wird geändert\n\n` +
             `📋 *Nächste Schritte:*\n` +
             `Teammmitglieder müssen folgendes ausführen:\n` +
-            `\`${getPrefixForChat(from)}setupaccept\`\n\n` +
+            `/setupaccept\n\n` +
             `Dies wird die Bot-Infos in die Gruppenbeschreibung schreiben.`,
       mentions: [sender]
     }, { quoted: msg });
@@ -2537,7 +2543,7 @@ case 'setup': {
 
   } catch (e) {
     console.error('Fehler beim Setup der Gruppe:', e);
-    await sock.sendMessage(from, { text: '❌ Fehler. Prüfe die Logs!' }, { quoted: msg });
+    await sock.sendMessage(from, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
   }
   break;
 }
