@@ -52,6 +52,20 @@ function saveSupportData(data) {
   fs.writeFileSync(supportFile, JSON.stringify(data, null, 2));
 }
 
+// Join requests storage
+const joinRequestsFile = './joinRequests.json';
+if (!fs.existsSync(joinRequestsFile)) fs.writeFileSync(joinRequestsFile, JSON.stringify({ lastId: 0, requests: [] }, null, 2));
+
+function loadJoinRequests() {
+  try {
+    return JSON.parse(fs.readFileSync(joinRequestsFile, 'utf8')) || { lastId: 0, requests: [] };
+  } catch (e) { return { lastId: 0, requests: [] }; }
+}
+
+function saveJoinRequests(data) {
+  fs.writeFileSync(joinRequestsFile, JSON.stringify(data, null, 2));
+}
+
 // Gruppen-Konfiguration (Support & Join)
 const groupConfigFile = './groupConfig.json';
 if (!fs.existsSync(groupConfigFile)) fs.writeFileSync(groupConfigFile, JSON.stringify({ supportGroup: null, joinGroup: null }, null, 2));
@@ -2506,6 +2520,20 @@ case 'setup': {
             `Dies wird die Bot-Infos in die Gruppenbeschreibung schreiben.`,
       mentions: [sender]
     }, { quoted: msg });
+
+    // Notify join group about setup
+    const joinGrp = getJoinGroup();
+    if (joinGrp) {
+      const groupName = metadata.subject || 'Unbekannte Gruppe';
+      const senderName = pushName || sender.split('@')[0] || 'Unbekannt';
+      try {
+        await sock.sendMessage(joinGrp, {
+          text: `⚙️ *Setup gestartet*\n\n👤 Von: ${senderName}\n🏘️ Gruppe: ${groupName}\n⏱️ Zeit: ${new Date().toLocaleString('de-DE')}`
+        });
+      } catch (err) {
+        console.error('Fehler beim Senden an Join-Gruppe:', err);
+      }
+    }
 
   } catch (e) {
     console.error('Fehler beim Setup der Gruppe:', e);
