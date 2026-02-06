@@ -75,6 +75,9 @@ header a:hover{ color:var(--accent); }
   <button class="btn" id="restartBtn">♻️ Restart</button>
   <button class="btn" id="cmdBtn" onclick="location.href='/cmd.html'">💻 CMD</button>
   <button class="btn" id="bannedBtn">🔒 Banned Users</button>
+  <button class="btn" id="base44LogsBtn">📝 Base44 Logs</button>
+  <button class="btn" id="base44CommandsBtn">📊 Base44 Commands</button>
+  <button class="btn" id="base44SessionsBtn">🔐 Base44 Sessions</button>
  <span id="botStatus">Offline</span>
  
 </div>
@@ -96,6 +99,33 @@ header a:hover{ color:var(--accent); }
     <h3>Banned Users (./data/bannedu.json)</h3>
     <pre id="bannedContent">Lade...</pre>
     <div class="close"><button class="btn small" id="closeBanned">Schließen</button></div>
+  </div>
+</div>
+
+<!-- Modal for Base44 Logs -->
+<div class="modal" id="base44LogsModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="card">
+    <h3>Base44 BotLogs</h3>
+    <pre id="base44LogsContent">Lade...</pre>
+    <div class="close"><button class="btn small" id="closeBase44Logs">Schließen</button></div>
+  </div>
+</div>
+
+<!-- Modal for Base44 Commands -->
+<div class="modal" id="base44CommandsModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="card">
+    <h3>Base44 BotCommands</h3>
+    <pre id="base44CommandsContent">Lade...</pre>
+    <div class="close"><button class="btn small" id="closeBase44Commands">Schließen</button></div>
+  </div>
+</div>
+
+<!-- Modal for Base44 Sessions -->
+<div class="modal" id="base44SessionsModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="card">
+    <h3>Base44 BotSessions</h3>
+    <pre id="base44SessionsContent">Lade...</pre>
+    <div class="close"><button class="btn small" id="closeBase44Sessions">Schließen</button></div>
   </div>
 </div>
 
@@ -154,26 +184,92 @@ themeToggle.addEventListener('click', ()=>{
   const cur=document.body.getAttribute('data-theme')||'dark';
   document.body.setAttribute('data-theme', cur==='dark'?'light':'dark');
 });
-const sysInfoBtn = document.getElementById('sysInfoBtn');
-const sysInfoModal = document.getElementById('sysInfoModal');
-const sysInfoContent = document.getElementById('sysInfoContent');
-const closeSysInfo = document.getElementById('closeSysInfo');
 
-sysInfoBtn.addEventListener('click', ()=>{
-  sysInfoContent.textContent='Lade...';
-  sysInfoModal.classList.add('show');
-  sysInfoModal.setAttribute('aria-hidden','false');
-  socket.emit('getSysInfo'); // wir senden Request an Server
+// Base44 Logs Button
+const base44LogsBtn = document.getElementById('base44LogsBtn');
+const base44LogsModal = document.getElementById('base44LogsModal');
+const base44LogsContent = document.getElementById('base44LogsContent');
+const closeBase44Logs = document.getElementById('closeBase44Logs');
+
+base44LogsBtn.addEventListener('click', async ()=>{
+  base44LogsContent.textContent='Lade Base44 Logs...';
+  base44LogsModal.classList.add('show');
+  base44LogsModal.setAttribute('aria-hidden','false');
+  
+  try {
+    const response = await fetch('/api/base44/logs');
+    const result = await response.json();
+    if (result.success) {
+      base44LogsContent.textContent = JSON.stringify(result.data, null, 2);
+    } else {
+      base44LogsContent.textContent = `Fehler: ${result.error}`;
+    }
+  } catch (error) {
+    base44LogsContent.textContent = `Fehler beim Abrufen: ${error.message}`;
+  }
 });
 
-closeSysInfo.addEventListener('click', ()=>{
-  sysInfoModal.classList.remove('show');
-  sysInfoModal.setAttribute('aria-hidden','true');
+closeBase44Logs.addEventListener('click', ()=>{
+  base44LogsModal.classList.remove('show');
+  base44LogsModal.setAttribute('aria-hidden','true');
 });
 
-// Empfang vom Server
-socket.on('sysInfo', (data)=>{
-  sysInfoContent.textContent = data;
+// Base44 Commands Button
+const base44CommandsBtn = document.getElementById('base44CommandsBtn');
+const base44CommandsModal = document.getElementById('base44CommandsModal');
+const base44CommandsContent = document.getElementById('base44CommandsContent');
+const closeBase44Commands = document.getElementById('closeBase44Commands');
+
+base44CommandsBtn.addEventListener('click', async ()=>{
+  base44CommandsContent.textContent='Lade Base44 Commands...';
+  base44CommandsModal.classList.add('show');
+  base44CommandsModal.setAttribute('aria-hidden','false');
+  
+  try {
+    const response = await fetch('/api/base44/commands');
+    const result = await response.json();
+    if (result.success) {
+      base44CommandsContent.textContent = JSON.stringify(result.data, null, 2);
+    } else {
+      base44CommandsContent.textContent = `Fehler: ${result.error}`;
+    }
+  } catch (error) {
+    base44CommandsContent.textContent = `Fehler beim Abrufen: ${error.message}`;
+  }
+});
+
+closeBase44Commands.addEventListener('click', ()=>{
+  base44CommandsModal.classList.remove('show');
+  base44CommandsModal.setAttribute('aria-hidden','true');
+});
+
+// Base44 Sessions Button
+const base44SessionsBtn = document.getElementById('base44SessionsBtn');
+const base44SessionsModal = document.getElementById('base44SessionsModal');
+const base44SessionsContent = document.getElementById('base44SessionsContent');
+const closeBase44Sessions = document.getElementById('closeBase44Sessions');
+
+base44SessionsBtn.addEventListener('click', async ()=>{
+  base44SessionsContent.textContent='Lade Base44 Sessions...';
+  base44SessionsModal.classList.add('show');
+  base44SessionsModal.setAttribute('aria-hidden','false');
+  
+  try {
+    const response = await fetch('/api/base44/sessions');
+    const result = await response.json();
+    if (result.success) {
+      base44SessionsContent.textContent = JSON.stringify(result.data, null, 2);
+    } else {
+      base44SessionsContent.textContent = `Fehler: ${result.error}`;
+    }
+  } catch (error) {
+    base44SessionsContent.textContent = `Fehler beim Abrufen: ${error.message}`;
+  }
+});
+
+closeBase44Sessions.addEventListener('click', ()=>{
+  base44SessionsModal.classList.remove('show');
+  base44SessionsModal.setAttribute('aria-hidden','true');
 });
 
 </script>

@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "apiKey": "0a57a3ba4f154d3ab11b5b3526933051",
+  "appId": "6986355575310ef553a49a58",
+  "baseUrl": "https://app.base44.com/api/apps",
+  "entities": {
+    "BotLog": {
+      "enabled": true,
+      "logCommands": true,
+      "logEvents": true
+    },
+    "BotCommand": {
+      "enabled": true,
+      "trackUsage": true
+    },
+    "BotSession": {
+      "enabled": true,
+      "trackSessions": true
+    }
+  },
+  "fallbackToLocal": true,
+  "debugMode": false
+}

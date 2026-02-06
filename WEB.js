@@ -92,6 +92,94 @@ app.use((req, res, next) => {
 // Statische Dateien (werden erst nach Login zugänglich)
 app.use(express.static(path.join(__dirname, "public")));
 
+// --- Base44 API Endpoints ---
+const base44Config = require('./base44Config.json');
+
+// Endpoint: Alle BotLogs abrufen
+app.get("/api/base44/logs", async (req, res) => {
+  try {
+    const response = await fetch(
+      `https://app.base44.com/api/apps/${base44Config.appId}/entities/BotLog`,
+      {
+        method: 'GET',
+        headers: {
+          'api_key': base44Config.apiKey,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    if (response.ok) {
+      const logs = await response.json();
+      res.json({ success: true, data: logs });
+    } else {
+      res.status(response.status).json({ success: false, error: 'Base44 API error' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Endpoint: Alle BotCommands abrufen
+app.get("/api/base44/commands", async (req, res) => {
+  try {
+    const response = await fetch(
+      `https://app.base44.com/api/apps/${base44Config.appId}/entities/BotCommand`,
+      {
+        method: 'GET',
+        headers: {
+          'api_key': base44Config.apiKey,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    if (response.ok) {
+      const commands = await response.json();
+      res.json({ success: true, data: commands });
+    } else {
+      res.status(response.status).json({ success: false, error: 'Base44 API error' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Endpoint: Alle BotSessions abrufen
+app.get("/api/base44/sessions", async (req, res) => {
+  try {
+    const response = await fetch(
+      `https://app.base44.com/api/apps/${base44Config.appId}/entities/BotSession`,
+      {
+        method: 'GET',
+        headers: {
+          'api_key': base44Config.apiKey,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    if (response.ok) {
+      const sessions = await response.json();
+      res.json({ success: true, data: sessions });
+    } else {
+      res.status(response.status).json({ success: false, error: 'Base44 API error' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Endpoint: Base44 Config Status
+app.get("/api/base44/status", async (req, res) => {
+  res.json({
+    enabled: base44Config.enabled,
+    hasApiKey: !!base44Config.apiKey,
+    hasAppId: !!base44Config.appId,
+    apiUrl: `https://app.base44.com/api/apps/${base44Config.appId}/entities`
+  });
+});
+
 // --- Socket.IO setup ---
 const io = new Server(server, {
   // optional: pingTimeout, cors, etc.
