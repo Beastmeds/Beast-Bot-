@@ -1544,6 +1544,8 @@ const commandsList = [
 
   
   'ban', 'unban', 'unregister', 'broadcast', 'tagall', 'grpinfo', 'antidelete', 
+  // Stranger Things fun
+  'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon',
 ];
 
 
@@ -4315,6 +4317,16 @@ case 'help': {
 ╰────────────────────╯
 `,
 
+    "11": `
+  ╭───❍ *Stranger Things* ❍───╮
+  │ 👾 /strangerfact - Zufälliger Stranger-Things Fakt
+  │ 🔄 /upside <Text> - Dreht Text ins "Upside Down"
+  │ 🧒 /eleven - Zufritts-Quote von Eleven
+  │ 🌀 /mindflip <Text> - Mindflip (Upside Down Stil)
+  │ 👹 /demogorgon - Ominöse Nachricht
+  ╰────────────────────╯
+  `,
+
     "cmds": `
 ╭───❍ *Alle Befehle* ❍───╮
 │ Enthält alle Commands:
@@ -4363,6 +4375,85 @@ case 'help': {
   break;
 }
 
+// ================== STRANGER THINGS FUN ==================
+case 'strangerfact': {
+  try {
+    const facts = [
+      'Die Upside Down ist eine parallele, verfallene Version unserer Welt.',
+      'Der Demogorgon ist eine räuberische Kreatur aus der Upside Down.',
+      'Eleven hat telekinetische Kräfte — oft ausgelöst durch starke Emotionen.',
+      'Hawkins, Indiana ist der zentrale Schauplatz der Serie.',
+      'Mindflayer ist eine kollektive Intelligenz aus der Upside Down.'
+    ];
+    const pick = facts[Math.floor(Math.random() * facts.length)];
+    await sock.sendMessage(from, { text: `🔮 Stranger Fact:\n\n${pick}` }, { quoted: msg });
+  } catch (e) {
+    console.error('strangerfact err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen eines Stranger-Facts.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'eleven': {
+  try {
+    const quotes = [
+      'You are safe with me. — Eleven',
+      "Friends don't lie. — Eleven",
+      'I am going to bring you home. — Eleven',
+      'Sometimes, your total obliviousness just blows my mind. — Eleven'
+    ];
+    const q = quotes[Math.floor(Math.random() * quotes.length)];
+    await sock.sendMessage(from, { text: `"${q}"` }, { quoted: msg });
+  } catch (e) {
+    console.error('eleven err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'upside': {
+  try {
+    const input = args.join(' ') || (msg.message && msg.message.extendedTextMessage && msg.message.extendedTextMessage.contextInfo && msg.message.extendedTextMessage.contextInfo.quotedMessage && msg.message.extendedTextMessage.contextInfo.quotedMessage.conversation) || '';
+    if (!input) return await sock.sendMessage(from, { text: '❗ Usage: /upside <Text>' }, { quoted: msg });
+    const map = {
+      a: 'ɐ', b: 'q', c: 'ɔ', d: 'p', e: 'ǝ', f: 'ɟ', g: 'ɓ', h: 'ɥ', i: 'ᴉ', j: 'ɾ', k: 'ʞ', l: 'ʅ', m: 'ɯ', n: 'u', o: 'o', p: 'd', q: 'b', r: 'ɹ', s: 's', t: 'ʇ', u: 'n', v: 'ʌ', w: 'ʍ', x: 'x', y: 'ʎ', z: 'z',
+      A: '∀', B: '𐐒', C: 'Ɔ', D: '◖', E: 'Ǝ', F: 'Ⅎ', G: 'פ', H: 'H', I: 'I', J: 'ſ', K: '⋊', L: '˥', M: 'W', N: 'N', O: 'O', P: 'Ԁ', Q: 'Q', R: 'ᴚ', S: 'S', T: '⊥', U: '∩', V: 'Λ', W: 'M', X: 'X', Y: '⅄', Z: 'Z',
+      '0': '0', '1': 'Ɩ', '2': 'ᄅ', '3': 'Ɛ', '4': 'h', '5': 'ϛ', '6': '9', '7': 'ㄥ', '8': '8', '9': '6',
+      ',': "'", '.': '˙', '?': '¿', '!': '¡', '"': '„', "'": ',', '(': ')', ')': '(', '[': ']', ']': '[', '{': '}', '}': '{', '<': '>', '>': '<', '&': '⅋', ' ': ' '
+    };
+    const flipped = input.split('').reverse().map(c => map[c] || map[c.toLowerCase()] || c).join('');
+    await sock.sendMessage(from, { text: flipped }, { quoted: msg });
+  } catch (e) {
+    console.error('upside err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Drehen des Textes.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'mindflip': {
+  try {
+    const input = args.join(' ');
+    if (!input) return await sock.sendMessage(from, { text: '❗ Usage: /mindflip <Text>' }, { quoted: msg });
+    const reversed = input.split('').reverse().join('');
+    const resp = `🌪 Mindflip — The Upside Down whispers:\n${reversed}\nDo you feel it?`;
+    await sock.sendMessage(from, { text: resp }, { quoted: msg });
+  } catch (e) {
+    console.error('mindflip err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'demogorgon': {
+  try {
+    const art = `👹 DEMOGORGON ALERT\n\n    /\\_/\\\n   ( o.o )\n    > ^ <\n\nIt stares from the Upside Down...`;
+    await sock.sendMessage(from, { text: art }, { quoted: msg });
+  } catch (e) {
+    console.error('demogorgon err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
 
 case 'tossss1234s': {
   const quoted = msg; // zitiert die Originalnachricht
@@ -5853,7 +5944,7 @@ case 'profile': {
   const u = getUser(userJid);
   if (!u) break;
 
-  // Profilbild holen, falls verfügbar
+
   let profilePicUrl = null;
   try {
     profilePicUrl = await sock.profilePictureUrl(userJid, 'image');
