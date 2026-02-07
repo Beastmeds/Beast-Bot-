@@ -18,8 +18,14 @@ const path = require('path');
 const bothub = require('./lib/bothub');
 // Fallback: set token if not provided via env — provided by user
 process.env.BOTHUB_API_TOKEN = process.env.BOTHUB_API_TOKEN || 'api_BotHub_37_1768129571193_c878cc6ad311523598adf74ebeecc1cadef6b3a87841f7ee87c013e4b0a60671';
-// initialize Bothub in background (non-blocking)
-bothub.init().catch(err => console.error('Bothub init failed:', err && err.message ? err.message : err));
+// Initialize Bothub only when explicitly enabled via env var
+// Set BOTHUB_ENABLED=true to enable (disabled by default)
+if (process.env.BOTHUB_ENABLED === 'true') {
+  // initialize Bothub in background (non-blocking)
+  bothub.init().catch(err => console.error('Bothub init failed:', err && err.message ? err.message : err));
+} else {
+  console.log('Bothub integration is disabled (BOTHUB_ENABLED!=true). To enable set BOTHUB_ENABLED=true');
+}
 
 async function askQuestion(query) {
   const rl = readline.createInterface({

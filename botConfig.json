@@ -1,1 +1,19 @@
-{}
+{
+  "BOTHUB_API_TOKEN": "api_BotHub_37_1768129571193_c878cc6ad311523598adf74ebeecc1cadef6b3a87841f7ee87c013e4b0a60671",
+  "botName": "Beast Bot",
+  "description": "WhatsApp Bot mit BotHub Integration",
+  "version": "1.0.0",
+  "sessions": {
+    "Beast Bot": {
+      "numbers": ["+49"],
+      "lids": []
+    }
+  },
+  "heartbeatInterval": 120000,
+  "features": {
+    "antidelete": true,
+    "antilink": true,
+    "levelSystem": true,
+    "welcomeMessage": true
+  }
+}
