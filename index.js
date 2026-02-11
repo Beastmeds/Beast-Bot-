@@ -6,7 +6,7 @@ const {
   fetchLatestBaileysVersion,
   Browsers,
   DisconnectReason
-} = require('@onedevil405/baileys');
+} = require('@717development/baileys');
 
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');

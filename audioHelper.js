@@ -1,4 +1,4 @@
-const { downloadContentFromMessage, getContentType } = require('@onedevil405/baileys');
+const { downloadContentFromMessage, getContentType } = require('@717development/baileys');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');

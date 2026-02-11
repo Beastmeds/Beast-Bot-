@@ -11,7 +11,7 @@ module.exports = {
 
   bot: {
     name: 'BeastBot',
-    version: '1',
+    version: '2.0.1',
     prefix: '/',
     releaseDate: '1.1.2026',
     description: 'Beast Bot ist ein vielseitiger WhatsApp-Bot mit zahlreichen Funktionen für Gruppen- und Privat-Chats.',

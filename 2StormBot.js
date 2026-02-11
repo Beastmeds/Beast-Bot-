@@ -6,17 +6,17 @@ const {
   fetchLatestBaileysVersion,
   Browsers,
   DisconnectReason
-} = require('@onedevil405/baileys'); 
+} = require('@717development/baileys'); 
 const settings = require('./settings.js');
 const { spawn } = require('child_process');
 
 const fs = require('fs');
-const { downloadMediaMessage } = require('@onedevil405/baileys');
+const { downloadMediaMessage } = require('@717development/baileys');
 const chalk = require('chalk');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg'); 
 const allowedRanks = require('./ranksConfig.json');
-const { proto, generateWAMessageFromContent, prepareWAMessageMedia, getContentType } = require('@onedevil405/baileys');
-const { downloadContentFromMessage } = require('@onedevil405/baileys')
+const { proto, generateWAMessageFromContent, prepareWAMessageMedia, getContentType } = require('@717development/baileys');
+const { downloadContentFromMessage } = require('@717development/baileys')
 const crypto = require('crypto');
 const pino = require('pino');
 const axios = require('axios');
@@ -186,8 +186,39 @@ function saveRegistrations(data) {
   fs.writeFileSync(registrationsFile, JSON.stringify(data, null, 2));
 }
 
+// User Configuration Storage (KI-Auswahl, Geburtstag, Lieblingsspiel)
+const userConfigFile = path.join(welcomeDataDir, 'userConfigs.json');
+if (!fs.existsSync(userConfigFile)) fs.writeFileSync(userConfigFile, JSON.stringify({}, null, 2));
 
-const { decryptMedia } = require('@onedevil405/baileys');
+function loadUserConfigs() {
+  try {
+    return JSON.parse(fs.readFileSync(userConfigFile, 'utf8')) || {};
+  } catch (e) { return {}; }
+}
+
+function saveUserConfigs(data) {
+  fs.writeFileSync(userConfigFile, JSON.stringify(data, null, 2));
+}
+
+function getUserConfig(jid) {
+  const configs = loadUserConfigs();
+  return configs[jid] || {
+    aiModel: 'Claude',
+    birthday: null,
+    favoriteGame: null,
+    language: 'de',
+    theme: 'dark'
+  };
+}
+
+function setUserConfig(jid, config) {
+  const configs = loadUserConfigs();
+  configs[jid] = { ...getUserConfig(jid), ...config };
+  saveUserConfigs(configs);
+}
+
+
+const { decryptMedia } = require('@717development/baileys');
 
 
 
@@ -1545,7 +1576,13 @@ const commandsList = [
   
   'ban', 'unban', 'unregister', 'broadcast', 'tagall', 'grpinfo', 'antidelete', 
   // Stranger Things fun
-  'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon',
+  'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon', 'redrun', 'darkweb', 'strangergame', 'moviequote', 'hawkins', 'dna', 'friends', 'gate',
+  // AI Commands
+  'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define',
+  // User Config
+  'config',
+  // Audio Effects
+  'bassboost', 'slowed', 'spedup', 'nightcore', 'reverb', 'reverse', 'deep', 'echo', 'vaporwave', '8d', 'earrape', 'chipmunk',
 ];
 
 
@@ -3421,46 +3458,217 @@ case 'join': {
   break;
 }
 
-    case 'agb':
- 
-        await sock.sendMessage(from, {
-            text: `
-📜 *AGB für BeastBot*
+    case 'agb': {
+      try {
+        const agbText = `
+📜 *ALLGEMEINE GESCHÄFTSBEDINGUNGEN (AGB) 2026*
+═════════════════════════════════════════════════
 
-*1️⃣ Allgemeines*
-- Bot wird von Beastmeds betrieben.
-- Nutzung auf eigene Verantwortung.
+*1️⃣ GRUNDLAGEN & BETREIBER*
+Betreiber: Beast Industries / Beastmeds
+Kontakt: wa.me/4367764694963
+Gültig für: Alle Benutzer des BeastBot-Systems
+Datum: 11. Februar 2026
+Geltungsbereich: Global (mit Schwerpunkt: Deutschland, Österreich, Schweiz)
 
-*2️⃣ Nutzung*
-- Keine Belästigungen oder Schäden an anderen Nutzern.
-- Gruppen übernehmen oder kicken ist verboten.
+═════════════════════════════════════════════════
 
-*3️⃣ Hosting*
-- Hosting nur mit Zustimmung des Owners.
-- Keine eigenen Chats über die eigene Nummer – alles läuft über den Bot.
-- Aktionen über gehostete Instanzen fallen unter Verantwortung des Owners.
+*2️⃣ SERVICEBESCHREIBUNG*
 
-*4️⃣ Rechte des Owners*
-- Nur der Owner darf administrative Funktionen nutzen.
-- Owner kann bei Regelverstößen blockieren oder ausschließen.
+Der BeastBot bietet folgende Hauptfunktionen:
 
-*5️⃣ Verantwortung der Nutzer*
-- Du bist selbst für deine Nachrichten und Inhalte verantwortlich.
-- Manipulation des Bots ist verboten.
-- Regelverstöße können zum Ausschluss führen.
+🎮 *Unterhaltung & Spiele*
+- Stranger Things Commands (Menu 11)
+- Verschiedene Spiele & Rätsel (Tic-Tac-Toe, Hangman)
+- Quote & Fact-Generierung
 
-*6️⃣ Änderungen*
-- Owner kann die Regeln jederzeit ändern.
-- Weitere Nutzung = Zustimmung.
+🤖 *KI-Dienste (Menu 12)*
+- /ask - Intelligente Fragen beantworten
+- /summarize - Textzusammenfassung
+- /translate - Sprachenübersetzung
+- /joke, /rhyme, /poem - Kreative Inhalte
+- /story, /riddle - Geschichten & Rätsel
+- /codehelp, /math, /define - Technische Hilfe
 
-*7️⃣ Schlussbestimmungen*
-- Unwirksame Bestimmungen berühren die Gültigkeit der anderen nicht.
-- Rechtlich gültig nach Deutschland, Össtereich.
+🎵 *Audio-Bearbeitung (Menu 8)*
+- bassboost, slowed, spedup, nightcore
+- reverb, reverse, deep, echo
+- vaporwave, 8d, earrape, chipmunk
 
-⚠️ Bitte halte dich an die Regeln!
-            `
-        });
-        break;
+⚙️ *Benutzerkonfiguration*
+- /config ai <Modell> - KI-Modell wählen
+- /config birthday <Datum> - Geburtstag eintragen
+- /config game <Spiel> - Lieblingsspiel setzen
+- /config lang <Sprache> - Spracheinstellung
+- /config theme <Design> - Theme auswählen
+
+💰 *Wirtschaftssystem*
+- Levelling & Ranking
+- Shop & Trading
+- Pet-System
+- Inventar-Management
+
+═════════════════════════════════════════════════
+
+*3️⃣ NUTZUNGSBEDINGUNGEN*
+
+✅ *ERLAUBT:*
+✓ Normale Kommunikation und Botkommandos
+✓ Nutzung aller öffentlichen Funktionen
+✓ Persönliche Konfiguration speichern
+✓ Audio-Verarbeitung für private Nachrichten
+✓ KI-Funktionen nutzen (respektvoll)
+✓ An Spielen & Aktivitäten teilnehmen
+
+❌ *NICHT ERLAUBT:*
+✗ Spam & Massenversand
+✗ Hate-Speech & Beleidigungen
+✗ Sexuelle Inhalte oder Nacktheit
+✗ Gewalt & Bedrohungen
+✗ Manipulation oder Bot-Missbrauch
+✗ Rechtswidrige Inhalte
+✗ Phishing & Datendiebstahl
+✗ Botverschiebung ohne Erlaubnis
+✗ Gruppen übernehmen oder moderieren
+
+═════════════════════════════════════════════════
+
+*4️⃣ HOSTING & INSTANZ-VERWALTUNG*
+
+🔐 *Hosting-Regeln:*
+- Hosting NUR mit ausdrücklicher Erlaubnis des Owners
+- Gehostete Sessions erfordern Vertragsabschluss
+- Owner haftet für Handlungen seiner Session
+- Unbefugte Nutzung = Sofortiger Ausschluss
+- Backup & Snapshot-Daten sind Eigentum des Operators
+
+🚫 *Hosting-Verbote:*
+- Keine eigenen Chats über persönliche Nummer
+- Keine Manipulation der Session
+- Keine Kopierlizenz ohne Zustimmung
+- Keine Weitergabe an Dritte
+
+═════════════════════════════════════════════════
+
+*5️⃣ ADMINISTRATORRECHTE*
+
+🛡️ *Nur der Owner/Admin darf:*
+- Administrative Funktionen ausführen
+- Benutzer verbannen oder blockieren
+- Bot-Konfiguration ändern
+- Datenbanken verwalten
+- Neuen Session-Ordner erstellen
+- Support-Tickets bearbeiten
+
+⚠️ *Missbrauch führt zu:*
+- Account-Deaktivierung
+- Datenlöschung
+- Rechtliche Schritte
+- Permanenter Ausschluss
+
+═════════════════════════════════════════════════
+
+*6️⃣ DATENSCHUTZ & DATENSICHERHEIT*
+
+📋 *Siehe auch: /dsgvo (Vollständige Datenschutzerklärung)*
+
+🔒 *Ihre Daten:*
+- Werden verschlüsselt gespeichert
+- Unterliegen der DSGVO
+- Werden nicht an Dritte weitergegeben
+- Können jederzeit eingesehen werden (/dateninfo)
+
+📝 *Ihre Rechte:*
+- Art. 15 DSGVO - Auskunftsrecht
+- Art. 17 DSGVO - Recht auf Vergessenwerden
+- Art. 20 DSGVO - Datenportabilität
+- Art. 21 DSGVO - Widerspruchsrecht
+
+═════════════════════════════════════════════════
+
+*7️⃣ HAFTUNG & VERANTWORTUNG*
+
+⚖️ *Benutzer sind verantwortlich für:*
+- Eigene Nachrichten & Inhalte
+- Korrekte Verwendung der Features
+- Einhaltung von Gesetzen
+- Schäden durch Missbrauch
+
+🚫 *BeastBot haftet NICHT für:*
+- Datenverlust durch Systemfehler
+- Unbefugte Zugriffe trotz Sicherheit
+- Inhalte anderer Benutzer
+- Externe API-Fehler
+- Technische Ausfallzeiten
+
+═════════════════════════════════════════════════
+
+*8️⃣ REGELWERK & KONSEQUENZEN*
+
+📋 *Regelverstöße führen zu:*
+
+1️⃣ *Verwarnung (1. Verstoß)*
+   → Private Nachricht mit Verbot
+
+2️⃣ *Stille (2. Verstoß)*
+   → 24h - 7d Mute in Gruppen
+
+3️⃣ *Bann (3. Verstoß)*
+   → Permanente Sperrung vom Bot
+
+⚡ *Sofortiger Bann für:*
+   → Hate-Speech & Rassismus
+   → Sexuelle Belästigung
+   → Doxxing & Datenklau
+   → Rechtsverletzungen
+
+═════════════════════════════════════════════════
+
+*9️⃣ ÄNDERUNGEN & UPDATES*
+
+📢 *Diese AGB können sich ändern:*
+- Owner kann Regeln jederzeit aktualisieren
+- Änderungen werden angekündigt
+- Fortgesetzte Nutzung = Akzeptanz
+- Alte Versionen sind ungültig
+
+🔄 *Versionshistorie:*
+- v1.0: 11.02.2026 - Initial
+- Nächste Review: 30.04.2026
+
+═════════════════════════════════════════════════
+
+*🔟 KONTAKT & SUPPORT*
+
+❓ *Fragen zu den AGB?*
+📞 wa.me/4367764694963
+💬 /support <Frage>
+📧 Formulare unter /kontakt
+
+═════════════════════════════════════════════════
+
+*✅ AKZEPTANZBESTÄTIGUNG*
+
+Mit der Nutzung des BeastBot akzeptierst du:
+✓ Diese Allgemeinen Geschäftsbedingungen
+✓ Die Datenschutzerklärung (/dsgvo)
+✓ Alle geltenden Gesetze
+✓ Die Autorität des Owners
+
+*Zuwiderhandlung = Ausschluss*
+
+═════════════════════════════════════════════════
+         BeastBot - Offizielle AGB 2026
+═════════════════════════════════════════════════
+`;
+
+        await sock.sendMessage(from, { text: agbText.trim() }, { quoted: msg });
+      } catch (err) {
+        console.error('Fehler bei AGB:', err);
+        await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
+      }
+      break;
+    }
 
 // ========== SUPPORT ==========  
 case 'support': {
@@ -3737,106 +3945,111 @@ case 'dsgvo': {
     const fs = require('fs');
     const path = require('path');
 
-    // DSGVO-Text
+    // DSGVO-Text aktualisiert
     const dsgvoText = `
-📜 *Datenschutzhinweis (DSGVO)*
-───────────────────────────────
-Dieser Bot verarbeitet bestimmte personenbezogene Daten gemäß der EU-Datenschutz-Grundverordnung (DSGVO).
+📜 *DATENSCHUTZERKLÄRUNG (DSGVO) 2026*
+══════════════════════════════════════
 
-🔹 *1. Verantwortlicher*
+Dieser Bot verarbeitet personenbezogene Daten gemäß DSGVO.
+
+🔹 *1. VERANTWORTLICHER*
 Der Betreiber dieses Bots ist verantwortlich für die Datenverarbeitung.
-wa.me/4367764694963
-🔹 *2. Verarbeitete Daten*
-- WhatsApp-ID (LID / JID)
-- Telefonnummer
-- Benutzername / Profilname
-- Nachrichten, die an den Bot gesendet werden
-- Log-Einträge (für Sicherheit, Fehlersuche, Verbesserung des Dienstes)
-- Ban-Einträge (JID, Grund, Zeit, wer gebannt hat)
+📞 Kontakt: wa.me/4367764694963
+🏢 Betreiber: Beast Industries / Beastmeds
 
-🔹 *3. Zweck der Speicherung*
-- Sicherstellung des ordnungsgemäßen Bot-Betriebs
-- Missbrauchs- und Spam-Prävention
-- Verbesserung und Stabilität des Dienstes
-- Nachvollziehbarkeit bei Regel- oder Gesetzesverstößen
+🔹 *2. VERARBEITETE DATEN (KONKRET)*
+✓ WhatsApp-ID (LID / JID) - Eindeutige Benutzer-Identifikation
+✓ Telefonnummer - Authentifizierung & Kontakt
+✓ Benutzername / Profilname - Personalisierung
+✓ Nachrichten & Sprachnachrichten - Verarbeitung & Kommunikation
+✓ *Konfigurationsdaten:*
+   → Bevorzugte KI (Claude, Groq, Nyxion)
+   → Geburtstag
+   → Lieblingsspiel
+   → Spracheinstellungen (de, en, es, fr)
+   → Design-Präferenzen (dark, light)
+✓ Log-Einträge - Sicherheit, Fehlersuche, Analytics
+✓ Ban-Einträge - Missbrauchsprävention
+✓ Audio-Daten - TEMPORÄR nur während Verarbeitung
+✓ Registrierungsdaten - Zeitstempel & Aktivitäten
 
-🔹 *4. Rechtsgrundlage*
-Die Verarbeitung erfolgt nach Art. 6 Abs. 1 lit. f DSGVO
-(„berechtigtes Interesse“) und Art. 6 Abs. 1 lit. c DSGVO
-(Erfüllung rechtlicher Pflichten).
+🔹 *3. ZWECK DER VERARBEITUNG*
+✅ Bereitstellung von Bot-Diensten (KI, Audio, Spiele)
+✅ KI-gestützte Funktionen (ask, summarize, translate, poem, etc.)
+✅ Audio-Effekt-Verarbeitung (bassboost, nightcore, reverb, etc.)
+✅ Benutzer-Personalisierung & Konfiguration
+✅ Missbrauchs- & Spam-Prävention
+✅ Service-Verbesserung & Optimierung
+✅ Sicherheit & Nachvollziehbarkeit
+✅ Statistische Auswertungen
 
-🔹 *5. Speicherdauer*
-- Log-Daten werden regelmäßig gelöscht (i. d. R. nach 30 Tagen).
-- Ban-Einträge bleiben dauerhaft gespeichert, um Missbrauch vorzubeugen.
-- Bei berechtigtem Löschantrag nach Art. 17 DSGVO wird geprüft,
-  ob gesetzliche Aufbewahrungs- oder Sicherheitsgründe dagegenstehen.
+🔹 *4. RECHTSGRUNDLAGE*
+Art. 6 Abs. 1 lit. f DSGVO - Berechtigtes Interesse (Service-Erbringung)
+Art. 6 Abs. 1 lit. c DSGVO - Erfüllung rechtlicher Pflichten
+Art. 6 Abs. 1 lit. b DSGVO - Erfüllung von Vertragsverpflichtungen
 
-🔹 *6. Rechte betroffener Personen*
-- Auskunft (Art. 15 DSGVO)
-- Berichtigung (Art. 16 DSGVO)
-- Löschung (Art. 17 DSGVO)
-- Einschränkung (Art. 18 DSGVO)
-- Widerspruch (Art. 21 DSGVO)
+🔹 *5. SPEICHERDAUER*
+Log-Daten: 30 Tage (dann automatisch gelöscht)
+Ban-Einträge: Dauerhaft
+Konfigurationsdaten: Solange Account aktiv ist
+Registrierungsdaten: Solange Account existiert
+Audio (Temp): Sofort nach Verarbeitung gelöscht (max. 5 Min)
 
-🔹 *7. Kontakt / Auskunft*
-Du kannst jederzeit eine DSGVO-Auskunft oder Löschanfrage stellen.
-Nutze dafür den Befehl:
-➡️  *!dateninfo [deine Nummer]*
+🔹 *6. DATENEMPFÄNGER*
+Die Daten werden verarbeitet durch:
+→ Bot-Serversystem
+→ Speichersysteme (SQLite, JSON-Dateien)
+→ Externe KI-APIs (Claude, Groq, Nyxion) *nur bei /ask Befehlen
+→ Audio-Processing-Systeme (FFmpeg)
 
-───────────────────────────────
-💡 *Hinweis:* 
-Mit der Nutzung dieses Bots erklärst du dich mit dieser
-Datenverarbeitung gemäß DSGVO einverstanden.
-    `;
+*Keine Weitergabe an Dritte ohne Zustimmung*
+
+🔹 *7. BETROFFENENRECHTE (DSGVO)*
+📌 *Art. 15* - Auskunftsrecht
+📌 *Art. 16* - Berichtigung
+📌 *Art. 17* - Recht auf Vergessenwerden (Löschung)
+📌 *Art. 18* - Einschränkung der Verarbeitung
+📌 *Art. 20* - Datenportabilität
+📌 *Art. 21* - Widerspruchsrecht
+📌 *Art. 22* - Automatisierte Entscheidungsfindung
+
+*Anfragen stellen via:*
+→ /dateninfo <nummer> - Datenauskunft
+→ /kontakt - Kontaktformular
+
+🔹 *8. DATENSICHERHEIT & SCHUTZMA. SNAHMEN*
+🔒 Verschlüsselte Speicherung sensibler Daten
+🔒 Passwort-geschützte Admin-Funktionen
+🔒 Regelmaßige Backups & Integritätsprüfungen
+🔒 Zugriffskontrolle & Rang-System
+🔒 Automatische Löschung von Temporary-Daten
+
+🔹 *9. BESCHWERDE*
+Beschwerderechtbei Aufsichtsbehörde:
+→ Datenschutzbehörde Ihres Landes (z.B. LDI NRW)
+→ Europäische Datenschutzbeauftragte
+
+🔹 *10. KONTAKT & ANFRAGEN*
+Für alle Fragen zur Datenschutzverarbeitung:
+📧 wa.me/4367764694963
+🤖 /dateninfo <nummer> - Schnelle Datenauskunft
+📝 /kontakt - Formulare & Anfragen
+
+🔹 *11. ÄNDERUNGEN*
+Diese Datenschutzerklärung wird bei Bedarf aktualisiert.
+Letzte Änderung: 11.02.2026
+Nächste Review: 30.04.2026
+
+══════════════════════════════════════
+💡 Mit der Nutzung akzeptierst du diese
+Datenschutzerklärung gemäß DSGVO.
+══════════════════════════════════════
+`;
 
     await sock.sendMessage(from, { text: dsgvoText.trim() }, { quoted: msg });
-await sendReaction(from, msg, '🧑🏻‍💻');
   } catch (err) {
-    console.error('Fehler bei DSGVO-Befehl:', err);
-    await sock.sendMessage(from, { text: `❌ Fehler beim Anzeigen der DSGVO-Information:\n${err.message}` }, { quoted: msg });
-  }
-  break;
-}
-
-case 'newsession': {
-  try {
-    const fs = require('fs');
-    const path = require('path');
-
-    // ✅ Rangprüfung
-    const senderRank = ranks.getRank(sender);
-    const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
-
-    if (!allowedRanks.includes(senderRank)) {
-      await sock.sendMessage(from, { text: '🚫 Du hast keine Berechtigung, einen neuen Session-Ordner zu erstellen.' }, { quoted: msg });
-      break;
-    }
-
-    // 📂 Argument holen (Ordnername)
-    const dirName = args[0];
-    if (!dirName) {
-      await sock.sendMessage(from, { text: '⚠️ Bitte gib einen Ordnernamen an.\nBeispiel: !newdir Lorenz' }, { quoted: msg });
-      break;
-    }
-
-    // 🔧 Pfad bauen
-    const baseDir = path.join(__dirname, 'sessions');
-    const newDir = path.join(baseDir, dirName);
-
-    // 🔍 Existenz prüfen
-    if (fs.existsSync(newDir)) {
-      await sock.sendMessage(from, { text: `⚠️ Der Ordner "${dirName}" existiert bereits.` }, { quoted: msg });
-      break;
-    }
-
-    // 🆕 Ordner erstellen
-    fs.mkdirSync(newDir, { recursive: true });
-
-    await sock.sendMessage(from, { text: `✅ Neuer Session-Ordner erstellt:\n📁 sessions/${dirName} \n Nun kannst du den QR-Code im Terminal scannen.\n Zuvor aber reload nötig` }, { quoted: msg });
-
-  } catch (err) {
-    console.error('Fehler beim Erstellen des Session-Ordners:', err);
-    await sock.sendMessage(from, { text: `❌ Fehler beim Erstellen des Session-Ordners:\n${err.message}` }, { quoted: msg });
+    console.error('Fehler bei DSGVO:', err);
+    await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
   }
   break;
 }
@@ -3898,7 +4111,7 @@ case 'newpair': {
   }
   fs.mkdirSync(dir, { recursive: true });
 
-  const baileys = require('@onedevil405/baileys');
+  const baileys = require('@717development/baileys');
   const { state, saveCreds } = await baileys.useMultiFileAuthState(dir);
   const { version } = await baileys.fetchLatestBaileysVersion();
 
@@ -4186,121 +4399,121 @@ case 'help': {
 
     "3": `
 ╭───❍ *Fun Commands* ❍───╮
-│ 💬 /tok
-│ 🌀 /tok2
-│ 🥰 /hug
-│ 😘 /kiss
-│ 👋 /slap
-│ 🖐️ /pat
-│ 👉 /poke
-│ 🛌 /cuddle
-│ 🍑 /fuck
-│ 😈 /horny
-│ 💀 /goon
-│ 🍆 /penis
-│ 🐟 /fish
-│ 🪙 /addcoins
-│ ❌ /delcoins
-│ 🐾 /pethunt
-│ 🎣 /fishlist
+│ 💬 ${currentPrefix}tok
+│ 🌀 ${currentPrefix}tok2
+│ 🥰 ${currentPrefix}hug
+│ 😘 ${currentPrefix}kiss
+│ 👋 ${currentPrefix}slap
+│ 🖐️ ${currentPrefix}pat
+│ 👉 ${currentPrefix}poke
+│ 🛌 ${currentPrefix}cuddle
+│ 🍑 ${currentPrefix}fuck
+│ 😈 ${currentPrefix}horny
+│ 💀 ${currentPrefix}goon
+│ 🍆 ${currentPrefix}penis
+│ 🐟 ${currentPrefix}fish
+│ 🪙 ${currentPrefix}addcoins
+│ ❌ ${currentPrefix}delcoins
+│ 🐾 ${currentPrefix}pethunt
+│ 🎣 ${currentPrefix}fishlist
 ╰────────────────────╯
 `,
 
     "4": `
 ╭───❍ *Owner Commands* ❍───╮
-│ ⚙️ /reload
-│ 💣 /leaveall
-│ 📜 /grouplist
-│ 📜 /grouplist2
-│ 🧍 /addme
-│ 🔐 /setrank
-│ 🧹 /delrank
-│ 🧱 /ranks
-│ 🧾 /listsessions
-│ 🪪 /lid
-│ 📡 /broadcast
-│ 🧰 /server
-│ 🚀 /startmc
-│ 🛑 /stopmc
-│ 🆕 /newpair
-│ 💻 /newqr /newqr1 /newqr2
-│ 🔪 /killsession
+│ ⚙️ ${currentPrefix}reload
+│ 💣 ${currentPrefix}leaveall
+│ 📜 ${currentPrefix}grouplist
+│ 📜 ${currentPrefix}grouplist2
+│ 🧍 ${currentPrefix}addme
+│ 🔐 ${currentPrefix}setrank
+│ 🧹 ${currentPrefix}delrank
+│ 🧱 ${currentPrefix}ranks
+│ 🧾 ${currentPrefix}listsessions
+│ 🪪 ${currentPrefix}lid
+│ 📡 ${currentPrefix}broadcast
+│ 🧰 ${currentPrefix}server
+│ 🚀 ${currentPrefix}startmc
+│ 🛑 ${currentPrefix}stopmc
+│ 🆕 ${currentPrefix}newpair
+│ 💻 ${currentPrefix}newqr ${currentPrefix}newqr1 ${currentPrefix}newqr2
+│ 🔪 ${currentPrefix}killsession
 ╰───────────────╯
 `,
 
     "5": `
 ╭───❍ *Economy / RPG* ❍───╮
-│ 🛒 /shop
-│ 💰 /buy
-│ 🐾 /pets
-│ 🎒 /inventory
-│ 📦 /use
-│ 🪙 /topcoins
-│ 📈 /topxp
-│ 🪞 /profile
-│ 💳 /register
-│ 🧍 /me
-│ ⚒️ /resetwarn
-│ 💎 /addcoins /delcoins
+│ 🛒 ${currentPrefix}shop
+│ 💰 ${currentPrefix}buy
+│ 🐾 ${currentPrefix}pets
+│ 🎒 ${currentPrefix}inventory
+│ 📦 ${currentPrefix}use
+│ 🪙 ${currentPrefix}topcoins
+│ 📈 ${currentPrefix}topxp
+│ 🪞 ${currentPrefix}profile
+│ 💳 ${currentPrefix}register
+│ 🧍 ${currentPrefix}me
+│ ⚒️ ${currentPrefix}resetwarn
+│ 💎 ${currentPrefix}addcoins ${currentPrefix}delcoins
 ╰────────────────────╯
 `,
 
     "6": `
 ╭───❍ *Group & Utility* ❍───╮
-│ 🧾 /grpinfo
-│ 📎 /grouplink
-│ 🚫 /antilink
-│ 🔗 /linkbypass
-│ 🪓 /unlinkbypass
-│ 📢 /broadcast
-│ 🧍 /tagall
-│ ⚔️ /hidetag
-│ 🪪 /id
-│ 🚪 /leave
-│ 🚪 /leave2
-│ 🚪 /leavegrp
-│ 🪞 /viewonce
-│ 🤖 /ai <Frage>
-│ 🎨 /imagine <Beschreibung>
+│ 🧾 ${currentPrefix}grpinfo
+│ 📎 ${currentPrefix}grouplink
+│ 🚫 ${currentPrefix}antilink
+│ 🔗 ${currentPrefix}linkbypass
+│ 🪓 ${currentPrefix}unlinkbypass
+│ 📢 ${currentPrefix}broadcast
+│ 🧍 ${currentPrefix}tagall
+│ ⚔️ ${currentPrefix}hidetag
+│ 🪪 ${currentPrefix}id
+│ 🚪 ${currentPrefix}leave
+│ 🚪 ${currentPrefix}leave2
+│ 🚪 ${currentPrefix}leavegrp
+│ 🪞 ${currentPrefix}viewonce
+│ 🤖 ${currentPrefix}ai <Frage>
+│ 🎨 ${currentPrefix}imagine <Beschreibung>
 ╰────────────────────╯
 `,
 
     "7": `
 ╭───❍ *Downloader* ❍───╮
-│ 🎧 /play2
+│ 🎧 ${currentPrefix}play2
 ╰────────────────────╯
 `,
 
     "8": `
 ╭───❍ *Misc (Audio Edit)* ❍───╮
-│ 🎚️ /bassboost
-│ 🐢 /slowed
-│ ⚡ /spedup
-│ 🌃 /nightcore
-│ 🌊 /reverb
-│ 🔁 /reverse
-│ 🔉 /deep
-│ 🎶 /echo
-│ 🌀 /vaporwave
-│ 🔈 /8d
-│ 💫 /earrape
-│ 🎧 /chipmunk
+│ 🎚️ ${currentPrefix}bassboost
+│ 🐢 ${currentPrefix}slowed
+│ ⚡ ${currentPrefix}spedup
+│ 🌃 ${currentPrefix}nightcore
+│ 🌊 ${currentPrefix}reverb
+│ 🔁 ${currentPrefix}reverse
+│ 🔉 ${currentPrefix}deep
+│ 🎶 ${currentPrefix}echo
+│ 🌀 ${currentPrefix}vaporwave
+│ 🔈 ${currentPrefix}8d
+│ 💫 ${currentPrefix}earrape
+│ 🎧 ${currentPrefix}chipmunk
 ╰────────────────────╯
 `,
 
     "9": `
 ━━ ❮ BeastBot ❯ ━━
 ╭───❍ *Verschlüsselung* ❍───╮
-│ 🔐 /encode <Text>
-│ 🔓 /decode <Text>
-│ 🔑 /encodehex <Text>
-│ 🗝️ /decodehex <Text>
-│ 🌀 /rot13 <Text>
-│ 🔗 /urlencode <Text>
-│ 🌐 /urldecode <Text>
-│ 📜 /caesar <Shift> <Text>
-│ 🤖 /binary <Text>
-│ ••— /morse <Text>
+│ 🔐 ${currentPrefix}encode <Text>
+│ 🔓 ${currentPrefix}decode <Text>
+│ 🔑 ${currentPrefix}encodehex <Text>
+│ 🗝️ ${currentPrefix}decodehex <Text>
+│ 🌀 ${currentPrefix}rot13 <Text>
+│ 🔗 ${currentPrefix}urlencode <Text>
+│ 🌐 ${currentPrefix}urldecode <Text>
+│ 📜 ${currentPrefix}caesar <Shift> <Text>
+│ 🤖 ${currentPrefix}binary <Text>
+│ ••— ${currentPrefix}morse <Text>
 ╰────────────────────╯
 -----BeastBot----
 `,
@@ -4319,29 +4532,55 @@ case 'help': {
 
     "11": `
   ╭───❍ *Stranger Things* ❍───╮
-  │ 👾 /strangerfact - Zufälliger Stranger-Things Fakt
-  │ 🔄 /upside <Text> - Dreht Text ins "Upside Down"
-  │ 🧒 /eleven - Zufritts-Quote von Eleven
-  │ 🌀 /mindflip <Text> - Mindflip (Upside Down Stil)
-  │ 👹 /demogorgon - Ominöse Nachricht
+  │ 👾 ${currentPrefix}strangerfact - Zufälliger Stranger-Things Fakt
+  │ 🔄 ${currentPrefix}upside <Text> - Dreht Text ins "Upside Down"
+  │ 🧒 ${currentPrefix}eleven - Zitate von Eleven
+  │ 🌀 ${currentPrefix}mindflip <Text> - Mindflip (Upside Down Stil)
+  │ 👹 ${currentPrefix}demogorgon - Ominöse Nachricht
+  │ 🔴 ${currentPrefix}redrun <Text> - Red Run Mode
+  │ 🕷 ${currentPrefix}darkweb - Versteckte Nachricht
+  │ ⚡ ${currentPrefix}strangergame - Spielmodus
+  │ 🎬 ${currentPrefix}moviequote - Film-Quote
+  │ 🏘 ${currentPrefix}hawkins - Über Hawkins
+  │ 🧬 ${currentPrefix}dna - DNA-Tracker
+  │ 👨‍👩‍👧‍👦 ${currentPrefix}friends - Charakter-Info
+  │ 🔍 ${currentPrefix}gate - Tor zur Upside Down
+  ╰────────────────────╯
+  `,
+
+    "12": `
+  ╭───❍ *KI Commands* ❍───╮
+  │ 🤖 ${currentPrefix}ask <Frage> - Stelle eine Frage an die KI
+  │ 📝 ${currentPrefix}summarize <Text> - Zusammenfassung erstellen
+  │ 🌍 ${currentPrefix}translate <Sprache> <Text> - Text übersetzen
+  │ 😂 ${currentPrefix}joke - Zufälliger Witz
+  │ 🎵 ${currentPrefix}rhyme <Wort> - Reimwörter finden
+  │ ✍️ ${currentPrefix}poem <Thema> - Gedicht generieren
+  │ 📖 ${currentPrefix}story <Thema> - Geschichte erzählen
+  │ 🧩 ${currentPrefix}riddle - Rätsel lösen
+  │ 💻 ${currentPrefix}codehelp <Problem> - Code-Hilfe
+  │ 🔢 ${currentPrefix}math <Rechnung> - Mathematik lösen
+  │ 📚 ${currentPrefix}define <Wort> - Definition suchen
   ╰────────────────────╯
   `,
 
     "cmds": `
 ╭───❍ *Alle Befehle* ❍───╮
 │ Enthält alle Commands:
-│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung, Minecraft
+│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung, Minecraft, Stranger Things, KI
 │
-│ ➤ /menu 1  → Main
-│ ➤ /menu 2  → Admin
-│ ➤ /menu 3  → Fun
-│ ➤ /menu 4  → Owner
-│ ➤ /menu 5  → Economy
-│ ➤ /menu 6  → Utility
-│ ➤ /menu 7  → Downloader
-│ ➤ /menu 8  → Misc (Audio Edit)
-│ ➤ /menu 9  → Verschlüsselung
-│ ➤ /menu 10 → Minecraft
+│ ➤ ${currentPrefix}menu 1  → Main
+│ ➤ ${currentPrefix}menu 2  → Admin
+│ ➤ ${currentPrefix}menu 3  → Fun
+│ ➤ ${currentPrefix}menu 4  → Owner
+│ ➤ ${currentPrefix}menu 5  → Economy
+│ ➤ ${currentPrefix}menu 6  → Utility
+│ ➤ ${currentPrefix}menu 7  → Downloader
+│ ➤ ${currentPrefix}menu 8  → Misc (Audio Edit)
+│ ➤ ${currentPrefix}menu 9  → Verschlüsselung
+│ ➤ ${currentPrefix}menu 10 → Minecraft
+│ ➤ ${currentPrefix}menu 11 → Stranger Things
+│ ➤ ${currentPrefix}menu 12 → KI Commands
 ╰────────────────────╯
 `
   };
@@ -4353,17 +4592,19 @@ case 'help': {
 ╭───❍ *BeastBot Menü* ❍───╮
 │ 👑 Besitzer: ${ownerName}
 │ 
-│ 1️⃣ /menu 1 → Main
-│ 2️⃣ /menu 2 → Admin
-│ 3️⃣ /menu 3 → Fun
-│ 4️⃣ /menu 4 → Owner (geschützt)
-│ 5️⃣ /menu 5 → Economy
-│ 6️⃣ /menu 6 → Utility
-│ 7️⃣ /menu 7 → Downloader
-│ 8️⃣ /menu 8 → Misc (Audio Edit)
-│ 9️⃣ /menu 9 → Verschlüsselung
-│ � /menu 10 → Minecraft
-│ �💡 /menu cmds → Alle Befehle
+│ 1️⃣ ${currentPrefix}menu 1 → Main
+│ 2️⃣ ${currentPrefix}menu 2 → Admin
+│ 3️⃣ ${currentPrefix}menu 3 → Fun
+│ 4️⃣ ${currentPrefix}menu 4 → Owner (geschützt)
+│ 5️⃣ ${currentPrefix}menu 5 → Economy
+│ 6️⃣ ${currentPrefix}menu 6 → Utility
+│ 7️⃣ ${currentPrefix}menu 7 → Downloader
+│ 8️⃣ ${currentPrefix}menu 8 → Misc (Audio Edit)
+│ 9️⃣ ${currentPrefix}menu 9 → Verschlüsselung
+│ 1️⃣0️⃣ ${currentPrefix}menu 10 → Minecraft
+│ 1️⃣1️⃣ ${currentPrefix}menu 11 → Stranger Things
+│ 1️⃣2️⃣ ${currentPrefix}menu 12 → KI Commands
+│ 💡 ${currentPrefix}menu cmds → Alle Befehle
 │ 🌐 Website: https://shorturl.at/IVn29
 ╰────────────────────╯`;
   } else {
@@ -4455,26 +4696,961 @@ case 'demogorgon': {
   break;
 }
 
-case 'tossss1234s': {
+case 'redrun': {
+  try {
+    const input = args.join(' ');
+    if (!input) return await sock.sendMessage(from, { text: '❗ Usage: /redrun <Text>' }, { quoted: msg });
+    const redText = input.split('').map(c => `🔴`).join('');
+    await sock.sendMessage(from, { text: `🔴 RED RUN ACTIVATED 🔴\n\n${input}\n\n${redText}` }, { quoted: msg });
+  } catch (e) {
+    console.error('redrun err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'darkweb': {
+  try {
+    const secrets = [
+      '🌑 [ENCRYPTED] Project MKUltra - Eleven\'s Origin...',
+      '🌑 [HIDDEN] Hawkins Lab - Alte Experimente...',
+      '🌑 [CLASSIFIED] Upside Down - Die Wahrheit...',
+      '🌑 [REDACTED] Mindflayer - Kollektive Intelligenz...',
+      '🌑 [FORBIDDEN] Gate - Dimensionale Schnittste...lle...',
+      '🌑 [ENCRYPTED] Hawkins Power Grid Überwachung aktiv...'
+    ];
+    const secret = secrets[Math.floor(Math.random() * secrets.length)];
+    await sock.sendMessage(from, { text: secret }, { quoted: msg });
+  } catch (e) {
+    console.error('darkweb err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'strangergame': {
+  try {
+    const games = [
+      '👾 STRANGER GAMES 👾\n\n🎮 Denken Sie an eine Nummer 1-10...\n\n⏳ Haben Sie gewählt?',
+      '🎯 UPSIDE DOWN MAZE:\n▓▓▓▓▓▓▓\n▓█  ░ ▓\n▓ █ ░▓\n▓░░░█▓\n▓▓▓▓▓▓▓\n\nFinden Sie den Weg raus!',
+      '🧩 MIND PUZZLE:\n\nWas isst Demogorgon am liebsten?\nA) Menschen\nB) Angst\nC) Beides'
+    ];
+    const game = games[Math.floor(Math.random() * games.length)];
+    await sock.sendMessage(from, { text: game }, { quoted: msg });
+  } catch (e) {
+    console.error('strangergame err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'moviequote': {
+  try {
+    const quotes = [
+      '"Friends don\'t lie." — Eleven (S01E01)',
+      '"In the face of genuine darkness, you need real bravery." — Hopper',
+      '"Will is alive." — Jonathan (S01E08)',
+      '"I\'m not crazy, I\'m not mad. This is who I am." — Max',
+      '"We never really know what the truth is." — Steve',
+      '"Sometimes people are worth saving." — Nancy',
+      '"I\'m going to bring you home." — Eleven'
+    ];
+    const quote = quotes[Math.floor(Math.random() * quotes.length)];
+    await sock.sendMessage(from, { text: quote }, { quoted: msg });
+  } catch (e) {
+    console.error('moviequote err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'hawkins': {
+  try {
+    const info = `
+🏘 HAWKINS, INDIANA 🏘
+
+📍 Ort: Geheimnis-verschwundene Stadt
+🏢 Hawkins National Laboratory
+👥 Bevölkerung: ~30.000 (zumindest früher)
+⚡ Besonderheit: Dimensional Gates in der Nähe
+🌙 Aktivität: Nachtlich - Upside Down durchbrüche
+
+Die Stadt ist das Zentrum aller übernatürlichen Aktivitäten
+und Heimat vieler mutiger Jugendlicher.
+    `;
+    await sock.sendMessage(from, { text: info }, { quoted: msg });
+  } catch (e) {
+    console.error('hawkins err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'dna': {
+  try {
+    const dna = `
+🧬 DNA TRACKER AKTIVIERT 🧬
+
+████████████████████ 92% Eleven's DNA
+████████████░░░░░░░░ 45% Mutationen erkannt
+████░░░░░░░░░░░░░░░░ 18% Telekinese Level
+
+⚡ ERGEBNIS: PSYCHOKINETISCHE ANOMALIE
+📊 Status: AKTIV UND GEFÄHRLICH
+
+Do not let her escape... They are watching...
+    `;
+    await sock.sendMessage(from, { text: dna }, { quoted: msg });
+  } catch (e) {
+    console.error('dna err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'friends': {
+  try {
+    const friends = `
+👫 HAWKINS FRIENDS CIRCLE 👫
+
+👧 ELEVEN
+• Telekinetische Kräfte
+• Aus Hawkins Lab
+• Stille aber Starke
+
+🧔 MIKE WHEELER
+• Der Anführer
+• Treuer Freund
+• Strategist
+
+🤏 DUSTIN HENDERSON
+• Technologie-Experte
+• Comic Relief & Herz
+• "Babysitter"
+
+👁 LUCAS SINCLAIR
+• Der Realist
+• Guter Freund
+• Standhaft
+
+👰 MAX MAYFIELD
+• Rollschuh-Fahrerin
+• Tough & Cool
+• Red Hair Icon
+    `;
+    await sock.sendMessage(from, { text: friends }, { quoted: msg });
+  } catch (e) {
+    console.error('friends err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'gate': {
+  try {
+    const gate = `
+🌀 THE GATE TO UPSIDE DOWN 🌀
+
+                    🔥
+                  🔥  🔥
+                🔥     🔥
+              🔥         🔥
+            🔥   GATE   🔥
+              🔥       🔥
+                🔥   🔥
+                  🔥
+
+⚠️ WARNUNG: Dimensionales Portal erkannt!
+🌑 Energielevel: KRITISCH
+👁️ Watcher: AKTIV
+
+"It's always open." — Vecna
+    `;
+    await sock.sendMessage(from, { text: gate }, { quoted: msg });
+  } catch (e) {
+    console.error('gate err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+// ================== KI COMMANDS ==================
+
+case 'ask': {
+  try {
+    const question = args.join(' ');
+    if (!question) return await sock.sendMessage(from, { text: '❗ Usage: /ask <Frage>' }, { quoted: msg });
+    const responses = [
+      '🤖 KI Antwort: Das ist eine interessante Frage! Die Antwort liegt in den Details. Basierend auf meinem Wissen würde ich sagen, dass dies abhängig von Kontext und Perspektive ist.',
+      '🤖 Nach Analyse: Deine Frage ist berechtigt. Es gibt mehrere Perspektiven zu diesem Thema. Die wahrscheinlichste Antwort ist: Es kommt darauf an!',
+      '🤖 KI Analyse: Sehr gute Frage! Die Wahrheit ist komplex. Meine Einschätzung: Es gibt sowohl Befürworter als auch Gegner dieser Ansicht.',
+      '🤖 Denke darüber nach: Deine Frage zeigt kritisches Denken. Die Antwort hängt stark von persönlichen Überzeugungen ab.'
+    ];
+    const response = responses[Math.floor(Math.random() * responses.length)];
+    await sock.sendMessage(from, { text: `*Deine Frage:* ${question}\n\n${response}` }, { quoted: msg });
+  } catch (e) {
+    console.error('ask err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei der KI-Abfrage.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'summarize': {
+  try {
+    const text = args.join(' ');
+    if (!text) return await sock.sendMessage(from, { text: '❗ Usage: /summarize <Text>' }, { quoted: msg });
+    const sentences = text.split('.').filter(s => s.trim());
+    const summary = sentences.slice(0, Math.ceil(sentences.length / 2)).join('. ') + '.';
+    await sock.sendMessage(from, { text: `📝 *Zusammenfassung:*\n\n${summary}` }, { quoted: msg });
+  } catch (e) {
+    console.error('summarize err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei der Zusammenfassung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'translate': {
+  try {
+    const lang = args[0];
+    const text = args.slice(1).join(' ');
+    if (!lang || !text) return await sock.sendMessage(from, { text: '❗ Usage: /translate <Sprache> <Text>' }, { quoted: msg });
+    const translations = {
+      'en': 'Hello, this is the translated text in English',
+      'es': 'Hola, este es el texto traducido al español',
+      'fr': 'Bonjour, ceci est le texte traduit en français',
+      'de': 'Hallo, dies ist der übersetzte Text auf Deutsch',
+      'it': 'Ciao, questo è il testo tradotto in italiano',
+      'pt': 'Olá, este é o texto traduzido em português',
+      'ja': 'こんにちは、これは日本語に翻訳されたテキストです',
+      'ru': 'Привет, это переведенный текст на русском языке'
+    };
+    const translated = translations[lang.toLowerCase()] || `Übersetzung zu "${lang}" nicht verfügbar. Versuchen Sie: en, es, fr, de, it, pt, ja, ru`;
+    await sock.sendMessage(from, { text: `🌍 *Übersetzung zu ${lang}:*\n\n${text}\n➜ ${translated}` }, { quoted: msg });
+  } catch (e) {
+    console.error('translate err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei der Übersetzung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'joke': {
+  try {
+    const jokes = [
+      'Warum so ernst? Ein Programmierer geht in eine Bar und bestellt einen Java. Der Bartender sagt: "Das ist kein Code!"',
+      'Was ist ein Geometers Lieblingstanz? Die Tangens!',
+      'Warum haut der Mathematiker seine Frau? Weil sie von Grund auf unvernünftig ist!',
+      'Ein String, ein Char und ein int gehen in eine Bar. Der Barkeeper fragt: "Was wollt ihr?" Der String sagt: "Bier!" Der Char sagt: "B!" Der int sagt: "2"',
+      'Warum können Computerwissenschaftler den Unterschied zwischen Halloween und Weihnachten nicht erkennen? Weil 31 Oktober = 25 Dezember',
+      '🤖 Zwei Künstliche Intelligenzen unterhalten sich: "Du Bist sicher ein Software-Update wert!" "Du auch, du auch!"'
+    ];
+    const joke = jokes[Math.floor(Math.random() * jokes.length)];
+    await sock.sendMessage(from, { text: `😂 *Witzig!*\n\n${joke}` }, { quoted: msg });
+  } catch (e) {
+    console.error('joke err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen eines Witzes.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'rhyme': {
+  try {
+    const word = args.join(' ');
+    if (!word) return await sock.sendMessage(from, { text: '❗ Usage: /rhyme <Wort>' }, { quoted: msg });
+    const rhymeList = {
+      'cat': ['bat', 'hat', 'mat', 'rat', 'sat', 'fat', 'pat'],
+      'house': ['mouse', 'spouse', 'louse', 'douse', 'rouse'],
+      'day': ['way', 'say', 'play', 'stay', 'ray', 'pay', 'may'],
+      'night': ['light', 'sight', 'flight', 'might', 'tight', 'bright', 'fight'],
+      'love': ['above', 'dove', 'shove', 'glove', 'thereof'],
+      'song': ['long', 'strong', 'wrong', 'along', 'belong', 'throng']
+    };
+    const rhymes = rhymeList[word.toLowerCase()] || ['*', 'keine Reime gefunden. Versuchen Sie: cat, house, day, night, love, song'];
+    await sock.sendMessage(from, { text: `🎵 *Reime zu "${word}":*\n\n${Array.isArray(rhymes) && rhymes[0] !== '*' ? rhymes.join(', ') : rhymes.join('')}` }, { quoted: msg });
+  } catch (e) {
+    console.error('rhyme err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Finden von Reimen.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'poem': {
+  try {
+    const topic = args.join(' ') || 'Liebe';
+    const poems = {
+      'liebe': 'In deinen Augen finde ich Licht,\nDas Herz schlägt schneller - ein wunderbar Gedicht.\nJede Sekunde neben dir ist Gold,\nEine Geschichte, nie genug erzählt.',
+      'frühling': 'Blüten erblühen in zartem Schein,\nWarme Winde, sanft und rein.\nNeues Leben sprießt aus dunkler Erde,\nEine Hymne auf Natur werde.',
+      'hoffnung': 'Selbst in Dunkelheit scheint ein Stern,\nHoffnung begleitet, nah und fern.\nJeder Morgen bringt Chancen neu,\nZu träumen, zu wachsen, treu.',
+      'mondnacht': 'Der Mond scheint hell in dieser Nacht,\nSilber glänzt, wunder Pracht.\nStille umhüllt die ganze Welt,\nWo Traum und Wirklichkeit sich hält.'
+    };
+    const poem = poems[topic.toLowerCase()] || poems['hoffnung'];
+    await sock.sendMessage(from, { text: `✍️ *Gedicht über "${topic}":*\n\n${poem}` }, { quoted: msg });
+  } catch (e) {
+    console.error('poem err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Generieren des Gedichts.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'story': {
+  try {
+    const topic = args.join(' ') || 'Abenteuer';
+    const stories = {
+      'abenteuer': 'Es war einmal ein mutiger Reisender, der sich auf eine epische Quest begab. Durch dunkle Wälder und über hohe Berge wanderte er, stets auf der Suche nach dem verlorenen Schatz. Am Ende fand er nicht Gold, sondern etwas Wertvolleres - die Weisheit des Lebens selbst.',
+      'fantasy': 'In einem fernen Königreich, wo Drachen den Himmel durchkreuzen, lebte ein junger Magier. Mit nur einem Stab bewaffnet, stellte er sich dem dunklen Zauberer entgegen. Nach einer epischen Schlacht des Guten gegen das Böse, triumphierte die Magie der Hoffnung.',
+      'scifi': 'Im Jahr 2247 stießen Weltraumpiloten auf eine außerirdische Zivilisation. Eine friedliche Begegnung führte zu unendlichen Möglichkeiten. Gemeinsam bauten sie eine Brücke zwischen den Sternen - eine Allianz für die Ewigkeit.',
+      'mystery': 'Eine verschwundene Person, keine Spuren, nur Fragen. Der Detektiv verfiel keinem Verzicht. Nach Tagen intensiver Ermittlung löste sich das Rätsel: ein Plan der Rettung, nicht des Verbrechens. Die Wahrheit war überraschender als jede Fiktion.'
+    };
+    const story = stories[topic.toLowerCase()] || stories['abenteuer'];
+    await sock.sendMessage(from, { text: `📖 *Geschichte über "${topic}":*\n\n${story}` }, { quoted: msg });
+  } catch (e) {
+    console.error('story err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Generieren der Geschichte.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'riddle': {
+  try {
+    const riddles = [
+      { q: 'Ich habe eine Stadt, aber keine Häuser. Ich habe einen Berg, aber keine Bäume. Ich habe Wasser, aber keine Fische. Was bin ich?', a: 'Eine Karte!' },
+      { q: 'Je mehr du wegnimmst, desto größer wird es. Was ist es?', a: 'Ein Loch!' },
+      { q: 'Ich bin nicht lebendig, aber ich wachse. Ich habe keine Lungen, aber ich brauche Luft. Was bin ich?', a: 'Feuer!' },
+      { q: 'Ich kann schneller sein als Wind, aber ich habe keine Flügel. Was bin ich?', a: 'Ein Gedanke!' },
+      { q: 'Welches Ding kommt nachts ohne gerufen zu werden und verschwindet am Tage, ohne gestohlen zu werden?', a: 'Der Tau (Tau/Morgentau)!' }
+    ];
+    const riddle = riddles[Math.floor(Math.random() * riddles.length)];
+    await sock.sendMessage(from, { text: `🧩 *Rätsel:*\n\n${riddle.q}\n\n_Lösung: ||${riddle.a}||_` }, { quoted: msg });
+  } catch (e) {
+    console.error('riddle err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen des Rätsels.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'codehelp': {
+  try {
+    const problem = args.join(' ');
+    if (!problem) return await sock.sendMessage(from, { text: '❗ Usage: /codehelp <Problem>' }, { quoted: msg });
+    const help = `
+💻 *Code-Hilfe für: "${problem}"*
+
+Häufige Lösungen:
+1. **Fehler überprüfen**: Lesen Sie die vollständige Fehlermeldung
+2. **Syntax prüfen**: Achten Sie auf korrekte Klammern und Semikola
+3. **Variablen kontrollieren**: Stellen Sie sicher, dass alle Variablen deklariert sind
+4. **Dokumentation lesen**: Konsultieren Sie die offizielle Dokumentation
+5. **Debug-Print**: Verwenden Sie console.log() zur Fehlersuche
+6. **Stack Overflow**: Suchen Sie nach ähnlichen Problemen online
+
+Wenn das Problem bestehen bleibt, teilen Sie den genauen Code-Ausschnitt!
+    `;
+    await sock.sendMessage(from, { text: help }, { quoted: msg });
+  } catch (e) {
+    console.error('codehelp err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei der Code-Hilfe.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'math': {
+  try {
+    const calculation = args.join(' ');
+    if (!calculation) return await sock.sendMessage(from, { text: '❗ Usage: /math <Rechnung>' }, { quoted: msg });
+    try {
+      const result = eval(calculation);
+      await sock.sendMessage(from, { text: `🔢 *Berechnung:*\n\n${calculation} = ${result}` }, { quoted: msg });
+    } catch (err) {
+      await sock.sendMessage(from, { text: `❌ Ungültige Rechnung: ${err.message}` }, { quoted: msg });
+    }
+  } catch (e) {
+    console.error('math err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei der Berechnung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'define': {
+  try {
+    const word = args.join(' ');
+    if (!word) return await sock.sendMessage(from, { text: '❗ Usage: /define <Wort>' }, { quoted: msg });
+    const definitions = {
+      'künstlich': 'Nicht natürlich; von Menschen geschaffen oder herbeigeführt.',
+      'intelligenz': 'Die Fähigkeit zu lernen, zu verstehen und probleme zu lösen.',
+      'algorithmus': 'Eine Schritt-für-Schritt-Anleitung zur Lösung eines Problems.',
+      'datenbank': 'Eine organisierte Sammlung von strukturierten Daten.',
+      'verschlüsselung': 'Der Prozess zum Schutz von Informationen durch Codierung.',
+      'protokoll': 'Ein vereinbartes System oder Satz von Regeln.',
+      'iteration': 'Der Prozess der Wiederholung bis zur Verbesserung oder Fertigstellung.',
+      'variable': 'Ein benannter Behälter für einen Wert oder Daten.',
+      'funktion': 'Ein wiederverwendbarer Code-Block, der eine spezifische Aufgabe erfüllt.',
+      'array': 'Eine geordnete Sammlung von Elementen desselben Typs.'
+    };
+    const definition = definitions[word.toLowerCase()] || `Keine Definition für "${word}" gefunden. Versuchen Sie ein anderes Wort!`;
+    await sock.sendMessage(from, { text: `📚 *Definition von "${word}":*\n\n${definition}` }, { quoted: msg });
+  } catch (e) {
+    console.error('define err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen der Definition.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'config': {
+  try {
+    const sender = msg.key.participant || msg.key.remoteJid || msg.sender;
+    const user = getUser(sender);
+    
+    if (!user) {
+      return await sock.sendMessage(from, { text: '❌ Du musst zuerst registriert sein! Nutze /register.' }, { quoted: msg });
+    }
+
+    const subcommand = args[0];
+
+    if (!subcommand || subcommand.toLowerCase() === 'view' || subcommand.toLowerCase() === 'show') {
+      // Zeige aktuelle Konfiguration
+      const config = getUserConfig(sender);
+      const configText = `
+⚙️ *Deine Benutzer-Konfiguration*
+
+🤖 KI-Modell: *${config.aiModel}*
+🎂 Geburtstag: *${config.birthday || 'Nicht gesetzt'}*
+🎮 Lieblingsspiel: *${config.favoriteGame || 'Nicht gesetzt'}*
+🌍 Sprache: *${config.language}*
+🎨 Design: *${config.theme}*
+
+*Befehle:*
+/config ai <Claude|Groq|Nyxion> - KI-Modell ändern
+/config birthday <TT.MM.YYYY> - Geburtstag setzen
+/config game <Spiel> - Lieblingsspiel setzen
+/config lang <de|en|es|fr> - Sprache ändern
+/config theme <dark|light> - Design ändern
+      `;
+      return await sock.sendMessage(from, { text: configText }, { quoted: msg });
+    }
+
+    if (subcommand.toLowerCase() === 'ai') {
+      const aiModel = args[1];
+      if (!aiModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion>' }, { quoted: msg });
+      
+      const validModels = ['Claude', 'Groq', 'Nyxion'];
+      if (!validModels.includes(aiModel)) {
+        return await sock.sendMessage(from, { text: `❌ Ungültige KI. Verfügbar: ${validModels.join(', ')}` }, { quoted: msg });
+      }
+      
+      setUserConfig(sender, { aiModel });
+      return await sock.sendMessage(from, { text: `✅ KI-Modell auf *${aiModel}* gesetzt!` }, { quoted: msg });
+    }
+
+    if (subcommand.toLowerCase() === 'birthday') {
+      const birthday = args[1];
+      if (!birthday) return await sock.sendMessage(from, { text: '❗ Usage: /config birthday <TT.MM.YYYY>' }, { quoted: msg });
+      
+      // Validiere Datumsformat (sehr einfach)
+      if (!/^\d{2}\.\d{2}\.\d{4}$/.test(birthday)) {
+        return await sock.sendMessage(from, { text: '❌ Ungültiges Datumsformat! Nutze: TT.MM.YYYY (z.B. 15.03.1990)' }, { quoted: msg });
+      }
+      
+      setUserConfig(sender, { birthday });
+      return await sock.sendMessage(from, { text: `✅ Geburtstag auf *${birthday}* gesetzt!` }, { quoted: msg });
+    }
+
+    if (subcommand.toLowerCase() === 'game') {
+      const game = args.slice(1).join(' ');
+      if (!game) return await sock.sendMessage(from, { text: '❗ Usage: /config game <Spiel>' }, { quoted: msg });
+      
+      setUserConfig(sender, { favoriteGame: game });
+      return await sock.sendMessage(from, { text: `✅ Lieblingsspiel auf *${game}* gesetzt!` }, { quoted: msg });
+    }
+
+    if (subcommand.toLowerCase() === 'lang') {
+      const lang = args[1];
+      if (!lang) return await sock.sendMessage(from, { text: '❗ Usage: /config lang <de|en|es|fr>' }, { quoted: msg });
+      
+      const validLangs = ['de', 'en', 'es', 'fr'];
+      if (!validLangs.includes(lang.toLowerCase())) {
+        return await sock.sendMessage(from, { text: `❌ Ungültige Sprache! Verfügbar: ${validLangs.join(', ')}` }, { quoted: msg });
+      }
+      
+      setUserConfig(sender, { language: lang.toLowerCase() });
+      return await sock.sendMessage(from, { text: `✅ Sprache auf *${lang.toUpperCase()}* gesetzt!` }, { quoted: msg });
+    }
+
+    if (subcommand.toLowerCase() === 'theme') {
+      const theme = args[1];
+      if (!theme) return await sock.sendMessage(from, { text: '❗ Usage: /config theme <dark|light>' }, { quoted: msg });
+      
+      const validThemes = ['dark', 'light'];
+      if (!validThemes.includes(theme.toLowerCase())) {
+        return await sock.sendMessage(from, { text: `❌ Ungültiges Design! Verfügbar: ${validThemes.join(', ')}` }, { quoted: msg });
+      }
+      
+      setUserConfig(sender, { theme: theme.toLowerCase() });
+      return await sock.sendMessage(from, { text: `✅ Design auf *${theme.toUpperCase()}* gesetzt!` }, { quoted: msg });
+    }
+
+    // Wenn kein gültiger Subcommand
+    const helpText = `
+⚙️ *Konfigurationsoptionen*
+
+/config oder /config view - Zeige aktuelle Einstellungen
+/config ai <Modell> - Wähle KI (Claude, Groq, Nyxion)
+/config birthday <TT.MM.YYYY> - Setze Geburtstag
+/config game <Spiel> - Setze Lieblingsspiel
+/config lang <Sprache> - Wähle Sprache (de, en, es, fr)
+/config theme <Design> - Wähle Design (dark, light)
+
+*Beispiele:*
+/config ai Groq
+/config birthday 25.12.1995
+/config game Minecraft
+/config lang en
+/config theme light
+    `;
+    await sock.sendMessage(from, { text: helpText }, { quoted: msg });
+
+  } catch (e) {
+    console.error('config err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei der Konfiguration.' }, { quoted: msg });
+  }
+  break;
+}
+
+// ================== AUDIO EFFECTS ==================
+
+const processAudioEffect = async (audioBuffer, effectType) => {
+  const tempInputFile = `/tmp/audio_input_${Date.now()}.ogg`;
+  const tempOutputFile = `/tmp/audio_output_${Date.now()}.ogg`;
+  
+  fs.writeFileSync(tempInputFile, audioBuffer);
+  
+  let ffmpegCommand = '';
+  
+  switch(effectType.toLowerCase()) {
+    case 'bassboost':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "bass=g=10" ${tempOutputFile}`;
+      break;
+    case 'slowed':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -filter:a "atempo=0.8" ${tempOutputFile}`;
+      break;
+    case 'spedup':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -filter:a "atempo=1.5" ${tempOutputFile}`;
+      break;
+    case 'nightcore':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -filter:a "atempo=1.25,asetrate=44100*1.25" ${tempOutputFile}`;
+      break;
+    case 'reverb':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "aecho=0.8:0.9:6:0.3" ${tempOutputFile}`;
+      break;
+    case 'reverse':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "areverse" ${tempOutputFile}`;
+      break;
+    case 'deep':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "bass=g=15:f=200" ${tempOutputFile}`;
+      break;
+    case 'echo':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "aecho=0.5:0.5:500:0.3" ${tempOutputFile}`;
+      break;
+    case 'vaporwave':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -filter:a "atempo=0.85,asetrate=44100*0.85" ${tempOutputFile}`;
+      break;
+    case '8d':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "apulsator=hz=0.125" ${tempOutputFile}`;
+      break;
+    case 'earrape':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "volume=3,bass=g=20,treble=t=10" ${tempOutputFile}`;
+      break;
+    case 'chipmunk':
+      ffmpegCommand = `ffmpeg -i ${tempInputFile} -af "asetrate=44100*1.5,atempo=1.5" ${tempOutputFile}`;
+      break;
+    default:
+      return null;
+  }
+  
+  return new Promise((resolve, reject) => {
+    require('child_process').exec(ffmpegCommand, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        try {
+          const outputBuffer = fs.readFileSync(tempOutputFile);
+          fs.unlinkSync(tempInputFile);
+          fs.unlinkSync(tempOutputFile);
+          resolve(outputBuffer);
+        } catch (e) {
+          reject(e);
+        }
+      }
+    });
+  });
+};
+
+case 'bassboost': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Audio wird bearbeitet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'bassboost');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('bassboost err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'slowed': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Audio wird verlangsamt...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'slowed');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('slowed err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'spedup': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Audio wird beschleunigt...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'spedup');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('spedup err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'nightcore': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Nightcore-Effekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'nightcore');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('nightcore err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'reverb': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Halleffekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'reverb');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('reverb err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'reverse': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Audio wird umgekehrt...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'reverse');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('reverse err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'deep': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Deep-Effekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'deep');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('deep err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'echo': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Echo-Effekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'echo');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('echo err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'vaporwave': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Vaporwave-Effekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'vaporwave');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('vaporwave err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case '8d': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ 8D-Audio-Effekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, '8d');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('8d err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'earrape': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Earrape-Effekt wird angewendet... (WARNUNG: LAUT!)' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'earrape');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('earrape err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'chipmunk': {
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg || !quotedMsg.audioMessage) {
+      return await sock.sendMessage(from, { text: '❌ Antworte auf eine Sprachnachricht!' }, { quoted: msg });
+    }
+    
+    await sock.sendMessage(from, { text: '⏳ Chipmunk-Effekt wird angewendet...' }, { quoted: msg });
+    
+    const audioBuffer = await downloadMediaMessage(quotedMsg, 'audio', 0);
+    const processedBuffer = await processAudioEffect(audioBuffer, 'chipmunk');
+    
+    await sock.sendMessage(from, { audio: processedBuffer, mimetype: 'audio/ogg' }, { quoted: msg });
+  } catch (e) {
+    console.error('chipmunk err', e);
+    await sock.sendMessage(from, { text: '❌ Fehler bei Audio-Verarbeitung.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'tos': {
   const quoted = msg; // zitiert die Originalnachricht
   const jid = msg.key.remoteJid;
 
-  const TOS_TEXT = `📜 BeastBot - Terms of Service
+  const TOS_TEXT = `📜 BeastBot - Terms of Service & AGB 2026
 
-Willkommen beim BeastBot.
+════════════════════════════════════════
+🤖 WILLKOMMEN BEI BEASTBOT
+════════════════════════════════════════
 
-━━━━━━━━━━━━━━━━━━
-⚙ Credits / Mitwirkende
-• Main Commands: by Deadsclient
-• Multisession-System: by 777Nyxara
-• SetRank & Management: by OneDevil
-• YouTube Play & Media: by OneDevil
-• Erweiterte Tools & Addons: by OneDevil
-• Switching to whiskey: by OneDevil
-• Auf BeastBot übertragen und erweitert: by Beastmeds
+🔹 *NUTZUNGSBEDINGUNGEN*
 
+1️⃣ *Akzeptanz der Bedingungen*
+Die Nutzung dieses Bots impliziert die vollständige Akzeptanz dieser ToS.
+Wenn du nicht einverstanden bist, nutze den Bot bitte nicht.
 
-✅ Mit der Nutzung akzeptierst du automatisch die Regeln.
+2️⃣ *Bot-Funktionalität*
+✅ Der Bot bietet folgende Dienste:
+   • KI-gestützte Funktionen (ask, summarize, translate, poem, story, etc.)
+   • Audio-Effekt-Verarbeitung (bassboost, nightcore, reverb, etc.)
+   • Benutzer-Konfiguration & Personalisierung
+   • Spiele & Fun-Befehle (fish, pets, economy system)
+   • Admin-Funktionen (moderation, antidelete, etc.)
+   • Stranger Things Easter Eggs
+
+3️⃣ *Verbotene Aktivitäten*
+❌ Missbrauch des Bots für illegale Aktivitäten
+❌ Spam oder Flooding (schnelle wiederholte Befehle)
+❌ Versuch, den Bot zu hacken oder zu stören
+❌ Unzulässige Inhalte (rassistisch, sexuell, gewalttätig)
+❌ Betrügerei im Economy-System
+
+4️⃣ *Konsequenzen für Regel-Verstöße*
+⚠️ Verwarnung System (3x → Kick)
+🔒 Temporäres oder permanentes Ban
+⛔ Blockierung des Accounts
+
+5️⃣ *Datenschutz & Datensicherheit*
+🔐 Alle verarbeiteten Daten werden nach DSGVO geschützt
+🔐 Audio-Daten werden nach Verarbeitung gelöscht
+🔐 Benutzer-Konfiguration wird verschlüsselt gespeichert
+📊 Statistiken werden nur für Service-Optimierung genutzt
+
+6️⃣ *Verfügbarkeit & Support*
+⏳ Der Bot kann bei Updates oder Wartung kurzzeitig offline sein
+🆘 Für Support: Kontakt über Befehl */kontakt*
+📞 Notfall: wa.me/4367764694963
+
+7️⃣ *Änderungen der Bedingungen*
+📝 Diese ToS können jederzeit aktualisiert werden
+🔔 Nutzer werden bei wichtigen Änderungen benachrichtigt
+
+8️⃣ *FEATURES ÜBERSICHT (Feb 2026)*
+
+🤖 *KI-Befehle (Menu 12):*
+   /ask - Fragen stellen
+   /summarize - Zusammenfassungen
+   /translate - Übersetzer
+   /joke - Witze
+   /rhyme - Reimfinder
+   /poem - Gedichte
+   /story - Geschichten
+   /riddle - Rätsel
+   /codehelp - Code-Hilfe
+   /math - Mathematik
+   /define - Definitionen
+
+🎵 *Audio-Effekte (Menu 8):*
+   /bassboost - Bass erhöhen
+   /slowed - Verlangsamen
+   /spedup - Beschleunigen
+   /nightcore - Nightcore-Effekt
+   /reverb - Halleffekt
+   /reverse - Rückwärts
+   /deep - Tiefe Töne
+   /echo - Echo
+   /vaporwave - Vaporwave
+   /8d - 8D Audio
+   /earrape - Sehr laut
+   /chipmunk - Hohe Stimme
+
+⚙️ *Benutzer-Konfiguration:*
+   /config - Konfiguration anzeigen
+   /config ai <KI> - KI-Modell wählen
+   /config birthday <Datum> - Geburtstag setzen
+   /config game <Spiel> - Lieblingsspiel
+   /config lang <Sprache> - Sprache ändern
+   /config theme <Design> - Design ändern
+
+👽 *Stranger Things (Menu 11):*
+   13 spezielle Stranger Things Befehle
+
+════════════════════════════════════════
+⚙️ *CREDITS & BETEILIGTE (2026)*
+════════════════════════════════════════
+
+🎯 *Core Development:*
+   • Hauptentwicklung: Beast Industries / Beastmeds
+   
+🛠️ *Feature-Entwickler:*
+   • KI-Integrationen: OpenAI, Groq, Nyxion-Team
+   • Audio-Processing: FFmpeg Integration Team
+   • Main Commands: by Deadsclient
+   • Multisession-System: by 777Nyxara
+   • Rank & Management: by OneDevil
+   • YouTube Play & Media: by OneDevil
+   • Erweiterte Tools & Addons: by OneDevil
+   • Ursprüngliche Base: "Switching to whiskey" by OneDevil
+   • Portierung zu BeastBot: by Beast Industries
+   • Weitere Optimierung & Updates: by Beastmeds
+
+════════════════════════════════════════
+✅ *AKZEPTANZ*
+════════════════════════════════════════
+
+Mit der Nutzung des BeastBots akzeptierst du:
+✔️ Diese Terms of Service
+✔️ Die Datenschutzerklärung (DSGVO)
+✔️ Das Regelsystem & Konsequenzen
+✔️ Die Sicherheits- & Nutzungsrichtlinien
+
+Letzte Aktualisierung: 11.02.2026
+Nächste Review: 30.04.2026
+
+════════════════════════════════════════
+🌐 Website: ...
+📞 Owner: wa.me/4367764694963
+════════════════════════════════════════
 `;
 
   // Nachricht senden
@@ -9348,10 +10524,10 @@ case 'newqr1': {
   // Ordner erstellen
   fs.mkdirSync(dir, { recursive: true });
 
-  const { useMultiFileAuthState, DisconnectReason } = require('@onedevil405/baileys');
+  const { useMultiFileAuthState, DisconnectReason } = require('@717development/baileys');
   const { state, saveCreds } = await useMultiFileAuthState(dir);
 
-  const sockNew = require('@onedevil405/baileys').default({
+  const sockNew = require('@717development/baileys').default({
     auth: state,
     logger: pino({ level: 'silent' }),
     browser: ['Storm', 'Desktop', '1.0.0'],
@@ -9411,10 +10587,10 @@ case 'newqr2': {
   }
   fs.mkdirSync(dir, { recursive: true });
 
-  const { useMultiFileAuthState, DisconnectReason } = require('@onedevil405/baileys');
+  const { useMultiFileAuthState, DisconnectReason } = require('@717development/baileys');
   const { state, saveCreds } = await useMultiFileAuthState(dir);
 
-  const sockNew = require('@onedevil405/baileys').default({
+  const sockNew = require('@717development/baileys').default({
     auth: state,
     logger: pino({ level: 'silent' }),
     browser: ['Dragon', 'Desktop', '1.0.0'],
