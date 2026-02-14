@@ -6,26 +6,13 @@ const {
   fetchLatestBaileysVersion,
   Browsers,
   DisconnectReason
-} = require('@717development/baileys');
+} = require('@whiskeysockets/baileys');
 
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
-
-// Bothub/GameBot integration
-const bothub = require('./lib/bothub');
-// Fallback: set token if not provided via env — provided by user
-process.env.BOTHUB_API_TOKEN = process.env.BOTHUB_API_TOKEN || 'api_BotHub_37_1768129571193_c878cc6ad311523598adf74ebeecc1cadef6b3a87841f7ee87c013e4b0a60671';
-// Initialize Bothub only when explicitly enabled via env var
-// Set BOTHUB_ENABLED=true to enable (disabled by default)
-if (process.env.BOTHUB_ENABLED === 'true') {
-  // initialize Bothub in background (non-blocking)
-  bothub.init().catch(err => console.error('Bothub init failed:', err && err.message ? err.message : err));
-} else {
-  console.log('Bothub integration is disabled (BOTHUB_ENABLED!=true). To enable set BOTHUB_ENABLED=true');
-}
 
 async function askQuestion(query) {
   const rl = readline.createInterface({
@@ -58,7 +45,19 @@ async function startSock(sessionName, mode) {
   fs.mkdirSync(sessionFolder, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const { version } = await fetchLatestBaileysVersion();
+  
+  // Fetch version with timeout to avoid hanging
+  let version;
+  try {
+    const versionPromise = fetchLatestBaileysVersion();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Version fetch timeout')), 5000)
+    );
+    ({ version } = await Promise.race([versionPromise, timeoutPromise]));
+  } catch (err) {
+    console.log('⚠️  Using fallback version (timeout or error)');
+    version = { version: [2, 2412, 1], isLatest: false };
+  }
 
   const sock = makeWASocket({
     version,
@@ -165,8 +164,7 @@ async function startSock(sessionName, mode) {
 }
 
 (async () => {
-  console.log('=== index.js starting ===');
-  // console.clear();  // temporarily disabled to keep startup logs visible
+  console.clear();
   printLogo();
 
   const sessionsDir = './sessions';
@@ -181,21 +179,7 @@ async function startSock(sessionName, mode) {
     console.log('[a] Alle Sessions starten');
     console.log('[n] Neue Session starten');
 
-    // Allow automatic selection via environment variable or CLI arg
-    // Examples: PM2_SESSION=1 pm2 start index.js   OR   pm2 start index.js -- --session=1
-    let choice = null;
-    const envChoice = process.env.PM2_SESSION || process.env.AUTO_SESSION;
-    const argMatch = process.argv.find(a => a.startsWith('--session=')) || process.argv[2];
-    const argChoice = argMatch && argMatch.toString().includes('=') ? argMatch.split('=')[1] : argMatch;
-    if (envChoice) {
-      choice = envChoice.toString();
-      console.log(`> Auto-Choice from ENV: ${choice}`);
-    } else if (argChoice) {
-      choice = argChoice.toString();
-      console.log(`> Auto-Choice from argv: ${choice}`);
-    } else {
-      choice = await askQuestion('> ');
-    }
+    const choice = await askQuestion('> ');
 
     if (choice.toLowerCase() === 'n') {
       const newSessionName = await askQuestion('Neuen Session-Namen eingeben:\n> ');

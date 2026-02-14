@@ -41,7 +41,7 @@ function ask(question) {
 }
 
 async function startSock(sessionName, mode, phoneNumber) {
-  const sessionDir = path.join(__dirname, "sessions", sessionName);
+  const sessionDir = path.join(__dirname, "sessions2", sessionName);
   fs.mkdirSync(sessionDir, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
@@ -56,6 +56,9 @@ async function startSock(sessionName, mode, phoneNumber) {
   });
 
   sock.ev.on("creds.update", saveCreds);
+
+  let _resolveReady;
+  const ready = new Promise(r => _resolveReady = r);
 
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
     if (qr && mode === "qr") {
@@ -79,6 +82,7 @@ async function startSock(sessionName, mode, phoneNumber) {
       console.log(box([
         `${colors.green}✅ Session ${sessionName} ist online!${colors.reset}`
       ]));
+      try { _resolveReady(); } catch (e) {}
     }
   });
 
@@ -96,6 +100,7 @@ async function startSock(sessionName, mode, phoneNumber) {
       console.log(box([`${colors.red}❌ Fehler beim Pairing: ${e.message}${colors.reset}`]));
     }
   }
+  return ready;
 }
 
 (async () => {
@@ -129,6 +134,36 @@ async function startSock(sessionName, mode, phoneNumber) {
     const mode = (await ask("➤ Login [qr/pair]: ")).toLowerCase();
     let phone = null;
     if (mode === "pair") phone = await ask("➤ Telefonnummer: ");
-    startSock(name, mode, phone);
+    await startSock(name, mode, phone);
+
+    // After first session is ready, offer to start other sessions
+    const available = fs.readdirSync(sessionsDir)
+      .filter(n => fs.statSync(path.join(sessionsDir, n)).isDirectory());
+
+    console.log(box([
+      `${colors.cyan}${colors.bold}Start-Optionen${colors.reset}`,
+      `${colors.green}[1]${colors.reset} Alle Sessions starten`,
+      `${colors.green}[2]${colors.reset} Eine bestimmte Session starten`,
+      `${colors.green}[3]${colors.reset} Beenden`
+    ]));
+    const opt = await ask("> ");
+
+    if (opt === "1") {
+      for (const s of available) {
+        if (s === name) continue;
+        startSock(s, "qr");
+      }
+    } else if (opt === "2") {
+      if (!available.length) {
+        console.log(box([`${colors.yellow}Keine weiteren Sessions vorhanden.${colors.reset}`]));
+      } else {
+        console.log(box([
+          ...available.map((s, i) => `${colors.green}[${i+1}]${colors.reset} ${s}`)
+        ]));
+        const choice = await ask("Wähle Session: ");
+        const idx = parseInt(choice) - 1;
+        if (available[idx]) startSock(available[idx], "qr");
+      }
+    }
   }
 })();

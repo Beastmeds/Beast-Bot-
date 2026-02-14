@@ -13,7 +13,6 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const { downloadMediaMessage } = require('@717development/baileys');
 const chalk = require('chalk');
-const ffmpeg = require('@ffmpeg-installer/ffmpeg'); 
 const allowedRanks = require('./ranksConfig.json');
 const { proto, generateWAMessageFromContent, prepareWAMessageMedia, getContentType } = require('@717development/baileys');
 const { downloadContentFromMessage } = require('@717development/baileys')
@@ -21,13 +20,20 @@ const crypto = require('crypto');
 const pino = require('pino');
 const axios = require('axios');
 const { Buffer } = require('buffer');
-const fetch = require('node-fetch');
-const { getPreview } = require('spotify-url-info')(fetch);
 const STATS_FILE = "./botStats.json";
 const { getAudioBuffer, saveTempAudio } = require('./audioHelper');
 const FormData = require('form-data');
 const ranks = require('./rangsystem/ranks.js');
 const { isGroupLocked, lockGroup, unlockGroup } = require('./lib/lockedGroups');
+
+// Lazy load heavy dependencies
+let ffmpeg, fetch, getPreview;
+const loadHeavyDeps = () => {
+  if (!ffmpeg) ffmpeg = require('@ffmpeg-installer/ffmpeg');
+  if (!fetch) fetch = require('node-fetch');
+  if (!getPreview) getPreview = require('spotify-url-info')(fetch);
+  return { ffmpeg, fetch, getPreview };
+};
 
 const BOTHUB_URL = "https://bothub.gamebot.me/api/bot/update-stats";
 const BOTHUB_TOKEN = "api_BotHub_13_1756984116657_ceb64da87bc3fe215bdb430041778b36";
@@ -38,8 +44,13 @@ const loadBlocked = () => JSON.parse(fs.readFileSync(blockedFile));
 const saveBlocked = (data) => fs.writeFileSync(blockedFile, JSON.stringify(data, null, 2));
 
 const path = require('path');
-const { Sticker } = require('wa-sticker-formatter');
 
+// Lazy load Sticker
+let Sticker;
+const getSticker = () => {
+  if (!Sticker) Sticker = require('wa-sticker-formatter').Sticker;
+  return Sticker;
+};
 
 const supportFile = './support.json';
 if (!fs.existsSync(supportFile)) fs.writeFileSync(supportFile, JSON.stringify({ lastId: 0, tickets: [] }, null, 2));
@@ -290,11 +301,17 @@ function unbanUser(jid) {
   bans = bans.filter(b => b.jid !== jid);
   saveBans(bans);
 }
-module.exports = { isBanned, banUser, unbanUser };
 
+// Lazy load Database
+let db;
+const getDB = () => {
+  if (!db) {
+    const Database = require('better-sqlite3');
+    db = new Database(path.join(__dirname, 'data', 'stormbot_users.db'));
+  }
+  return db;
+};
 
-const Database = require('better-sqlite3');
-const db = new Database(path.join(__dirname, 'data', 'stormbot_users.db'));
 let botStats = {
   users: 0,
   groups: 0,
@@ -773,10 +790,17 @@ async function downloadAudioMessage(msg, sock) {
   }
 }
 
+// 🟢 Bot-Startup-Info
+console.log('');
+console.log('╔════════════════════════════════════════════════════════════╗');
+console.log('║                                                            ║');
+console.log('║            ✅ Beast Bot ist bereit!                         ║');
+console.log('║            Session: ' + sessionName + ' ist aktiv       ║');
+console.log('║                                                            ║');
+console.log('╚════════════════════════════════════════════════════════════╝');
+console.log('');
 
 
-
-// Nachrichten-Handler
 sock.ev.on('messages.upsert', async (m) => {
   const msg = m.messages[0];
   if (!msg.message) return;
@@ -785,6 +809,21 @@ sock.ev.on('messages.upsert', async (m) => {
   const from = chatId;
   const body = msg.message.conversation || msg.message.extendedTextMessage?.text;
   if (!body) return;
+
+  // 📌 Definiere pushName früh, damit es überall verfügbar ist
+  let pushName = msg.pushName || null;
+
+  // 📌 Definiere cleanedSenderNumber auch früh
+  let senderNumber;
+  const isGroupChat = chatId && chatId.endsWith('@g.us');
+  if (msg.key.fromMe) {
+    senderNumber = (msg.key.participant || msg.key.remoteJid || '').split('@')[0];
+  } else if (isGroupChat) {
+    senderNumber = (msg.key.participant || chatId).split('@')[0];
+  } else {
+    senderNumber = chatId.split('@')[0];
+  }
+  const cleanedSenderNumber = senderNumber.replace(/[^0-9]/g, '');
 
   const prefix = getPrefixForChat(chatId);
 
@@ -1103,19 +1142,7 @@ const time =
   ', ' +
   now.toLocaleTimeString('de-DE', { hour12: false });
 
-const isGroupChat = chatId && chatId.endsWith('@g.us');
 const chatType = isGroupChat ? 'Gruppe' : 'Privat';
-
-
-let senderNumber;
-if (msg.key.fromMe) {
-  senderNumber = (msg.key.participant || msg.key.remoteJid || '').split('@')[0];
-} else if (isGroupChat) {
-  senderNumber = (msg.key.participant || chatId).split('@')[0];
-} else {
-  senderNumber = chatId.split('@')[0];
-}
-const cleanedSenderNumber = senderNumber.replace(/[^0-9]/g, '');
 
 
 const id = msg.key.id || '';
@@ -1267,9 +1294,6 @@ const senderJid = isGroupChat
 
 
 const botDevice = msg.key.fromMe ? 'Ich (Bot)' : 'User';
-
-
-let pushName = msg.pushName || null;
 
 
 let groupName = null;

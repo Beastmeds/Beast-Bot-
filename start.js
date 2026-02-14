@@ -50,6 +50,9 @@ async function startSock(sessionName) {
 
   sock.ev.on('creds.update', saveCreds);
 
+  let _resolveReady;
+  const ready = new Promise(r => _resolveReady = r);
+
   sock.ev.on('connection.update', async ({ connection, qr }) => {
     if (qr) {
       console.clear();
@@ -74,14 +77,13 @@ async function startSock(sessionName) {
 
       try {
         await sock.updateProfileStatus(statusText);
-        await sock.sendMessage(targetJid, { text: 'Beast Bot ist jetzt online' });
-        console.log(`${colors.cyan}ℹ️ WhatsApp-Info automatisch gesetzt.${colors.reset}`);
+        console.log(`${colors.cyan}ℹ️ WhatsApp-Status automatisch gesetzt.${colors.reset}`);
       } catch (err) {
-        console.log(`${colors.red}❌ Konnte WhatsApp-Info nicht ändern: ${err.message}${colors.reset}`);
+        console.log(`${colors.red}❌ Konnte WhatsApp-Status nicht ändern: ${err.message}${colors.reset}`);
       }
 
       // 🖋️ Profilname auf 𝓞𝓷𝓮𝓓𝓮𝓿𝓲𝓵🩸 setzen
-      const newName = '𝓞𝓷𝓮𝓓𝓮𝓿𝓲𝓵🩸';
+      const newName = 'Beast Bot';
       try {
         await sock.updateProfileName(newName);
         if (!global.profileLogShown) {
@@ -134,6 +136,7 @@ async function startSock(sessionName) {
       }
     }
   });
+  return ready;
 }
 
 (async () => {
@@ -147,11 +150,61 @@ async function startSock(sessionName) {
     .filter((name) => fs.statSync(path.join(sessionsDir, name)).isDirectory());
 
   if (existingSessions.length > 0) {
-    console.log(`${colors.cyan}🚀 Starte automatisch alle Sessions...${colors.reset}`);
-    existingSessions.forEach((session) => startSock(session));
+    console.log(`${colors.cyan}⚙️ Gefundene Sessions:${colors.reset}`);
+    existingSessions.forEach((s, i) => console.log(`${colors.green}[${i+1}]${colors.reset} ${s}`));
+    console.log(`${colors.green}[n]${colors.reset} Neue Session`);
+    console.log(`${colors.green}[a]${colors.reset} Alle Sessions starten`);
+    console.log(`${colors.green}[e]${colors.reset} Beenden`);
+
+    const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
+    const ask = (q) => new Promise(res => rl.question(q, a => res(a.trim())));
+    const choice = await ask('> ');
+
+    if (choice.toLowerCase() === 'n') {
+      const name = await ask('➤ Session-Name: ');
+      const mode = (await ask('➤ Login [qr/pair]: ')).toLowerCase();
+      let phone = null;
+      if (mode === 'pair') phone = await ask('➤ Telefonnummer (mit Ländervorwahl): ');
+      await startSock(name, mode, phone);
+    } else if (choice.toLowerCase() === 'a') {
+      for (const s of existingSessions) startSock(s, 'qr');
+    } else if (/^\d+$/.test(choice)) {
+      const idx = parseInt(choice) - 1;
+      if (existingSessions[idx]) startSock(existingSessions[idx], 'qr');
+    }
+    rl.close();
   } else {
     const defaultSession = 'main';
     console.log(`${colors.yellow}⚠️ Keine Sessions gefunden. Starte neue Session: ${defaultSession}${colors.reset}`);
     await startSock(defaultSession);
+
+    // After first session is ready, offer to start other sessions
+    const available = fs.readdirSync(sessionsDir)
+      .filter(n => fs.statSync(path.join(sessionsDir, n)).isDirectory());
+
+    console.log(`${colors.cyan}Start-Optionen:${colors.reset}`);
+    console.log(`${colors.green}[1]${colors.reset} Alle Sessions starten`);
+    console.log(`${colors.green}[2]${colors.reset} Eine bestimmte Session starten`);
+    console.log(`${colors.green}[3]${colors.reset} Beenden`);
+    const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
+    const ask = (q) => new Promise(res => rl.question(q, a => res(a.trim())));
+    const opt = await ask('> ');
+
+    if (opt === '1') {
+      for (const s of available) {
+        if (s === defaultSession) continue;
+        startSock(s);
+      }
+    } else if (opt === '2') {
+      if (!available.length) {
+        console.log(`${colors.yellow}Keine weiteren Sessions vorhanden.${colors.reset}`);
+      } else {
+        available.forEach((s, i) => console.log(`${colors.green}[${i+1}]${colors.reset} ${s}`));
+        const choice = await ask('Wähle Session: ');
+        const idx = parseInt(choice) - 1;
+        if (available[idx]) startSock(available[idx]);
+      }
+    }
+    rl.close();
   }
 })();
