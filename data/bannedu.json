@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "jid": "@218507098771705",
+    "reason": "Trigert mich der",
+    "timestamp": 1771367237144
+  },
+  {
+    "jid": "41670443843782",
+    "reason": "Kein Grund angegeben",
+    "timestamp": 1771714672585
+  },
+  {
+    "jid": "43650856479142@s.whatsapp.net",
+    "reason": "Kein Grund angegeben",
+    "timestamp": 1771714882579
+  },
+  {
+    "jid": "436508564791:42@s.whatsapp.net",
+    "reason": "Kein Grund angegeben",
+    "timestamp": 1771714894043
+  },
+  {
+    "jid": "+4915679655557",
+    "reason": "Kein Grund angegeben",
+    "timestamp": 1771714913399
+  }
+]

@@ -10,6 +10,10 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 
+// Ensure logs directory exists and create a shared logger writing to file + console
+if (!fs.existsSync(path.join(__dirname, 'logs'))) fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' }, pino.destination(path.join(__dirname, 'logs', 'log.txt')));
+
 const colors = {
   reset: '\x1b[0m',
   green: '\x1b[32m',
@@ -42,7 +46,7 @@ async function startSock(sessionName) {
     version,
     printQRInTerminal: false,
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: logger,
     markOnlineOnConnect: true,
     emitOwnEvents: true,
     browser: Browsers.ubuntu('Edge'),
@@ -95,20 +99,35 @@ async function startSock(sessionName) {
         }
       }
 
-      // 🖼️ Profilbild aktualisieren (falls vorhanden)
+      // 🖼️ Profilbild aktualisieren (falls vorhanden) — mit Retry bei Verbindungsfehlern
       const profilePicPath = path.resolve('./bot/bot.png');
       if (fs.existsSync(profilePicPath)) {
-        try {
-          const imageBuffer = fs.readFileSync(profilePicPath);
-          await sock.updateProfilePicture(sock.user.id, imageBuffer);
-          if (!global.profileLogShown) {
-            console.log(`${colors.green}🖼️ Profilbild erfolgreich aktualisiert!${colors.reset}`);
+        const imageBuffer = fs.readFileSync(profilePicPath);
+        const tryUpdatePic = async () => {
+          const attempts = 3;
+          for (let i = 1; i <= attempts; i++) {
+            try {
+              await sock.updateProfilePicture(sock.user.id, imageBuffer);
+              if (!global.profileLogShown) console.log(`${colors.green}🖼️ Profilbild erfolgreich aktualisiert!${colors.reset}`);
+              return true;
+            } catch (err) {
+              const msg = String(err?.output?.payload?.message || err?.message || '');
+              // Bei Verbindung geschlossen: kurz warten und erneut versuchen
+              if (msg.includes('Connection Closed') || msg.includes('Precondition Required') || msg.includes('ECONNRESET')) {
+                if (i === attempts) {
+                  if (!global.profileLogShown) console.log(`${colors.red}❌ Fehler beim Setzen des Profilbildes nach ${attempts} Versuchen: ${err.message}${colors.reset}`);
+                  return false;
+                }
+                await new Promise(r => setTimeout(r, 3000));
+                continue;
+              } else {
+                if (!global.profileLogShown) console.log(`${colors.red}❌ Fehler beim Setzen des Profilbildes: ${err.message}${colors.reset}`);
+                return false;
+              }
+            }
           }
-        } catch (err) {
-          if (!global.profileLogShown) {
-            console.log(`${colors.red}❌ Fehler beim Setzen des Profilbildes: ${err.message}${colors.reset}`);
-          }
-        }
+        };
+        await tryUpdatePic();
       } else {
         if (!global.profileLogShown) {
           console.log(`${colors.yellow}⚠️ Kein Profilbild gefunden (bot.png fehlt).${colors.reset}`);

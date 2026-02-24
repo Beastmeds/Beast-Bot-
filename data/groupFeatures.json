@@ -1,1 +1,30 @@
-{}
+{
+  "120363423649822867@g.us": {
+    "welcome": true,
+    "goodbye": true,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "badwords": [
+      "Fuck"
+    ]
+  },
+  "120363422298208180@g.us": {
+    "welcome": false,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": true,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "badwords": []
+  }
+}

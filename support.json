@@ -1,4 +1,21 @@
 {
-  "lastId": 0,
-  "tickets": []
+  "lastId": 2,
+  "tickets": [
+    {
+      "id": 1,
+      "user": "157805923274884@lid",
+      "chat": "120363423649822867@g.us",
+      "message": "Test",
+      "status": "beantwortet",
+      "timestamp": 1771075003877
+    },
+    {
+      "id": 2,
+      "user": "157805923274884@lid",
+      "chat": "120363423649822867@g.us",
+      "message": "Test",
+      "status": "offen",
+      "timestamp": 1771075060009
+    }
+  ]
 }

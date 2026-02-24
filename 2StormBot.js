@@ -1,5 +1,6 @@
 const tttGames = {}; // { jid: { board: ['','','','','','','','',''], turn: 'X'|'O', status: 'playing' } }
 const bjGames = {}; // { jid: { hand: [], dealer: [], status: 'playing'|'stand', bet: Zahl } }
+let spamInterval = 0; // Intervall zwischen Nachrichten in ms für Spam-Funktion
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -44,6 +45,10 @@ const loadBlocked = () => JSON.parse(fs.readFileSync(blockedFile));
 const saveBlocked = (data) => fs.writeFileSync(blockedFile, JSON.stringify(data, null, 2));
 
 const path = require('path');
+
+// create shared logger that writes to logs/log.txt
+if (!fs.existsSync(path.join(__dirname, 'logs'))) fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' }, pino.destination(path.join(__dirname, 'logs', 'log.txt')));
 
 // Lazy load Sticker
 let Sticker;
@@ -175,6 +180,29 @@ function saveGroupFeatures(groupId, features) {
   }
 }
 
+// Global disabled commands storage
+const disabledCommandsFile = './data/disabledCommands.json';
+if (!fs.existsSync(path.dirname(disabledCommandsFile))) fs.mkdirSync(path.dirname(disabledCommandsFile), { recursive: true });
+if (!fs.existsSync(disabledCommandsFile)) fs.writeFileSync(disabledCommandsFile, JSON.stringify({ disabled: [] }, null, 2));
+
+function loadDisabledCommands() {
+  try {
+    const raw = fs.readFileSync(disabledCommandsFile, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    return parsed.disabled || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveDisabledCommands(list) {
+  try {
+    fs.writeFileSync(disabledCommandsFile, JSON.stringify({ disabled: list }, null, 2));
+  } catch (e) {
+    console.error('Error saving disabled commands:', e);
+  }
+}
+
 const welcomeDataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(welcomeDataDir)) fs.mkdirSync(welcomeDataDir, { recursive: true });
 
@@ -268,6 +296,119 @@ const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
 const banFile = path.join(dataDir, 'bannedu.json');
+const ipBanFile = path.join(dataDir, 'ipbans.json');
+const deviceOverrideFile = path.join(dataDir, 'deviceOverrides.json');
+const usersFile = path.join(dataDir, 'users.json');
+
+function loadDeviceOverrides() {
+  if (!fs.existsSync(deviceOverrideFile)) {
+    fs.writeFileSync(deviceOverrideFile, "[]", 'utf-8');
+  }
+  return JSON.parse(fs.readFileSync(deviceOverrideFile, 'utf-8'));
+}
+
+function saveDeviceOverrides(list) {
+  fs.writeFileSync(deviceOverrideFile, JSON.stringify(list, null, 2), 'utf-8');
+}
+
+function getDeviceOverride(jid) {
+  const list = loadDeviceOverrides();
+  return list.find(i => i.jid === jid) || null;
+}
+
+function setDeviceOverride(jid, label) {
+  const list = loadDeviceOverrides();
+  if (!list.some(i => i.jid === jid)) {
+    list.push({ jid, label, timestamp: Date.now() });
+    saveDeviceOverrides(list);
+  }
+}
+
+function removeDeviceOverride(jid) {
+  let list = loadDeviceOverrides();
+  list = list.filter(i => i.jid !== jid);
+  saveDeviceOverrides(list);
+}
+
+// ==================== USER JSON STORAGE ====================
+function loadUsers() {
+  if (!fs.existsSync(usersFile)) {
+    fs.writeFileSync(usersFile, JSON.stringify({}, null, 2), 'utf-8');
+  }
+  try {
+    return JSON.parse(fs.readFileSync(usersFile, 'utf-8')) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveUsers(data) {
+  try {
+    fs.writeFileSync(usersFile, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving users JSON:', e.message);
+  }
+}
+
+function syncUserToJSON(jid, userData) {
+  // Sync user data to JSON file whenever updated in DB
+  const users = loadUsers();
+  users[jid] = {
+    jid,
+    name: userData.name || jid.split('@')[0],
+    balance: userData.balance || 0,
+    xp: userData.xp || 0,
+    level: userData.level || 1,
+    lastUpdated: new Date().toISOString()
+  };
+  saveUsers(users);
+}
+
+function syncUserFromJSON(jid, userData) {
+  // Sync user data from JSON file back to DB
+  try {
+    if (userData.jid && userData.name !== undefined && userData.balance !== undefined) {
+      updateUserStmt.run(userData.balance, userData.xp || 0, userData.level || 1, userData.name, jid);
+      console.log(`✅ User ${userData.name} synced from JSON to DB`);
+    }
+  } catch (err) {
+    console.error('Error syncing user from JSON:', err.message);
+  }
+}
+
+let userFileWatchTimeout;
+function startUserFileWatcher() {
+  // Überwache die users.json Datei auf Änderungen
+  fs.watch(usersFile, (eventType, filename) => {
+    // Debounce: Ignoriere mehrfache Events in kurzer Zeit
+    if (userFileWatchTimeout) return;
+    userFileWatchTimeout = setTimeout(() => {
+      userFileWatchTimeout = null;
+    }, 2000);
+    
+    if (eventType === 'change') {
+      console.log(`📝 Änderung in users.json erkannt...`);
+      try {
+        const users = loadUsers();
+        for (const [jid, userData] of Object.entries(users)) {
+          const dbUser = getUser(jid);
+          // Wenn Werte unterschiedlich sind, update DB
+          if (dbUser && (
+            dbUser.balance !== userData.balance ||
+            dbUser.xp !== userData.xp ||
+            dbUser.level !== userData.level ||
+            dbUser.name !== userData.name
+          )) {
+            console.log(`🔄 Syncing changes for ${userData.name}: balance=${userData.balance}, xp=${userData.xp}, level=${userData.level}`);
+            syncUserFromJSON(jid, userData);
+          }
+        }
+      } catch (err) {
+        console.error('Error watching users.json:', err.message);
+      }
+    }
+  });
+}
 
 function loadBans() {
   if (!fs.existsSync(banFile)) {
@@ -280,12 +421,26 @@ function saveBans(list) {
   fs.writeFileSync(banFile, JSON.stringify(list, null, 2), 'utf-8');
 }
 
+function loadIPBans() {
+  if (!fs.existsSync(ipBanFile)) {
+    fs.writeFileSync(ipBanFile, "[]", 'utf-8');
+  }
+  return JSON.parse(fs.readFileSync(ipBanFile, 'utf-8'));
+}
+
+function saveIPBans(list) {
+  fs.writeFileSync(ipBanFile, JSON.stringify(list, null, 2), 'utf-8');
+}
 
 function isBanned(jid) {
   const bans = loadBans();
   return bans.find(b => b.jid === jid) || null;
 }
 
+function isIPBanned(ip) {
+  const bans = loadIPBans();
+  return bans.find(b => b.lid === ip) || null;
+}
 
 function banUser(jid, reason = 'Kein Grund angegeben') {
   const bans = loadBans();
@@ -295,11 +450,24 @@ function banUser(jid, reason = 'Kein Grund angegeben') {
   }
 }
 
+function banIP(ip, reason = 'Kein Grund angegeben') {
+  const bans = loadIPBans();
+  if (!bans.some(b => b.lid === ip)) {
+    bans.push({ lid: ip, reason, timestamp: Date.now() });
+    saveIPBans(bans);
+  }
+}
 
 function unbanUser(jid) {
   let bans = loadBans();
   bans = bans.filter(b => b.jid !== jid);
   saveBans(bans);
+}
+
+function unbanIP(ip) {
+  let bans = loadIPBans();
+  bans = bans.filter(b => b.ip !== ip);
+  saveIPBans(bans);
 }
 
 // Lazy load Database
@@ -353,50 +521,9 @@ let botStats = {
  function getStats() {
   }
 
-// Nachrichten-Handler
-db.prepare(`
-CREATE TABLE IF NOT EXISTS inventory (
-  jid TEXT,
-  fish TEXT,
-  count INTEGER DEFAULT 1,
-  PRIMARY KEY(jid, fish)
-)
-`).run();
-// Tabelle für Haustiere
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS pets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    jid TEXT,
-    petName TEXT,
-    hunger INTEGER DEFAULT 100,
-    health INTEGER DEFAULT 100,
-    level INTEGER DEFAULT 1,
-    lastFed INTEGER DEFAULT 0
-  )
-`).run();
-
-// Tabelle für Items im Besitz des Users
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    jid TEXT,
-    itemName TEXT,
-    amount INTEGER DEFAULT 1
-  )
-`).run();
-
-
-// === VORBEREITETE STATEMENTS ===
-const getUserStmt = db.prepare('SELECT * FROM users WHERE jid = ?');
-const ensureUserStmt = db.prepare('INSERT INTO users (jid, name, balance, xp, level) VALUES (?, ?, ?, ?, ?)');
-const deleteUserStmt = db.prepare('DELETE FROM users WHERE jid = ?');
-const updateUserStmt = db.prepare('UPDATE users SET balance = ?, xp = ?, level = ?, name = ? WHERE jid = ?');
-
-const getFishStmt = db.prepare('SELECT * FROM inventory WHERE jid = ? AND fish = ?');
-const addFishStmt = db.prepare('INSERT OR REPLACE INTO inventory (jid, fish, count) VALUES (?, ?, ?)');
-const getAllFishStmt = db.prepare('SELECT * FROM inventory WHERE jid = ?');
-const topCoinsStmt = db.prepare('SELECT name, balance FROM users ORDER BY balance DESC LIMIT ?');
-const topXpStmt = db.prepare('SELECT name, xp, level FROM users ORDER BY xp DESC LIMIT ?');
+// Globale Variablen für DB Statements
+let getUserStmt, ensureUserStmt, deleteUserStmt, updateUserStmt;
+let getFishStmt, addFishStmt, getAllFishStmt, topCoinsStmt, topXpStmt;
 
 // === HELPER-FUNKTIONEN ===
 
@@ -410,6 +537,8 @@ function ensureUser(jid, name = null) {
   if (!u) {
     ensureUserStmt.run(jid, name || jid.split('@')[0], 100, 0, 1);
     u = getUser(jid);
+    // Auch zu JSON synchen
+    if (u) syncUserToJSON(jid, u);
   }
   return u;
 }
@@ -419,7 +548,10 @@ function deleteUser(jid) {
 }
 
 function updateUser(jid, balance, xp, level, name) {
-  return updateUserStmt.run(balance, xp, level, name, jid);
+  const result = updateUserStmt.run(balance, xp, level, name, jid);
+  // Auch zu JSON synchen
+  syncUserToJSON(jid, { name, balance, xp, level });
+  return result;
 }
 
 // XP & LEVEL
@@ -658,6 +790,63 @@ function saveFarewellData() {
 }
 //=================================================================//
 module.exports = async function (sock, sessionName) {
+  // Initialisiere Datenbank zuerst
+  const dbInstance = getDB();
+  
+  // Erstelle Tabellen
+  dbInstance.prepare(`
+CREATE TABLE IF NOT EXISTS inventory (
+  jid TEXT,
+  fish TEXT,
+  count INTEGER DEFAULT 1,
+  PRIMARY KEY(jid, fish)
+)
+`).run();
+
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS pets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jid TEXT,
+    petName TEXT,
+    hunger INTEGER DEFAULT 100,
+    health INTEGER DEFAULT 100,
+    level INTEGER DEFAULT 1,
+    lastFed INTEGER DEFAULT 0
+  )
+`).run();
+
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jid TEXT,
+    itemName TEXT,
+    amount INTEGER DEFAULT 1
+  )
+`).run();
+
+  // Initialisiere Prepared Statements
+  getUserStmt = dbInstance.prepare('SELECT * FROM users WHERE jid = ?');
+  ensureUserStmt = dbInstance.prepare('INSERT INTO users (jid, name, balance, xp, level) VALUES (?, ?, ?, ?, ?)');
+  deleteUserStmt = dbInstance.prepare('DELETE FROM users WHERE jid = ?');
+  updateUserStmt = dbInstance.prepare('UPDATE users SET balance = ?, xp = ?, level = ?, name = ? WHERE jid = ?');
+
+  getFishStmt = dbInstance.prepare('SELECT * FROM inventory WHERE jid = ? AND fish = ?');
+  addFishStmt = dbInstance.prepare('INSERT OR REPLACE INTO inventory (jid, fish, count) VALUES (?, ?, ?)');
+  getAllFishStmt = dbInstance.prepare('SELECT * FROM inventory WHERE jid = ?');
+  topCoinsStmt = dbInstance.prepare('SELECT name, balance FROM users ORDER BY balance DESC LIMIT ?');
+  topXpStmt = dbInstance.prepare('SELECT name, xp, level FROM users ORDER BY xp DESC LIMIT ?');
+
+  // Datenbank-Migrationen: Füge lastHuntTime hinzu falls nicht vorhanden
+  try {
+    const pragma = dbInstance.pragma('table_info(users)');
+    const hasLastHuntTime = pragma && pragma.some(col => col.name === 'lastHuntTime');
+    if (!hasLastHuntTime) {
+      dbInstance.prepare('ALTER TABLE users ADD COLUMN lastHuntTime INTEGER DEFAULT 0').run();
+      console.log('✅ Migration: lastHuntTime Spalte hinzugefügt');
+    }
+  } catch (migrationErr) {
+    console.error('Migration Fehler (ignoriert):', migrationErr.message);
+  }
 
   // Prefix storage (per-chat)
   const prefixesFile = path.join(__dirname, 'prefixes.json');
@@ -800,6 +989,9 @@ console.log('║                                                            ║'
 console.log('╚════════════════════════════════════════════════════════════╝');
 console.log('');
 
+// Starte File Watcher für users.json
+startUserFileWatcher();
+console.log('👁️ File Watcher für users.json aktiviert');
 
 sock.ev.on('messages.upsert', async (m) => {
   const msg = m.messages[0];
@@ -843,16 +1035,10 @@ sock.ev.on('messages.upsert', async (m) => {
     }, 2000);
   }
 
-  // Autoreact: reagiert automatisch auf eingehende Nachrichten, wenn aktiviert
+  // Autoreact: reagiert automatisch auf eingehende Nachrichten, wenn aktiviert (pro Gruppe)
   try {
-    const featuresFile = path.join(__dirname, 'featureTests.json');
-    let features = { autoreact: false };
-    if (fs.existsSync(featuresFile)) {
-      const raw = fs.readFileSync(featuresFile, 'utf8');
-      const parsed = JSON.parse(raw || '{}');
-      features = Object.assign({}, features, parsed);
-    }
-    if (features.autoreact && !body.startsWith(prefix)) {
+    const gf = loadGroupFeatures(chatId);
+    if (gf.autoreact && !body.startsWith(prefix)) {
       try {
         await sock.sendMessage(chatId, { react: { text: '😊', key: msg.key } });
       } catch (e) {
@@ -1156,15 +1342,9 @@ const isFromIOS = !isFromWeb && !isFromAndroid;
 const device = isFromWeb ? 'Web' : isFromAndroid ? 'Android' : 'iOS';
 const deviceEmoji = isFromWeb ? '💻' : isFromAndroid ? '📱' : '🍏';
 
-// === Testfeature: Leveling & Antilink (per-message handling) ===
+// === Testfeature: Leveling & Antilink (per-message handling, per-group) ===
 try {
-  const featuresFile = path.join(__dirname, 'featureTests.json');
-  let features = { leveling: false, antilink: false, antispam: false, antinsfw: false, autosticker: false, badwords: [] };
-  if (fs.existsSync(featuresFile)) {
-    const raw = fs.readFileSync(featuresFile, 'utf8');
-    const parsed = JSON.parse(raw || '{}');
-    features = Object.assign({}, features, parsed);
-  }
+  const features = loadGroupFeatures(chatId);
 
   // Anti-NSFW: lösche Bilder sofort, wenn aktiviert
   if (features.antinsfw && isGroupChat) {
@@ -1480,6 +1660,24 @@ console.log(chalk.gray(`> Argument: ${args.join(' ')}`));
 
 global.bannedUsers = new Set();
 
+// IP-Ban Check
+const userIP = msg.key?.participant?.split('@')[0] || sender?.split('@')[0] || 'unknown';
+if (isIPBanned(userIP)) {
+  const ipBanData = isIPBanned(userIP);
+  
+  // Reagiere auf die Nachricht
+  await sock.sendMessage(from, { react: { text: '🚫', key: msg.key } });
+
+  // Nachricht mit Grund
+  await sock.sendMessage(chatId, { 
+    text: `🚫 **IP-GEBANNT**\n\nDeine IP-Adresse ist gebannt und kann nicht mit diesem Bot interagieren.\n\n📝 Grund: ${ipBanData.reason}`
+  }, { quoted: msg });
+
+  // Logs
+  console.log(`[IP-BAN BLOCKED] IP: ${userIP} | User: ${sender} | Reason: ${ipBanData.reason}`);
+  return; // Stoppe Verarbeitung
+}
+
 // Dieser Check sollte **vor dem Switch/Command-Handler** laufen
 if (isBanned(sender)) {
   const banData = isBanned(sender); // enthält { jid, reason, timestamp }
@@ -1529,10 +1727,14 @@ if (command !== 'register' && !user) {
 
 const dbBlocked = loadBlocked();
 if (dbBlocked.blocked.includes(sender)) return; 
+
+// Lockgroup-Prüfung: Silent mode - nur Inhaber hört
 if (isGroupLocked(from)) {
+  // Nur Inhaber darf Commands ausführen
   const senderRank = ranks.getRank(sender);
-  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
-  if (!allowed.includes(senderRank)) {
+  
+  if (senderRank !== 'Inhaber') {
+    // Silent - keine Meldung an andere Nutzer
     return; 
   }
 }
@@ -1571,7 +1773,7 @@ if (user) {
 
 const commandsList = [
   
-  'menu', 'help', 'ping', 'runtime', 'server', 'owner', 'support', 'tos',
+  'menu', 'help', 'ping', 'runtime', 'server', 'owner', 'support', 'tos', 'bewerben',
 
 
   'play', 'play1', 'play2', 'sticker', 'viewonce', 'getpic',
@@ -1590,7 +1792,7 @@ const commandsList = [
 
   
   'shop', 'buy', 'use', 'inventory', 'register', 'me', 'profile',
-  'addcoins', 'delcoins', 'topcoins', 'topxp', 'pets', 'pethunt', 'fish', 'fishlist',
+  'addcoins', 'delcoins', 'topcoins', 'topxp', 'pets', 'pethunt', 'sellpet', 'fish', 'fishlist',
 
   'hug', 'kiss', 'slap', 'pat', 'poke', 'cuddle', 'fuck', 'horny', 'goon', 'penis', 'tok', 'tok2',
 
@@ -1602,7 +1804,7 @@ const commandsList = [
   // Stranger Things fun
   'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon', 'redrun', 'darkweb', 'strangergame', 'moviequote', 'hawkins', 'dna', 'friends', 'gate',
   // AI Commands
-  'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define',
+  'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define', 'nyxion',
   // User Config
   'config',
   // Audio Effects
@@ -1649,43 +1851,49 @@ sock.ev.on('group-participants.update', async (update) => {
     const db = loadWelcome();
     const groupId = update.id;
 
-    // Load global feature toggles (testfeatures)
-    let features = { welcome: false, goodbye: false, antibot: false };
+    // Load per-group feature toggles (default: all off)
+    let groupFeatures = {};
     try {
-      const featuresFile = path.join(__dirname, 'featureTests.json');
-      if (fs.existsSync(featuresFile)) {
-        const raw = fs.readFileSync(featuresFile, 'utf8');
-        const parsed = JSON.parse(raw || '{}');
-        features = Object.assign({}, features, parsed);
+      const gfPath = path.join(__dirname, 'data', 'groupFeatures.json');
+      if (fs.existsSync(gfPath)) {
+        const raw = fs.readFileSync(gfPath, 'utf8');
+        groupFeatures = JSON.parse(raw || '{}');
       }
     } catch (e) {
       // ignore feature load errors
+      groupFeatures = {};
     }
 
-    for (const user of update.participants) {
-      try {
-        const name = user.split('@')[0];
-
-        // JOIN
-        if (update.action === 'add') {
-          // per-group welcome (db) or global testfeature
-          if (db[groupId]?.enabled || features.welcome) {
-            const welcomeText = (db[groupId]?.text || 'Willkommen @user 🎉').replace(/@user/gi, `@${name}`);
-            await sock.sendMessage(groupId, { text: welcomeText, mentions: [user] });
+    // Handle participants as a batch to avoid sending the same welcome/goodbye multiple times
+    const participants = (update.participants || []).map(u => (typeof u === 'string' ? u : (u.jid || u.id || String(u))));
+    const uniqueParticipants = [...new Set(participants)];
+    try {
+      // JOIN (send a single welcome message for all new participants)
+      if (update.action === 'add') {
+        const gFeat = groupFeatures[groupId] || {};
+        if (db[groupId]?.enabled || gFeat.welcome) {
+          try {
+            const namesList = uniqueParticipants.map(u => `@${u.split('@')[0]}`).join(' ');
+            const welcomeText = (db[groupId]?.text || 'Willkommen @user 🎉').replace(/@user/gi, namesList);
+            await sock.sendMessage(groupId, { text: welcomeText, mentions: uniqueParticipants });
+          } catch (msgErr) {
+            if (msgErr?.data !== 429) console.error('Welcome message error:', msgErr?.message || msgErr);
           }
+        }
 
-          // Antibot: entferne heuristische Bot-Accounts, falls aktiviert
-          if (features.antibot) {
+        // Antibot: prüfen und ggf. pro Teilnehmer entfernen (keine Mehrfach-Willkommensnachricht)
+        if ((groupFeatures[groupId] || {}).antibot) {
+          for (const userJid of uniqueParticipants) {
             try {
-              const contactInfo = await sock.onWhatsApp(user).catch(() => null);
+              const contactInfo = await sock.onWhatsApp(userJid).catch(() => null);
               const notify = contactInfo && contactInfo[0] && contactInfo[0].notify ? contactInfo[0].notify : '';
-              const isBot = /bot/i.test(notify) || /bot/i.test(user);
+              const isBot = /bot/i.test(notify) || /bot/i.test(userJid);
               if (isBot) {
                 try {
-                  await sock.groupParticipantsUpdate(groupId, [user], 'remove');
-                  await sock.sendMessage(groupId, { text: `🤖 Bot erkannt und entfernt: @${user.split('@')[0]}`, mentions: [user] });
+                  await sock.groupParticipantsUpdate(groupId, [userJid], 'remove');
+                  await sock.sendMessage(groupId, { text: `🤖 Bot erkannt und entfernt: @${userJid.split('@')[0]}`, mentions: [userJid] });
                 } catch (kickErr) {
-                  console.error('Antibot kick failed:', kickErr && kickErr.message ? kickErr.message : kickErr);
+                  if (kickErr?.data !== 429) console.error('Antibot kick failed:', kickErr?.message || kickErr);
                 }
               }
             } catch (errBot) {
@@ -1693,23 +1901,43 @@ sock.ev.on('group-participants.update', async (update) => {
             }
           }
         }
+      }
 
-        // LEAVE / REMOVE
-        if (update.action === 'remove' || update.action === 'leave') {
-          if (db[groupId]?.goodbye || features.goodbye) {
-            const goodbyeText = (db[groupId]?.goodbyeText || 'Tschüss @user 👋').replace(/@user/gi, `@${name}`);
-            await sock.sendMessage(groupId, { text: goodbyeText, mentions: [user] });
+      // LEAVE / REMOVE (send a single goodbye message for all removed participants)
+      if (update.action === 'remove' || update.action === 'leave') {
+        const gFeatLeave = groupFeatures[groupId] || {};
+        if (db[groupId]?.goodbye || gFeatLeave.goodbye) {
+          try {
+            const namesList = uniqueParticipants.map(u => `@${u.split('@')[0]}`).join(' ');
+            const goodbyeText = (db[groupId]?.goodbyeText || 'Tschüss @user 👋').replace(/@user/gi, namesList);
+            await sock.sendMessage(groupId, { text: goodbyeText, mentions: uniqueParticipants });
+          } catch (msgErr) {
+            if (msgErr?.data !== 429) console.error('Goodbye message error:', msgErr?.message || msgErr);
           }
         }
-      } catch (innerErr) {
-        console.error('Fehler beim Verarbeiten eines Participants-Eintrags:', innerErr);
+      }
+    } catch (innerErr) {
+      if (innerErr?.data !== 429 && !innerErr?.message?.includes('rate')) {
+        console.error('Participant batch error:', innerErr?.message || innerErr);
       }
     }
   } catch (err) {
-    console.error('Fehler beim Welcome-Event:', err);
+    console.error('Group update error:', err?.message || err);
   }
 });
 
+// COMMAND HANDLER - MUSS INSIDE des messages.upsert HANDLERS SEIN
+// Verschiebe das hier rein:
+// Prüfe global deaktivierte Befehle vor dem switch
+try {
+  const disabledList = loadDisabledCommands();
+  if (disabledList.includes(command) && command !== 'enable' && command !== 'disable') {
+    await sock.sendMessage(chatId, { text: `⛔ Befehl '${command}' ist global deaktiviert.` }, { quoted: msg });
+    return;
+  }
+} catch (e) {
+  // ignore
+}
 
 switch (command) {
 case 'fishlist': {
@@ -1735,6 +1963,44 @@ case 'fishlist': {
 
     await sock.sendMessage(from, { text: "📡 Aktualisiere Bothub-Daten..." });
     await updateBothubStats(sock, from);
+    break;
+  }
+
+  case 'disable': {
+    const senderRank = ranks.getRank(sender);
+    const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+    if (!allowed.includes(senderRank)) {
+      await sock.sendMessage(from, { text: '⛔ Nur Inhaber oder Stellvertreter dürfen diesen Befehl ausführen.' }, { quoted: msg });
+      break;
+    }
+    const toDisable = args && args[0] ? args[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') : null;
+    if (!toDisable) return await sock.sendMessage(from, { text: 'Verwendung: /disable <befehl>' }, { quoted: msg });
+    if (['disable','enable'].includes(toDisable)) return await sock.sendMessage(from, { text: 'Diese Befehle können nicht deaktiviert werden.' }, { quoted: msg });
+    const list = loadDisabledCommands();
+    if (!list.includes(toDisable)) {
+      list.push(toDisable);
+      saveDisabledCommands(list);
+    }
+    await sock.sendMessage(from, { text: `✅ Befehl '${toDisable}' global deaktiviert.` }, { quoted: msg });
+    break;
+  }
+
+  case 'enable': {
+    const senderRank = ranks.getRank(sender);
+    const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+    if (!allowed.includes(senderRank)) {
+      await sock.sendMessage(from, { text: '⛔ Nur Inhaber oder Stellvertreter dürfen diesen Befehl ausführen.' }, { quoted: msg });
+      break;
+    }
+    const toEnable = args && args[0] ? args[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') : null;
+    if (!toEnable) return await sock.sendMessage(from, { text: 'Verwendung: /enable <befehl>' }, { quoted: msg });
+    const list = loadDisabledCommands();
+    const idx = list.indexOf(toEnable);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      saveDisabledCommands(list);
+    }
+    await sock.sendMessage(from, { text: `✅ Befehl '${toEnable}' global aktiviert.` }, { quoted: msg });
     break;
   }
 
@@ -1823,7 +2089,7 @@ case 'fishlist': {
       // Try to get registered users from DB (more accurate)
       let usersCount = 0;
       try {
-        const row = db.prepare('SELECT COUNT(*) as c FROM users').get();
+        const row = getDB().prepare('SELECT COUNT(*) as c FROM users').get();
         usersCount = (row && row.c) || 0;
       } catch (e) {
         // fallback to participants count in chats object
@@ -1904,45 +2170,60 @@ case 'fishlist': {
 
       let files = [];
       try {
-        files = fs.readdirSync(basePath).filter(f => /\.(mp4|mov)$/i.test(f)).sort().slice(0, 10);
+        files = fs.readdirSync(basePath).filter(f => /\.(mp4|mov)$/i.test(f)).sort();
       } catch (e) {
         return await sock.sendMessage(from, { text: '❌ /cards Ordner nicht lesbar.' }, { quoted: msg });
       }
 
       if (!files.length) return await sock.sendMessage(from, { text: '⚠️ Keine Videos im /cards Ordner.' }, { quoted: msg });
 
-      const cards = [];
-      for (let i = 0; i < files.length; i++) {
-        const filePath = path.join(basePath, files[i]);
-        const buffer = fs.readFileSync(filePath);
-        const media = await prepareWAMessageMedia({ video: buffer }, { upload: sock.waUploadToServer });
-        cards.push({
-          header: {
-            title: `♤ Video ${i + 1} ♤`,
-            hasMediaAttachment: true,
-            videoMessage: media.videoMessage
-          },
-          body: { text: `♤ BeastBot Gallery – Video ${i + 1}` },
-          footer: { text: '©️ Beastmeds X ⁷¹⁷𝓝𝓪𝔂𝓿𝔂' },
-          nativeFlowMessage: {
-            buttons: [
-              { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📎 WhatsApp Channel', url: CHANNEL_URL }) },
-              { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🌐 Website', url: WEBSITE_URL }) },
-              { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: 'Infos über den Owner minimalisiert', url: MINI_WEB }) }
-            ]
-          }
-        });
-      }
-
-      const content = {
-        interactiveMessage: {
-          body: { text: `🎬 Beast Bot Video Carousel\n\n↔️ Wische durch ${files.length} Videos` },
-          carouselMessage: { cards }
+      // Pagination: max 10 Videos pro Nachricht
+      const pageSize = 10;
+      const pages = Math.ceil(files.length / pageSize);
+      
+      for (let page = 0; page < pages; page++) {
+        const start = page * pageSize;
+        const end = Math.min(start + pageSize, files.length);
+        const pageFiles = files.slice(start, end);
+        
+        const cards = [];
+        for (let i = 0; i < pageFiles.length; i++) {
+          const filePath = path.join(basePath, pageFiles[i]);
+          const buffer = fs.readFileSync(filePath);
+          const media = await prepareWAMessageMedia({ video: buffer }, { upload: sock.waUploadToServer });
+          cards.push({
+            header: {
+              title: `♤ Video ${start + i + 1}/${files.length} ♤`,
+              hasMediaAttachment: true,
+              videoMessage: media.videoMessage
+            },
+            body: { text: `♤ BeastBot Gallery – Video ${start + i + 1}` },
+            footer: { text: `©️ Beastmeds X ⁷¹⁷𝓝𝓪𝔂𝓥𝔂 (Seite ${page + 1}/${pages})` },
+            nativeFlowMessage: {
+              buttons: [
+                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📎 WhatsApp Channel', url: CHANNEL_URL }) },
+                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🌐 Website', url: WEBSITE_URL }) },
+                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: 'Infos über den Owner minimalisiert', url: MINI_WEB }) }
+              ]
+            }
+          });
         }
-      };
 
-      const generated = generateWAMessageFromContent(from, content, { userJid: sock.user.id, quoted: statusQuoted });
-      await sock.relayMessage(from, generated.message, { messageId: generated.key.id });
+        const content = {
+          interactiveMessage: {
+            body: { text: `🎬 Beast Bot Video Carousel\n\n↔️ Wische durch ${pageFiles.length} Videos (Seite ${page + 1}/${pages})` },
+            carouselMessage: { cards }
+          }
+        };
+
+        const generated = generateWAMessageFromContent(from, content, { userJid: sock.user.id, quoted: statusQuoted });
+        await sock.relayMessage(from, generated.message, { messageId: generated.key.id });
+        
+        // Kleine Verzögerung zwischen Seiten
+        if (page < pages - 1) {
+          await sleep(1000);
+        }
+      }
     } catch (e) {
       console.error('Fehler bei /alledits:', e);
       await sock.sendMessage(chatId, { text: `❌ Fehler bei alledits: ${e.message || e}` }, { quoted: msg });
@@ -2088,7 +2369,170 @@ case 'owner': {
 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
   break;
 }
+
+case 'bewerben': {
+  const bewerbungsLink = 'https://docs.google.com/forms/d/e/1FAIpQLSc_rw6L7JtQ3tXioHbzaJgvpJwDWCW7hElMQhi3UDCJJjKUPg/viewform?usp=dialog';
+  
+  const text = `
+📋 *Bewerbungsformular*
+
+Hallo ${pushName}! 👋
+
+Interessierst du dich dafür, unserem Team beizutreten?
+Fülle unser Bewerbungsformular aus und wir werden uns demnächst bei dir melden!
+
+🔗 *Zum Formular:*
+${bewerbungsLink}
+
+Viel Erfolg! 🚀
+`.trim();
+
+  await sock.sendMessage(chatId, { text }, { quoted: msg });
+  break;
+}
  
+case 'team': {
+  try {
+    // Lade alle gesetzten Ränge (userId -> Rank)
+    const ranksMap = ranks.list() || {};
+    const groups = {};
+
+    for (const [uid, role] of Object.entries(ranksMap)) {
+      if (!role) continue;
+      groups[role] = groups[role] || [];
+      if (!groups[role].includes(uid)) groups[role].push(uid);
+    }
+
+    // Sicherstellen, dass Owner aus settings enthalten ist
+    const ownerNum = settings && settings.owner && settings.owner.number ? settings.owner.number.replace(/[^0-9]/g, '') : null;
+    if (ownerNum) {
+      const ownerJid = ownerNum + '@s.whatsapp.net';
+      groups['Inhaber'] = groups['Inhaber'] || [];
+      if (!groups['Inhaber'].includes(ownerJid)) groups['Inhaber'].unshift(ownerJid);
+    }
+
+    // Reihenfolge der Rollen, wie angezeigt werden soll
+    const order = [
+      'Inhaber',
+      'Stellvertreter Inhaber',
+      'Moderator',
+      'Supporter',
+      'Entwickler',
+      'Admin'
+    ];
+
+    let text = '👥 *Teamübersicht*\n\n';
+    const mentions = [];
+
+    const makeDisplay = async (u) => {
+      try {
+        const user = getUser(u);
+        if (user && user.name) return `${user.name}`;
+        const contact = await sock.onWhatsApp(u).catch(() => null);
+        if (contact && contact[0] && contact[0].notify) return `${contact[0].notify}`;
+      } catch (e) {}
+      return u.split('@')[0];
+    };
+
+    for (const role of order) {
+      const arr = groups[role] || [];
+      if (!arr.length) continue;
+      text += `*${role}* (${arr.length}):\n`;
+      for (const u of arr) {
+        const display = await makeDisplay(u);
+        text += `• ${display}\n`;
+        mentions.push(u);
+      }
+      text += '\n';
+    }
+
+    // Sonstige Rollen
+    const otherRoles = Object.keys(groups).filter(r => !order.includes(r));
+    for (const role of otherRoles) {
+      const arr = groups[role] || [];
+      if (!arr.length) continue;
+      text += `*${role}* (${arr.length}):\n`;
+      for (const u of arr) {
+        const display = await makeDisplay(u);
+        text += `• ${display}\n`;
+        mentions.push(u);
+      }
+      text += '\n';
+    }
+
+    if (mentions.length === 0) text = '⚠️ Keine Team-Mitglieder gefunden.';
+
+    await sock.sendMessage(chatId, { text, mentions }, { quoted: msg });
+  } catch (e) {
+    console.error('Fehler bei /team:', e);
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+case 'lid': {
+  try {
+    const input = args[0];
+    if (!input) return await sock.sendMessage(chatId, { text: '❌ Usage: /lid <Telefonnummer>\nBeispiel: /lid 436123456789' }, { quoted: msg });
+
+    let raw = input.trim();
+    if (raw.includes('@')) {
+      const localOnly = raw.split('@')[0].replace(/\D/g, '');
+      const jid = raw.includes('@') ? raw : `${localOnly}@s.whatsapp.net`;
+      let name = 'Unbekannt';
+      try {
+        const userObj = getUser(jid);
+        if (userObj && userObj.name) name = userObj.name;
+        else {
+          const contact = await sock.onWhatsApp(jid).catch(() => null);
+          if (contact && contact[0] && contact[0].notify) name = contact[0].notify;
+        }
+      } catch (e) {}
+      return await sock.sendMessage(chatId, { text: `LID: ${localOnly}\nName: ${name}\nJID: ${jid}` }, { quoted: msg });
+    }
+
+    // Nur Ziffern extrahieren
+    let num = raw.replace(/\D/g, '');
+    if (!num) return await sock.sendMessage(chatId, { text: '❌ Ungültige Nummer.' }, { quoted: msg });
+
+    // Versuche Ländervorwahl vom Owner abzuleiten, falls Kurznummer angegeben wurde
+    const ownerNumRaw = settings && settings.owner && settings.owner.number ? settings.owner.number.replace(/\D/g, '') : null;
+    let jidNum = num;
+    if (num.length <= 10 && ownerNumRaw && ownerNumRaw.length > num.length) {
+      const prefix = ownerNumRaw.slice(0, ownerNumRaw.length - num.length);
+      jidNum = prefix + num;
+    } else if (num.length <= 10 && !ownerNumRaw) {
+      return await sock.sendMessage(chatId, { text: '❌ Bitte gib die vollständige internationale Telefonnummer an (z.B. 43612...).' }, { quoted: msg });
+    }
+
+    // Build full JID and try to resolve a display name and lid via onWhatsApp
+    const jid = `${jidNum}@s.whatsapp.net`;
+    let name = 'Unbekannt';
+    let lidVal = null;
+    try {
+      const onWA = await sock.onWhatsApp(jid).catch(() => null);
+      if (onWA && onWA[0]) {
+        lidVal = onWA[0].lid || onWA[0].id || null;
+        if (onWA[0].notify) name = onWA[0].notify;
+        if (onWA[0].name) name = onWA[0].name;
+      }
+      // fallback to local DB user if available
+      if ((!name || name === 'Unbekannt') && getUser(jid)) {
+        const u = getUser(jid);
+        if (u && u.name) name = u.name;
+      }
+    } catch (e) {}
+
+    const lidDisplay = lidVal ? String(lidVal).replace(/\D/g, '') : jidNum.replace(/\D/g, '');
+    await sock.sendMessage(chatId, { text: `LID: ${lidDisplay}\nName: ${name}\nJID: ${jid}` }, { quoted: msg });
+  } catch (e) {
+    console.error('Fehler bei /lid:', e);
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+
 case 'autossssssssssssssssssssssssssssss': {
     const groupMetadata = await sock.groupMetadata(chatId);
     const senderId = msg.key.participant || chatId;
@@ -2210,19 +2654,19 @@ case 'autossssssssssssssssssssssssssssss': {
 case 'lockgroup':
 {
   const senderRank = ranks.getRank(sender);
-  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
-
-  if (!allowed.includes(senderRank)) {
+  
+  // Nur Inhaber darf lockgroup nutzen
+  if (senderRank !== 'Inhaber') {
     await sendReaction(from, msg, '🔒');
     await sock.sendMessage(from, {
-      text: `⛔ *Zugriff verweigert!*\n\nNur diese Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber`
+      text: `⛔ *Zugriff verweigert!*\n\nNur Inhaber dürfen diesen Befehl nutzen.`
     }, { quoted: msg });
     break;
   }
 
   lockGroup(from);
   await sock.sendMessage(from, {
-    text: `🔒 *Diese Gruppe wurde gesperrt!*\n\nWendet euch an das Team.`
+    text: `🔒 *Diese Gruppe wurde gesperrt!*\n\nNur Inhaber können noch Commands nutzen.`
   }, { quoted: msg });
 }
 break;
@@ -2241,11 +2685,12 @@ case 'device': {
   let targetMsg;
   let targetJid;
 
-  // 1️⃣ Antwort auf Nachricht
-  if (msg.quoted) {
-    targetMsg = msg.quoted;
-    targetJid = targetMsg.key.participant || targetMsg.key.remoteJid;
-  } 
+  // 1️⃣ Antwort auf Nachricht (zitierte Nachricht)
+  const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  if (quotedMsg) {
+    targetMsg = quotedMsg;
+    targetJid = msg.message?.extendedTextMessage?.contextInfo?.participant || msg.message?.extendedTextMessage?.contextInfo?.remoteJid;
+  }
   // 2️⃣ Mention
   else if (msg.mentionedJid && msg.mentionedJid.length > 0) {
     const targetMention = msg.mentionedJid[0];
@@ -2265,12 +2710,22 @@ case 'device': {
   }
 
   try {
-    const origId = targetMsg.key.id || '';
-    const origJid = targetMsg.key.participant || targetMsg.key.remoteJid;
+    let origId = '';
+    let origJid = '';
+
+    if (quotedMsg) {
+      // Aus quoted message: die ID liegt in key.id
+      origId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId || '';
+      origJid = msg.message?.extendedTextMessage?.contextInfo?.participant || msg.key.participant || sender;
+    } else {
+      origId = targetMsg?.key?.id || msg.key.id || '';
+      origJid = targetMsg?.key?.participant || targetMsg?.key?.remoteJid || msg.key.participant || sender;
+    }
 
     const idLower = origId.toLowerCase();
     const idUpper = origId.toUpperCase();
 
+    // Grundlegende Device-Erkennung
     const isWeb =
       idLower.startsWith('web') ||
       idLower.includes('desktop') ||
@@ -2279,8 +2734,15 @@ case 'device': {
     const isAndroid = !isWeb && (origId.startsWith('BAE') || /^[0-9A-F]{28,}$/i.test(origId));
     const isIOS = !isWeb && !isAndroid;
 
-    const device = isWeb ? 'Web/Desktop' : isAndroid ? 'Android' : 'iOS';
-    const deviceEmoji = isWeb ? '💻' : isAndroid ? '📱' : '🍏';
+    let device = isWeb ? 'Web/Desktop' : isAndroid ? 'Android' : 'iOS';
+    let deviceEmoji = isWeb ? '💻' : isAndroid ? '📱' : '🍏';
+
+    // Prüfe, ob für diese JID eine Device-Override existiert
+    const override = getDeviceOverride(origJid);
+    if (override && override.label) {
+      device = override.label;
+      deviceEmoji = '🤖';
+    }
 
     let pushName = targetMsg.pushName || null;
     if (!pushName) {
@@ -2294,8 +2756,29 @@ case 'device': {
       }
     }
 
+    // Spezielle Nutzer-Erkennung (robust gegen Schreibweisen)
+    let specialStatus = '';
+    try {
+      const lowerPush = String(pushName || '').toLowerCase();
+      const lowerJid = String(origJid || '').toLowerCase();
+      // Keywords to detect Baileys / Nayvy related bots or official clients
+      const keywords = ['717', 'baileys', 'nayvy', 'nayv', 'nayvys', 'nayvybal', 'nayvy balewys', 'nayvy balewys', 'strom-bot', 'stormbot', 'storm bot', 'aegisbot'];
+      const found = keywords.some(k => lowerPush.includes(k) || lowerJid.includes(k));
+      if (found) {
+        specialStatus = '\n│ ⭐ Status: Nayvy/Baileys detected (official bot)';
+
+        // Override device detection for Nayvy/Baileys to avoid flip-flopping
+        device = 'WhatsApp Web / Bot (Nayvy/Baileys)';
+        deviceEmoji = '🤖';
+      }
+    } catch (e) {
+      specialStatus = '';
+    }
+
+    const userMention = `@${origJid.split('@')[0]}`;
     await sock.sendMessage(from, {
-      text: `📌 *Gerät des Users*: ${deviceEmoji} ${device}\n👤 Name: ${pushName}`
+      text: `╭─────────────────────────────╮\n│ 📱 *DEVICE SCANNER*\n├─────────────────────────────┤\n│ 🎯 Nutzer: ${userMention}\n│ 🔧 Gerät: ${deviceEmoji} ${device}\n│ 👤 Name: ${pushName}${specialStatus}\n╰─────────────────────────────╯`,
+      mentions: [origJid]
     }, { quoted: msg });
 
   } catch (err) {
@@ -2308,19 +2791,19 @@ case 'device': {
 
 case 'unlockgroup': {
   const senderRank = ranks.getRank(sender);
-  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
-
-  if (!allowed.includes(senderRank)) {
-    await sendReaction(from, msg, '🔒');
+  
+  // Nur Inhaber darf unlockgroup nutzen
+  if (senderRank !== 'Inhaber') {
+    await sendReaction(from, msg, '🔓');
     await sock.sendMessage(from, {
-      text: `⛔ *Zugriff verweigert!*\n\nNur diese Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber\n Moderatoren`
+      text: `⛔ *Zugriff verweigert!*\n\nNur Inhaber dürfen diesen Befehl nutzen.`
     }, { quoted: msg });
     break;
   }
 
   unlockGroup(from);
   await sock.sendMessage(from, {
-    text: `🔓 *Diese Gruppe wurde entsperrt!*\n\n`
+    text: `🔓 *Diese Gruppe wurde entsperrt!*\n\nAlle Nutzer können wieder Commands nutzen.`
   }, { quoted: msg });
 }
 break;
@@ -2870,25 +3353,50 @@ case 'join': {
       }
 
     } else {
-      // Public user action: send join request to configured join group
+      // Public user action: send join request with GROUP LINK
       try {
+        // Nur Gruppenlinks akzeptieren
+        const groupLink = args[0];
+        if (!groupLink || !groupLink.includes('chat.whatsapp.com')) {
+          return await sock.sendMessage(from, { text: '❌ Bitte nutze den Command mit einem WhatsApp-Gruppenlink:\n\n*/join https://chat.whatsapp.com/...*' }, { quoted: msg });
+        }
+
         const joinGrp = getJoinGroup();
         if (!joinGrp) {
           return await sock.sendMessage(from, { text: '❌ Es wurde keine Join-Gruppe konfiguriert. Bitte kontaktiere das Team.' }, { quoted: msg });
         }
 
-        const senderName = pushName || sender.split('@')[0];
-        const chatName = isGroupChat ? (metadata.subject || from) : 'Privatchat';
-        const reason = args.join(' ') || 'Keine Nachricht angegeben.';
+        // Lade Join-Anfragen
+        const requestsFile = path.join(__dirname, 'joinRequests_numbered.json');
+        let requestsData = { nextId: 1, requests: [] };
+        if (fs.existsSync(requestsFile)) {
+          requestsData = JSON.parse(fs.readFileSync(requestsFile, 'utf8'));
+        }
 
-        const reqText = `📨 *Beitrittsanfrage von* @${sender.split('@')[0]}\n\n` +
+        const requestId = requestsData.nextId;
+        const senderName = pushName || sender.split('@')[0];
+        
+        // Speichere Request
+        requestsData.requests.push({
+          id: requestId,
+          sender: sender,
+          senderName: senderName,
+          groupLink: groupLink,
+          timestamp: Date.now(),
+          status: 'pending'
+        });
+        requestsData.nextId += 1;
+        fs.writeFileSync(requestsFile, JSON.stringify(requestsData, null, 2));
+
+        // Sende Anfrage an Team
+        const reqText = `📨 *Neue Beitrittsanfrage #${requestId}*\n\n` +
                         `👤 Name: ${senderName}\n` +
-                        `💬 Chat: ${chatName}\n` +
-                        `💡 Nachricht: ${reason}\n\n` +
-                        `To accept: use the group management commands`;
+                        `📱 Nummer: ${sender.split('@')[0]}\n` +
+                        `🔗 Gruppenlink: ${groupLink}\n\n` +
+                        `✅ Im Privatchat: */accept ${requestId}*`;
 
         await sock.sendMessage(joinGrp, { text: reqText, mentions: [sender] });
-        await sock.sendMessage(from, { text: '✅ Deine Beitrittsanfrage wurde an das Team gesendet.' }, { quoted: msg });
+        await sock.sendMessage(from, { text: `✅ Deine Beitrittsanfrage (#${requestId}) wurde an das Team gesendet.\n\nWarte auf Bestätigung!` }, { quoted: msg });
       } catch (err) {
         console.error('Fehler beim Senden der Join-Anfrage:', err);
         await sock.sendMessage(from, { text: '❌ Fehler beim Senden der Join-Anfrage.' }, { quoted: msg });
@@ -2898,6 +3406,106 @@ case 'join': {
 
   } catch (e) {
     console.error('Fehler bei join:', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Befehl.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'accept': {
+  try {
+    // Nur Team-Mitglieder
+    const senderRank = ranks.getRank(sender);
+    const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+    if (!allowed.includes(senderRank)) {
+      return await sock.sendMessage(from, { text: '⛔ Nur Team-Mitglieder können Join-Anfragen akzeptieren.' }, { quoted: msg });
+    }
+
+    // Nur im Privatchat
+    if (isGroupChat) {
+      return await sock.sendMessage(from, { text: '⛔ Dieser Command funktioniert nur im Privatchat.' }, { quoted: msg });
+    }
+
+    const requestId = parseInt(args[0]);
+    if (isNaN(requestId)) {
+      return await sock.sendMessage(from, { text: '❌ Bitte nutze: */accept [Nummer]*\n\nBeispiel: */accept 5*' }, { quoted: msg });
+    }
+
+    // Lade Requests
+    const requestsFile = path.join(__dirname, 'joinRequests_numbered.json');
+    if (!fs.existsSync(requestsFile)) {
+      return await sock.sendMessage(from, { text: '❌ Keine Join-Anfragen gefunden.' }, { quoted: msg });
+    }
+
+    let requestsData = JSON.parse(fs.readFileSync(requestsFile, 'utf8'));
+    const request = requestsData.requests.find(r => r.id === requestId);
+
+    if (!request) {
+      return await sock.sendMessage(from, { text: `❌ Join-Anfrage #${requestId} nicht gefunden.` }, { quoted: msg });
+    }
+
+    if (request.status !== 'pending') {
+      return await sock.sendMessage(from, { text: `❌ Join-Anfrage #${requestId} ist bereits ${request.status}.` }, { quoted: msg });
+    }
+
+    // Bot tritt Gruppe bei
+    try {
+      try {
+        const groupInfo = await sock.groupAcceptInvite(request.groupLink);
+      } catch (inviteErr) {
+        // Falls direkter Invite fehlschlägt, extrahiere den Link und versuche es anders
+        const linkMatch = request.groupLink.match(/chat\.whatsapp\.com\/([\w\d]+)/);
+        if (linkMatch) {
+          const inviteCode = linkMatch[1];
+          try {
+            await sock.groupAcceptInvite(inviteCode);
+          } catch (e) {
+            throw new Error(`Fehler beim Beitreten mit Invite-Code: ${e.message}`);
+          }
+        } else {
+          throw inviteErr;
+        }
+      }
+      
+      // Markiere als akzeptiert
+      request.status = 'accepted';
+      request.acceptedBy = sender;
+      request.acceptedAt = Date.now();
+      fs.writeFileSync(requestsFile, JSON.stringify(requestsData, null, 2));
+
+      // Benachrichtigung
+      await sock.sendMessage(from, { text: `✅ Join-Anfrage #${requestId} von @${request.senderName} akzeptiert!\n\n🤖 Bot ist der Gruppe beigetreten.` }, { quoted: msg });
+      
+      // Bestätigung an Nutzer
+      try {
+        await sock.sendMessage(request.sender, { text: `✅ Deine Join-Anfrage (#${requestId}) wurde akzeptiert!\n\n🎉 Der Bot ist der Gruppe beigetreten!` });
+      } catch (e) {
+        console.error('Konnte Nachricht an Nutzer nicht senden:', e);
+      }
+
+    } catch (err) {
+      console.error('Fehler beim Beitreten zur Gruppe:', err);
+      const errMsg = err.message || '';
+      let userMsg = '❌ Fehler beim Beitreten zur Gruppe';
+      
+      if (errMsg.includes('bad-request')) {
+        userMsg = '❌ Der Gruppenlink ist ungültig oder abgelaufen. Bitte erbitte einen neuen Link.';
+      } else if (errMsg.includes('already in group') || errMsg.includes('already')) {
+        userMsg = '✅ Der Bot ist bereits in dieser Gruppe!';
+        request.status = 'accepted';
+        request.acceptedBy = sender;
+        request.acceptedAt = Date.now();
+        fs.writeFileSync(requestsFile, JSON.stringify(requestsData, null, 2));
+      } else if (errMsg.includes('not-authorized')) {
+        userMsg = '❌ Der Bot darf dieser Gruppe nicht beitreten (möglicherweise blockiert).';
+      } else {
+        userMsg = `❌ Fehler: ${errMsg}`;
+      }
+      
+      await sock.sendMessage(from, { text: userMsg }, { quoted: msg });
+    }
+
+  } catch (e) {
+    console.error('Fehler bei accept:', e);
     await sock.sendMessage(from, { text: '❌ Fehler beim Befehl.' }, { quoted: msg });
   }
   break;
@@ -3275,6 +3883,7 @@ case 'banlist': {
 case 'ai': // oder 'gptde'
 {
   try {
+    const sender = msg.key.participant || msg.key.remoteJid || msg.sender;
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) {
       await sock.sendMessage(from, { 
@@ -3296,34 +3905,90 @@ case 'ai': // oder 'gptde'
     await sock.sendMessage(from, { react: { text: '🤖', key: msg.key } });
 
     try {
-      // Llama API (free inference via Hugging Face or similar)
-      const response = await axios.post('https://api-inference.huggingface.co/models/meta-llama/Llama-2-70b-chat-hf', {
-        inputs: query,
-        parameters: {
-          max_new_tokens: 500
+      // Nutze die persönliche KI-Konfiguration des Users
+      const userConfig = getUserConfig(sender);
+      const apiConfig = require('./apiConfig.json');
+      let providerConfig = null;
+      let providerName = userConfig.aiModel;
+      
+      // Wähle Provider basierend auf User-Konfiguration
+      if (userConfig.aiModel === 'Claude' && apiConfig.claude && apiConfig.claude.apiKey) {
+        providerConfig = apiConfig.claude;
+      } else if (userConfig.aiModel === 'Groq' && apiConfig.groq && apiConfig.groq.apiKey) {
+        providerConfig = apiConfig.groq;
+      } else if (userConfig.aiModel === 'Nyxion' && apiConfig.nyxion && apiConfig.nyxion.apiKey) {
+        providerConfig = apiConfig.nyxion;
+      } else {
+        // Fallback: Nutze ersten verfügbaren Provider
+        if (apiConfig.claude && apiConfig.claude.apiKey) {
+          providerConfig = apiConfig.claude;
+          providerName = 'Claude';
+        } else if (apiConfig.groq && apiConfig.groq.apiKey) {
+          providerConfig = apiConfig.groq;
+          providerName = 'Groq';
+        } else {
+          throw new Error('Keine AI API konfiguriert. Nutze /config ai <Provider>');
         }
+      }
+
+      // Systemprompt für Deutsche Unterstützung
+      const systemPrompt = userConfig.language === 'de' 
+        ? 'Du bist ein hilfreicher KI-Assistent. Antworte immer auf Deutsch, wenn der User auf Deutsch spricht. Seie freundlich, informativ und hilfreich.'
+        : 'You are a helpful AI assistant. Respond in English unless the user asks otherwise.';
+
+      const response = await axios.post(`${providerConfig.baseUrl}/chat/completions`, {
+        model: providerConfig.model,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: query
+          }
+        ],
+        max_tokens: 2048,
+        temperature: 0.7
       }, {
         headers: {
-          'Authorization': 'Bearer hf_wXzpPqRvStUvWxYzAbCdEfGhIjKlMnOpQrStUvWx'
+          'Authorization': `Bearer ${providerConfig.apiKey}`,
+          'Content-Type': 'application/json'
         }
       });
 
-      if (response.data && response.data[0] && response.data[0].generated_text) {
-        const answer = response.data[0].generated_text;
-        await sock.sendMessage(from, { text: answer }, { quoted: msg });
+      if (response.data && response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+        const answer = response.data.choices[0].message.content;
+        await sock.sendMessage(from, { text: `🤖 ${providerName}:\n\n${answer}` }, { quoted: msg });
       } else {
-        throw new Error('Ungültige Antwort von Llama API');
+        throw new Error(`Ungültige Antwort von ${providerName} API`);
       }
-    } catch (llamaErr) {
-      console.error('Llama API Error:', llamaErr);
-      // Fallback auf kostenlosen Endpoint
+    } catch (aiErr) {
+      console.error('AI API Error:', aiErr.response?.data || aiErr.message);
+      
+      // Fallback auf einfalen kostenlosen Service
       try {
-        const fallbackResponse = await axios.get(`https://api.api-ninjas.com/v1/riddles?limit=1`, {
-          headers: { 'X-Api-Key': 'TEST' }
+        const fallbackResponse = await axios.post('https://api.cohere.ai/v1/generate', {
+          prompt: query,
+          max_tokens: 500,
+          temperature: 0.8
+        }, {
+          headers: {
+            'Authorization': 'Bearer test',
+            'Content-Type': 'application/json'
+          }
+        }).catch(async () => {
+          // Wenn alles fehlschlägt: generische Antwort
+          throw new Error('Alle AI Services sind derzeit nicht verfügbar. Bitte versuche es später erneut.');
         });
-        await sock.sendMessage(from, { text: `🤖 *Llama AI*\n\n${query}\n\nAPI temporär nicht verfügbar. Versuche später erneut.` }, { quoted: msg });
-      } catch (e) {
-        await sock.sendMessage(from, { text: `❌ Llama API Fehler: ${llamaErr.message}` }, { quoted: msg });
+        
+        if (fallbackResponse?.data?.generations?.[0]?.text) {
+          await sock.sendMessage(from, { text: fallbackResponse.data.generations[0].text }, { quoted: msg });
+        } else {
+          throw new Error('Fallback API antwortet nicht');
+        }
+      } catch (fallbackErr) {
+        await sock.sendMessage(from, { text: `❌ AI Fehler: ${aiErr.response?.data?.error?.message || 'API temporär nicht verfügbar. Versuche später erneut.'}` }, { quoted: msg });
       }
     }
 
@@ -3344,7 +4009,8 @@ case 'imagine': {
       break;
     }
 
-    const prompt = text.replace(/^\/imagine\s+/i, '').trim();
+    // Entferne den Command (sowohl /imagine als auch .imagine)
+    let prompt = text.replace(/^[\/\.](imagine|image)\s+/i, '').trim();
     if (!prompt) {
       await sock.sendMessage(from, { 
         text: "⚠️ Bitte gib eine Bildbeschreibung ein.\nBeispiel: /imagine Ein Hund der im Park spielt"
@@ -3356,20 +4022,355 @@ case 'imagine': {
     await sock.sendMessage(from, { react: { text: '🎨', key: msg.key } });
 
     try {
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+      // Nutze einen stabileren Image-Service
+      const imageUrl = `https://api.craiyon.com/v3?prompt=${encodeURIComponent(prompt)}`;
       
-      await sock.sendMessage(from, {
-        image: { url: imageUrl },
-        caption: `🎨 *Pollinations AI*\n\nPrompt: ${prompt}`
-      }, { quoted: msg });
+      // Versuche Craiyon, fallback auf Pollinations
+      try {
+        const response = await axios.get(imageUrl, { timeout: 30000 });
+        if (response.data && response.data.images && response.data.images[0]) {
+          // Craiyon zurückgeben (Base64)
+          const base64Img = Buffer.from(response.data.images[0], 'base64');
+          await sock.sendMessage(from, {
+            image: base64Img,
+            caption: `🎨 *AI Bild-Generator*\n\nPrompt: ${prompt}`
+          }, { quoted: msg });
+        } else {
+          throw new Error('Keine Bilder von Craiyon');
+        }
+      } catch (craiErr) {
+        // Fallback zu Pollinations
+        const pollUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+        await sock.sendMessage(from, {
+          image: { url: pollUrl },
+          caption: `🎨 *Pollinations AI*\n\nPrompt: ${prompt}`
+        }, { quoted: msg });
+      }
 
     } catch (imagineErr) {
-      console.error('Pollinations API Error:', imagineErr);
-      await sock.sendMessage(from, { text: `❌ Fehler beim Generieren des Bildes: ${imagineErr.message}` }, { quoted: msg });
+      console.error('Image Generation Error:', imagineErr.message);
+      await sock.sendMessage(from, { text: `❌ Fehler beim Generieren des Bildes: ${imagineErr.message}\n\nVersuche mit einem einfacheren Prompt (z.B. "Katze")` }, { quoted: msg });
     }
 
   } catch (err) {
     console.error('Imagine Error:', err);
+    await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+
+case 'video': {
+  try {
+    const sender = msg.key.participant || msg.key.remoteJid || msg.sender;
+    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+    if (!text) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib eine Videobeschreibung ein.\nBeispiel: /video Ein weißer Hund spielt am Strand"
+      }, { quoted: msg });
+      break;
+    }
+
+    // Entferne den Command
+    let prompt = text.replace(/^\/video\s+/i, '').trim();
+    if (!prompt) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib eine Videobeschreibung ein.\nBeispiel: /video Ein weißer Hund spielt am Strand"
+      }, { quoted: msg });
+      break;
+    }
+
+    // Reaktion: Bot arbeitet
+    await sock.sendMessage(from, { react: { text: '🎬', key: msg.key } });
+
+    try {
+      // Nutze die persönliche KI-Konfiguration des Users
+      const userConfig = getUserConfig(sender);
+      const apiConfig = require('./apiConfig.json');
+      
+      // Für Video-Generierung nutzen wir Claude (apifree-ai)
+      const claudeConfig = apiConfig.claude;
+      if (!claudeConfig || !claudeConfig.apiKey) {
+        throw new Error('Claude API nicht konfiguriert. Video-Generierung benötigt Claude.');
+      }
+
+      // Standard Video-Parameter
+      const videoPayload = {
+        model: "wan-ai/wan2.2-i2v-a14b/turbo",
+        prompt: prompt,
+        duration: 5,
+        resolution: "720p",
+        aspect_ratio: "16:9"
+      };
+
+      // Optionales Bild hinzufügen, falls vorhanden
+      if (msg.message?.imageMessage) {
+        try {
+          const imageBuffer = await downloadMediaMessage(msg, 'buffer', 0);
+          const base64Image = imageBuffer.toString('base64');
+          videoPayload.image_data = `data:image/jpeg;base64,${base64Image}`;
+        } catch (imgErr) {
+          console.warn('Bild konnte nicht verarbeitet werden, fahre ohne Bild fort:', imgErr.message);
+        }
+      }
+
+      // Sende Video-Generierungsanfrage
+      const response = await axios.post(`${claudeConfig.baseUrl}/video/submit`, videoPayload, {
+        headers: {
+          'Authorization': `Bearer ${claudeConfig.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000
+      });
+
+      if (response.data) {
+        const { id, status, video_url } = response.data;
+        
+        let statusMsg = `🎬 *Video wird generiert*\n\n`;
+        statusMsg += `📝 Prompt: ${prompt}\n`;
+        statusMsg += `⏱️ Dauer: 5 Sekunden\n`;
+        statusMsg += `📐 Auflösung: 720p (16:9)\n\n`;
+        
+        if (video_url) {
+          statusMsg += `✅ Video bereit!\n🔗 Link: ${video_url}`;
+        } else if (id) {
+          statusMsg += `⏳ Status: ${status || 'processing'}\n`;
+          statusMsg += `🆔 Job ID: ${id}\n\n`;
+          statusMsg += `*Hinweis:* Das Video wird gerade generiert. Dies kann 1-2 Minuten dauern.`;
+        } else {
+          statusMsg += `⏳ Video wird verarbeitet...\n`;
+          statusMsg += `*Hinweis:* Dies kann 1-2 Minuten dauern. Der Bot wird dir Bescheid geben!`;
+        }
+
+        await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
+      } else {
+        throw new Error('Ungültige Antwort von Video API');
+      }
+
+    } catch (videoErr) {
+      console.error('Video Generation Error:', videoErr.message);
+      const errorMsg = videoErr.response?.data?.error?.message || videoErr.message;
+      await sock.sendMessage(from, { text: `❌ Video-Generierungsfehler: ${errorMsg}\n\nVersuche mit einem einfacheren Prompt.` }, { quoted: msg });
+    }
+
+  } catch (err) {
+    console.error('Video Error:', err);
+    await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+
+case 'song': {
+  try {
+    const sender = msg.key.participant || msg.key.remoteJid || msg.sender;
+    
+    // Nutze args vom Command-Parser
+    if (args.length === 0) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib eine Lied-Beschreibung ein.\nBeispiel: /song Eine glückliche Geschichte über den Sommer\n\n*Hinweis:* Dieser Command konvertiert dein Liedtext zu Audio (TTS).\nFür AI-generierte Musik nutze Suno oder andere Musik-Tools."
+      }, { quoted: msg });
+      break;
+    }
+
+    const prompt = args.join(' ');
+
+    if (!prompt || prompt.trim().length === 0) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib einen Text ein!\nBeispiel: /song Eine glückliche Geschichte"
+      }, { quoted: msg });
+      break;
+    }
+
+    // Reaktion: Bot arbeitet
+    await sock.sendMessage(from, { react: { text: '🎵', key: msg.key } });
+
+    try {
+      const apiConfig = require('./apiConfig.json');
+      const claudeConfig = apiConfig.claude;
+      
+      if (!claudeConfig || !claudeConfig.apiKey) {
+        throw new Error('Claude API nicht konfiguriert. Song-Funktion benötigt Claude.');
+      }
+
+      // Nutze TTS mit einer männlichen Stimme für Song-Rezitation
+      const songPayload = {
+        prompt: prompt,
+        model: "hexgrad/kokoro-tts/american-english",
+        voice: "bm_george",
+        speed: 1
+      };
+
+      console.log('Sende Song-Anfrage (als TTS):', songPayload);
+
+      // Sende Audio-Generierungsanfrage
+      const response = await axios.post(`${claudeConfig.baseUrl}/audio/submit`, songPayload, {
+        headers: {
+          'Authorization': `Bearer ${claudeConfig.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000
+      });
+
+      console.log('Song Response:', response.data);
+
+      let statusMsg = `🎵 *Lied-Audio wird generiert*\n\n`;
+      statusMsg += `📝 Text: ${prompt}\n`;
+      statusMsg += `🎤 Stimme: George (männlich)\n`;
+      statusMsg += `🌐 Format: TTS Audio\n\n`;
+
+      if (response.data?.audio_url) {
+        statusMsg += `✅ Audio bereit!\n🔗 Link: ${response.data.audio_url}`;
+        
+        // Versuche Audio zu senden
+        try {
+          await sock.sendMessage(from, {
+            audio: { url: response.data.audio_url },
+            mimetype: 'audio/mpeg',
+            ptt: false
+          }, { quoted: msg });
+        } catch (audioErr) {
+          console.warn('Audio konnte nicht direkt gesendet werden');
+        }
+      } else if (response.data?.id) {
+        statusMsg += `⏳ Status: ${response.data.status || 'processing'}\n`;
+        statusMsg += `🆔 Job ID: ${response.data.id}\n\n`;
+        statusMsg += `*Hinweis:* Audio wird gerade generiert. Dies kann 30-60 Sekunden dauern.`;
+      } else {
+        statusMsg += `⏳ Audio wird verarbeitet...\n\n`;
+        statusMsg += `*Hinweis:* Dies kann 30-60 Sekunden dauern.`;
+      }
+
+      await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
+
+    } catch (songErr) {
+      console.error('Song Generation Error:', songErr.message);
+      console.error('Song Error Details:', songErr.response?.data);
+      const errorMsg = songErr.response?.data?.error?.message || songErr.response?.data?.message || songErr.message;
+      await sock.sendMessage(from, { text: `❌ Audio-Fehler: ${errorMsg}\n\nVersuche mit einem kürzeren oder einfacheren Text.` }, { quoted: msg });
+    }
+
+  } catch (err) {
+    console.error('Song Error:', err);
+    await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+
+case 'tts': {
+  try {
+    const sender = msg.key.participant || msg.key.remoteJid || msg.sender;
+    
+    console.log('TTS Command aufgerufen mit args:', args);
+    
+    // Nutze args vom Command-Parser
+    if (!args || args.length < 2) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Verwendung: /tts <stimme> <text>\n\nAvailable voices:\n• af_heart (weiblich)\n• am_michael (männlich)\n• bf_emma (weiblich)\n• bm_george (männlich)\n• cf_nicole (weiblich)\n• cm_oliver (männlich)\n\nBeispiel: /tts af_heart Hello world"
+      }, { quoted: msg });
+      break;
+    }
+
+    const voice = args[0];
+    const prompt = args.slice(1).join(' ');
+
+    console.log('Parsed TTS:', { voice, prompt });
+
+    if (!prompt || prompt.trim().length === 0) {
+      await sock.sendMessage(from, { 
+        text: "⚠️ Bitte gib einen Text ein!\nBeispiel: /tts af_heart Hello world"
+      }, { quoted: msg });
+      break;
+    }
+
+    // Validiere Stimme
+    const validVoices = ['af_heart', 'am_michael', 'bf_emma', 'bm_george', 'cf_nicole', 'cm_oliver'];
+    if (!validVoices.includes(voice.toLowerCase())) {
+      await sock.sendMessage(from, { 
+        text: `❌ Ungültige Stimme: ${voice}\n\nAvailable voices:\n${validVoices.map(v => `• ${v}`).join('\n')}`
+      }, { quoted: msg });
+      break;
+    }
+
+    // Reaktion: Bot arbeitet
+    await sock.sendMessage(from, { react: { text: '🔊', key: msg.key } });
+
+    try {
+      const apiConfig = require('./apiConfig.json');
+      const claudeConfig = apiConfig.claude;
+      
+      if (!claudeConfig || !claudeConfig.apiKey) {
+        throw new Error('Claude API nicht konfiguriert. TTS benötigt Claude.');
+      }
+
+      console.log('TTS-Request wird gesendet:', { voice, prompt, baseUrl: claudeConfig.baseUrl });
+
+      // TTS-Generierung
+      const ttsPayload = {
+        model: "hexgrad/kokoro-tts/american-english",
+        prompt: prompt,
+        voice: voice.toLowerCase(),
+        speed: 1
+      };
+
+      console.log('TTS Payload:', ttsPayload);
+
+      // Sende TTS-Anfrage
+      const response = await axios.post(`${claudeConfig.baseUrl}/audio/submit`, ttsPayload, {
+        headers: {
+          'Authorization': `Bearer ${claudeConfig.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000
+      });
+
+      console.log('TTS Response erhalten:', response.data);
+
+      let statusMsg = `🔊 *Text-zu-Sprache wird generiert*\n\n`;
+      statusMsg += `📝 Text: ${prompt}\n`;
+      statusMsg += `🎤 Stimme: ${voice}\n`;
+      statusMsg += `⚡ Speed: Normal (1x)\n`;
+      statusMsg += `🌐 Sprache: English\n\n`;
+
+      if (response.data?.audio_url) {
+        statusMsg += `✅ Audio bereit!\n🔗 Link: ${response.data.audio_url}`;
+        
+        // Sende Link
+        await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
+        
+        // Versuche auch Audio zu senden
+        try {
+          await sock.sendMessage(from, {
+            audio: { url: response.data.audio_url },
+            mimetype: 'audio/mpeg',
+            ptt: false
+          }, { quoted: msg });
+        } catch (audioErr) {
+          console.warn('Audio konnte nicht direkt gesendet werden:', audioErr.message);
+        }
+      } else if (response.data?.id) {
+        statusMsg += `⏳ Status: ${response.data.status || 'processing'}\n`;
+        statusMsg += `🆔 Job ID: ${response.data.id}\n\n`;
+        statusMsg += `*Hinweis:* Audio wird gerade generiert. Dies kann 30-60 Sekunden dauern.`;
+        await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
+      } else {
+        statusMsg += `⏳ Audio wird verarbeitet...\n\n`;
+        statusMsg += `*Hinweis:* Dies kann 30-60 Sekunden dauern. Der Bot wird dir Bescheid geben!`;
+        await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
+      }
+
+    } catch (ttsErr) {
+      console.error('TTS Generation Error:', ttsErr.message);
+      console.error('TTS Error Response:', ttsErr.response?.data);
+      console.error('TTS Error Config:', ttsErr.config);
+      
+      const errorMsg = ttsErr.response?.data?.error?.message || ttsErr.response?.data?.message || ttsErr.message;
+      await sock.sendMessage(from, { text: `❌ TTS-Fehler: ${errorMsg}\n\nVersuche mit kürzerem Text oder einfacheren Worten.` }, { quoted: msg });
+    }
+
+  } catch (err) {
+    console.error('TTS Error:', err);
     await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
   }
   break;
@@ -3390,22 +4391,25 @@ case 'welcome': {
 
     const db = loadWelcome();
     const sub = args[0]?.toLowerCase();
-
-    if (!sub) {
-      await sock.sendMessage(from, {
-        text: `⚙️ *Welcome-System*\n\n🔹 /welcome on – Begrüßung aktivieren\n🔹 /welcome off – Begrüßung deaktivieren\n🔹 /welcome set <Text> – Begrüßungstext ändern\n\nAktueller Status: ${db[from]?.enabled ? '✅ Aktiv' : '❌ Inaktiv'}`
-      }, { quoted: msg });
-      break;
-    }
-
     switch (sub) {
-      case 'on':
-        db[from] = db[from] || {};
-        db[from].enabled = true;
-        db[from].text = db[from].text || '👋 Willkommen @user in der Gruppe!';
+
+      case 'on': {
+      if (found) {
+        specialStatus = '\n│ ⭐ Status: Nayvy/Baileys detected (official bot)';
+
+        // Setze persistenten Override, damit es nicht mehr flippt
+        try {
+          setDeviceOverride(origJid, 'WhatsApp Web / Bot (Nayvy/Baileys)');
+          device = 'WhatsApp Web / Bot (Nayvy/Baileys)';
+          deviceEmoji = '🤖';
+        } catch (e) {
+          // ignore
+        }
+      }
         saveWelcome(db);
         await sock.sendMessage(from, { text: '✅ Welcome-Nachricht aktiviert!' }, { quoted: msg });
         break;
+      }
 
       case 'off':
         db[from] = db[from] || {};
@@ -4227,14 +5231,14 @@ case 'newpair': {
     }
 
     if (pet) {
-      db.prepare("INSERT INTO pets (jid, petName) VALUES (?, ?)").run(jid, pet.name);
+      getDB().prepare("INSERT INTO pets (jid, petName) VALUES (?, ?)").run(jid, pet.name);
       await sock.sendMessage(chatId, { text: `✅ Du hast ${pet.name} gekauft!` }, { quoted: msg });
     } else {
-      const existing = db.prepare("SELECT * FROM items WHERE jid = ? AND itemName = ?").get(jid, item.name);
+      const existing = getDB().prepare("SELECT * FROM items WHERE jid = ? AND itemName = ?").get(jid, item.name);
       if (existing) {
-        db.prepare("UPDATE items SET amount = amount + 1 WHERE id = ?").run(existing.id);
+        getDB().prepare("UPDATE items SET amount = amount + 1 WHERE id = ?").run(existing.id);
       } else {
-        db.prepare("INSERT INTO items (jid, itemName, amount) VALUES (?, ?, 1)").run(jid, item.name);
+        getDB().prepare("INSERT INTO items (jid, itemName, amount) VALUES (?, ?, 1)").run(jid, item.name);
       }
       await sock.sendMessage(chatId, { text: `✅ Du hast ${item.name} gekauft!` }, { quoted: msg });
     }
@@ -4288,7 +5292,7 @@ case 'sell': {
 
   // ================== PETS ==================
  case "pets": {
-  const pets = db.prepare("SELECT * FROM pets WHERE jid = ?").all(jid);
+  const pets = getDB().prepare("SELECT * FROM pets WHERE jid = ?").all(jid);
 
   if (pets.length === 0) {
     await sock.sendMessage(chatId, { text: "🗳 Du besitzt noch keine Tiere!" }, { quoted: msg });
@@ -4308,7 +5312,7 @@ case 'sell': {
 
   // ================== INVENTORY ==================
   case "schrank": {
-    const items = db.prepare("SELECT * FROM items WHERE jid = ?").all(jid);
+    const items = getDB().prepare("SELECT * FROM items WHERE jid = ?").all(jid);
     if (items.length === 0) {
       await sock.sendMessage(chatId, { text: "🗳 Dein Inventar ist leer!" }, { quoted: msg });
       break;
@@ -4333,8 +5337,8 @@ case 'sell': {
       break;
     }
 
-    const item = db.prepare("SELECT * FROM items WHERE jid = ? AND itemName = ?").get(jid, itemName);
-    const pet = db.prepare("SELECT * FROM pets WHERE jid = ? AND id = ?").get(jid, petId);
+    const item = getDB().prepare("SELECT * FROM items WHERE jid = ? AND itemName = ?").get(jid, itemName);
+    const pet = getDB().prepare("SELECT * FROM pets WHERE jid = ? AND id = ?").get(jid, petId);
 
     if (!item) {
       await sock.sendMessage(chatId, { text: "❌ Du hast dieses Item nicht!" }, { quoted: msg });
@@ -4353,19 +5357,106 @@ case 'sell': {
 
     if (shopItem.effect === "feed") {
       pet.hunger = Math.min(100, pet.hunger + shopItem.value);
-      db.prepare("UPDATE pets SET hunger = ? WHERE id = ?").run(pet.hunger, petId);
+      getDB().prepare("UPDATE pets SET hunger = ? WHERE id = ?").run(pet.hunger, petId);
     } else if (shopItem.effect === "heal") {
       pet.health = Math.min(100, pet.health + shopItem.value);
-      db.prepare("UPDATE pets SET health = ? WHERE id = ?").run(pet.health, petId);
+      getDB().prepare("UPDATE pets SET health = ? WHERE id = ?").run(pet.health, petId);
     }
 
-    db.prepare("UPDATE items SET amount = amount - 1 WHERE id = ?").run(item.id);
+    getDB().prepare("UPDATE items SET amount = amount - 1 WHERE id = ?").run(item.id);
 
     await sock.sendMessage(chatId, { text: `✅ Du hast ${shopItem.name} auf ${pet.petName} angewendet!` }, { quoted: msg });
     break;
   }
 
+  // ================== PET FEED ==================
+  case "petfeed": {
+    const petId = parseInt(args[0]);
+    if (isNaN(petId)) {
+      await sock.sendMessage(chatId, { text: "❌ Nutzung: /petfeed <PetID>\n\nFinde die Pet-ID mit: /pets" }, { quoted: msg });
+      break;
+    }
 
+    const pet = getDB().prepare("SELECT * FROM pets WHERE jid = ? AND id = ?").get(jid, petId);
+    if (!pet) {
+      await sock.sendMessage(chatId, { text: "❌ Dieses Pet existiert nicht!" }, { quoted: msg });
+      break;
+    }
+
+    // Hunger reduzieren, Zufriedenheit erhöhen
+    const newHunger = Math.max(0, pet.hunger - 30);
+    getDB().prepare("UPDATE pets SET hunger = ? WHERE id = ?").run(newHunger, petId);
+
+    const happinessGain = Math.floor(Math.random() * 20) + 15; // 15-35
+    const user = getUser(jid);
+    user.balance -= 10; // Kostet 10 Coins
+    updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+
+    await sock.sendMessage(chatId, { 
+      text: `🍖 ${pet.petName} wurde gefüttert!\n\n📉 Hunger: ${pet.hunger}% → ${newHunger}%\n💕 Zufriedenheit: +${happinessGain}%\n💰 Kosten: 10 Coins\n\nNeuer Kontostand: ${user.balance} 💸` 
+    }, { quoted: msg });
+    break;
+  }
+
+  // ================== PET PLAY ==================
+  case "petplay": {
+    const petId = parseInt(args[0]);
+    if (isNaN(petId)) {
+      await sock.sendMessage(chatId, { text: "❌ Nutzung: /petplay <PetID>\n\nFinde die Pet-ID mit: /pets" }, { quoted: msg });
+      break;
+    }
+
+    const pet = getDB().prepare("SELECT * FROM pets WHERE jid = ? AND id = ?").get(jid, petId);
+    if (!pet) {
+      await sock.sendMessage(chatId, { text: "❌ Dieses Pet existiert nicht!" }, { quoted: msg });
+      break;
+    }
+
+    const games = ['Fangen 🎾', 'Verstecken 👀', 'Schwimmen 🏊', 'Klettern 🧗', 'Tanzen 💃'];
+    const game = games[Math.floor(Math.random() * games.length)];
+    const xpGain = Math.floor(Math.random() * 30) + 20; // 20-50 XP
+    const newLevel = Math.floor((pet.level || 1) + xpGain / 100);
+
+    getDB().prepare("UPDATE pets SET level = ? WHERE id = ?").run(newLevel, petId);
+
+    const user = getUser(jid);
+    user.xp += xpGain;
+    updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+
+    await sock.sendMessage(chatId, { 
+      text: `🎮 ${pet.petName} spielt ${game}!\n\n⬆️ Level: ${pet.level || 1} → ${newLevel}\n⭐ +${xpGain} XP für dich\n💕 Dein Pet liebt dich noch mehr!` 
+    }, { quoted: msg });
+    break;
+  }
+
+  // ================== PET INFO (STATS) ==================
+  case "petinfo": {
+    const petId = parseInt(args[0]);
+    if (isNaN(petId)) {
+      await sock.sendMessage(chatId, { text: "❌ Nutzung: /petinfo <PetID>\n\nFinde die Pet-ID mit: /pets" }, { quoted: msg });
+      break;
+    }
+
+    const pet = getDB().prepare("SELECT * FROM pets WHERE jid = ? AND id = ?").get(jid, petId);
+    if (!pet) {
+      await sock.sendMessage(chatId, { text: "❌ Dieses Pet existiert nicht!" }, { quoted: msg });
+      break;
+    }
+
+    const hungerBar = '█'.repeat(pet.hunger / 10) + '░'.repeat((100 - pet.hunger) / 10);
+    const healthBar = '█'.repeat((pet.health || 100) / 10) + '░'.repeat((100 - (pet.health || 100)) / 10);
+
+    await sock.sendMessage(chatId, { 
+      text: `📊 *${pet.petName} - Detaillierte Stats*\n\n` +
+            `⬆️ **Level:** ${pet.level || 1}\n` +
+            `🍖 **Hunger:** ${pet.hunger || 0}%\n${hungerBar}\n\n` +
+            `❤️ **Gesundheit:** ${pet.health || 100}%\n${healthBar}\n\n` +
+            `💪 **Stärke:** Lvl ${(pet.level || 1) * 10 + 50}\n` +
+            `🎯 **Jagd-Erfolgsquote:** ${Math.min(100, (pet.level || 1) * 15)}%\n` +
+            `✨ **Spezialwert:** ${Math.floor(Math.random() * 100) + (pet.level || 1) * 5}`
+    }, { quoted: msg });
+    break;
+  }
 
 case 'menu':
 case 'help': {
@@ -4915,6 +6006,102 @@ case 'ask': {
   } catch (e) {
     console.error('ask err', e);
     await sock.sendMessage(from, { text: '❌ Fehler bei der KI-Abfrage.' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'nyxion': {
+  try {
+    const question = args.join(' ');
+    if (!question) {
+      return await sock.sendMessage(from, { 
+        text: `🤖 *Nyxion KI - Verwendung*\n\n/nyxion <deine frage>\n\nBeispiel:\n/nyxion Was ist Python?\n/nyxion Erkläre mir Quantenphysik\n\n⏳ Dies verbindet sich mit Nyxion und gibt dir eine KI-Antwort.` 
+      }, { quoted: msg });
+    }
+
+    // Zeige "Tippe..." Nachricht
+    await sock.sendPresenceUpdate('composing', chatId);
+    const statusMsg = await sock.sendMessage(from, { text: `🤖 *Nyxion fragt...*\n\n💬 Frage: ${question}\n\n⏳ Wird verarbeitet...` });
+
+    try {
+      // Konfiguriere Nyxion API - ANMERKUNG: Bitte anpassen mit deinen Anmeldedaten
+      const NYXION_URL = 'https://nyxion.base44.app'; // Beispiel-URL
+      const NYXION_EMAIL = '21'; // Bitte ändern
+      const NYXION_PASSWORD = 'dein-passwort'; // Bitte ändern
+
+      // Schritt 1: Login bei Nyxion
+      let sessionToken = null;
+      try {
+        const loginResponse = await axios.post(NYXION_URL.replace('/query', '/login'), {
+          email: NYXION_EMAIL,
+          password: NYXION_PASSWORD
+        }, { timeout: 10000 });
+
+        if (loginResponse.data && loginResponse.data.token) {
+          sessionToken = loginResponse.data.token;
+        }
+      } catch (loginErr) {
+        console.error('Nyxion Login Fehler:', loginErr.message);
+        // Fallback: Versuche ohne Session zu arbeiten
+      }
+
+      // Schritt 2: Sende Frage an Nyxion
+      const requestConfig = {
+        timeout: 30000,
+        headers: sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {}
+      };
+
+      const queryResponse = await axios.post(NYXION_URL, {
+        query: question,
+        model: 'nyxion-v1' // Oder das verfügbare Modell
+      }, requestConfig);
+
+      let nyxionAnswer = '❌ Keine Antwort erhalten';
+      
+      if (queryResponse.data && queryResponse.data.response) {
+        nyxionAnswer = queryResponse.data.response;
+      } else if (queryResponse.data && queryResponse.data.answer) {
+        nyxionAnswer = queryResponse.data.answer;
+      } else if (typeof queryResponse.data === 'string') {
+        nyxionAnswer = queryResponse.data;
+      }
+
+      // Schritt 3: Gebe Antwort im Chat aus
+      const responseText = `🤖 *Nyxion KI-Antwort*\n\n💬 *Deine Frage:*\n${question}\n\n✨ *Antwort:*\n${nyxionAnswer}`;
+
+      // Aktualisiere die Status-Nachricht
+      await sock.sendMessage(from, { 
+        text: responseText 
+      }, { quoted: msg });
+
+      // Lösche die alte Status-Nachricht
+      try {
+        await sock.sendMessage(from, { delete: statusMsg.key });
+      } catch (e) {}
+
+    } catch (apiErr) {
+      console.error('Nyxion API Fehler:', apiErr.message);
+      
+      // Fallback: Verwende lokale KI-Antwort
+      const fallbackResponses = [
+        'Das ist eine großartige Frage! Basierend auf meinem Wissen würde ich sagen...',
+        'Interessant! Lassen Sie mich das analysieren. Die Antwort ist...',
+        'Das erfordert ein tieferes Verständnis. Meine Einschätzung ist...',
+        'Aus verschiedenen Perspektiven könnte man sagen...'
+      ];
+
+      const fallback = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+      
+      await sock.sendMessage(from, { 
+        text: `🤖 *Nyxion Fallback-Antwort*\n\n💬 *Deine Frage:*\n${question}\n\n✨ *Antwort:*\n${fallback}\n\n⚠️ (Nyxion-API nicht verfügbar - Fallback verwendet)` 
+      }, { quoted: msg });
+    }
+
+    await sock.sendPresenceUpdate('available', chatId);
+
+  } catch (e) {
+    console.error('nyxion err', e);
+    await sock.sendMessage(from, { text: `❌ Fehler bei Nyxion: ${e.message}` }, { quoted: msg });
   }
   break;
 }
@@ -5613,6 +6800,9 @@ Wenn du nicht einverstanden bist, nutze den Bot bitte nicht.
    /codehelp - Code-Hilfe
    /math - Mathematik
    /define - Definitionen
+   /video - Video erstellen
+   /song - Song erstellen
+   /tts - Text-to-Speech
 
 🎵 *Audio-Effekte (Menu 8):*
    /bassboost - Bass erhöhen
@@ -7134,7 +8324,7 @@ case 'register': {
   } catch (e) { console.error('Failed to save registration timestamp', e); }
 
   await sock.sendMessage(chatId, { 
-    text: `🎉 ${name}, du wurdest erfolgreich registriert!\nStart-Guthaben: 100 💸, Level 1, 0 XP\n> ${botName}` 
+    text: `🎉 ${name}, du wurdest erfolgreich registriert!\nStart-Guthaben: 100 💸, Level 1, 0 XP\n> ${botName}\n\n💡 *Tipp:* Nutze */config* um dein Profil anzupassen!` 
   }, { quoted: msg });
   break;
 }
@@ -7144,46 +8334,103 @@ case 'profile': {
   const u = getUser(userJid);
   if (!u) break;
 
-
   let profilePicUrl = null;
   try {
     profilePicUrl = await sock.profilePictureUrl(userJid, 'image');
   } catch {}
 
-  // load registration timestamp
+  // Load registration timestamp
   const regs = loadRegistrations();
   const regTs = regs[userJid] || regs[msg.sender] || null;
   const regDate = regTs ? new Date(regTs).toLocaleString('de-DE') : '...';
 
-  // level progress (uses 100 XP per level in current logic)
+  // Level progress
   const xp = u.xp || 0;
-  const level = u.level || 0;
+  const level = u.level || 1;
   const xpToLevel = 100;
-  const percent = Math.max(0, Math.min(100, Math.floor((xp / xpToLevel) * 100)));
+  const xpProgress = xp % xpToLevel;
+  const percent = Math.max(0, Math.min(100, Math.floor((xpProgress / xpToLevel) * 100)));
+  
+  // Progress bar
+  const barLength = 20;
+  const filled = Math.floor((percent / 100) * barLength);
+  const empty = barLength - filled;
+  const progressBar = '█'.repeat(filled) + '░'.repeat(empty);
 
   const contact = (userJid || '').split('@')[0];
+  const userRank = ranks.getRank(userJid) || 'Member';
+  
+  // Get pet count
+  const pets = getDB().prepare("SELECT * FROM pets WHERE jid = ?").all(userJid) || [];
+  
+  // Get inventory count
+  const inv = getDB().prepare("SELECT SUM(count) as total FROM inventory WHERE jid = ?").get(userJid) || { total: 0 };
 
-  const text = `💬 ══ ✨ Dein Profil ✨ ══\n\n` +
-               `👤 Name: ${u.name || '...'}\n` +
-               `🎂 Alter: ${u.age || '...'}\n` +
-               `👥 Kontakt: ${contact}\n` +
-               `📅 Registriert: ${regDate}\n` +
-               `⭐ Status: ${u.rank || 'Member'}\n\n` +
-               `🎮 Level: ${level}/${(level + 1)}\n` +
-               `📊 XP: ${xp} (${percent}% zum nächsten Level)\n` +
-               `📝 Offene To-dos: 0\n\n` +
-               `💡 Tipps:\n• einfach tips  so soll es ausehen`;
+  const text = `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃ 💬 ✨ **DEIN PROFIL** ✨ 💬
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 **Name:** ${u.name || '...'}
+🪪 **ID:** ${contact}
+📅 **Beigetreten:** ${regDate}
+🏆 **Rang:** ${userRank}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 **WÄHRUNG & VERMÖGEN**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💵 **Coins:** ${u.balance || 0} 💸
+   └ Balance: ${u.balance || 0} EUR
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⭐ **PROGRESSION**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 **Level:** ${level}
+   ├─ Current XP: ${xpProgress}/${xpToLevel}
+   ├─ Total XP: ${xp}
+   └─ Progress: [${progressBar}] ${percent}%
+
+🎮 **Achievements:**
+   ├─ 🐾 Pets: ${pets.length}
+   ├─ 🎒 Inventory Items: ${inv.total || 0}
+   ├─ 🎣 Fische: 0
+   └─ 🏅 Ranks: ${userRank}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 **TIPPS FÜR FORTSCHRITT**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Nutze /pethunt um Pets zu fangen
+✅ Handel mit anderen Usern
+✅ Sammle Items im Inventory
+✅ Steige im Rang auf
+✅ Farme XP durch Commands
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 **SCHNELLE BEFEHLE**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• /me → Profil aktualisieren
+• /pets → Deine Pets anschauen
+• /pethunt hunt → Wildes Pet fangen
+• /topcoins → Coin Leaderboard
+• /topxp → XP Leaderboard
+
+╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│  ✨ Keep grinding! ✨
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
   if (profilePicUrl) {
     await sock.sendMessage(chatId, {
       image: { url: profilePicUrl },
       caption: text
     }, { quoted: msg });
-     await sendReaction(from, msg, '🧑🏻‍💻');
+     await sendReaction(from, msg, '⭐');
   } else {
     await sock.sendMessage(chatId, { text }, { quoted: msg });
- 
-  await sendReaction(from, msg, '🧑🏻‍💻'); }
+    await sendReaction(from, msg, '⭐'); 
+  }
   break;
 }
 
@@ -7279,6 +8526,51 @@ case 'topxp': {
   break;
 }
 
+case 'userlist': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+  if (!allowed.includes(senderRank)) {
+    await sock.sendMessage(chatId, { text: '⛔ Nur Inhaber dürfen alle User-Daten anzeigen.' }, { quoted: msg });
+    break;
+  }
+
+  const users = loadUsers();
+  const userArray = Object.values(users);
+
+  if (userArray.length === 0) {
+    await sock.sendMessage(chatId, { text: '📭 Keine Benutzer gespeichert.' }, { quoted: msg });
+    break;
+  }
+
+  // Sortieren nach Balance (Coins)
+  userArray.sort((a, b) => (b.balance || 0) - (a.balance || 0));
+
+  // Pagination: max 10 pro Nachricht
+  const pageSize = 10;
+  const pages = Math.ceil(userArray.length / pageSize);
+  
+  for (let page = 0; page < pages; page++) {
+    const start = page * pageSize;
+    const end = Math.min(start + pageSize, userArray.length);
+    const pageUsers = userArray.slice(start, end);
+    
+    let txt = `👥 *Alle Benutzer (${userArray.length} gesamt, Seite ${page + 1}/${pages})*\n\n`;
+    txt += `Format: Name | Coins 💸 | XP ⭐ | Level\n\n`;
+
+    pageUsers.forEach((u, i) => {
+      txt += `${start + i + 1}. ${u.name} | ${u.balance || 0}💸 | ${u.xp || 0}⭐ | Lvl ${u.level || 1}\n`;
+    });
+
+    await sock.sendMessage(chatId, { text: txt }, { quoted: msg });
+    
+    // Kleine Verzögerung zwischen Nachrichten
+    if (page < pages - 1) {
+      await sleep(500);
+    }
+  }
+  break;
+}
 
 case 'getpic': {
   const botName = '💻 BeastBot';
@@ -7795,10 +9087,13 @@ case 'play': {
     const ytDlpPath = path.join(__dirname, 'yt-dlp');
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
+    
+    // Use system ffmpeg (should be in PATH after brew install ffmpeg)
+    const ffmpegLocation = '/opt/homebrew/bin/ffmpeg';
 
     await new Promise((resolve, reject) => {
       exec(
-        `"${ytDlpPath}" -x --audio-format mp3 --ffmpeg-location "${ffmpeg.path}" -o "${filePath}" "${url}"`,
+        `"${ytDlpPath}" -x --audio-format mp3 --ffmpeg-location "${ffmpegLocation}" -o "${filePath}" "${url}"`,
         (error, stdout, stderr) => {
           if (error) return reject(stderr || error.message);
           resolve(stdout);
@@ -7822,9 +9117,28 @@ case 'play': {
 
   } catch (err) {
     console.error('Fehler bei !play:', err);
-    await sock.sendMessage(chatId, {
-      text: `❌ Oh nein… da ist etwas schiefgelaufen:\n${err?.message || 'Unbekannter Fehler'}\n> ${botName}`
-    }, { quoted: msg });
+    // Check if connection closed
+    const isConnectionClosed = err?.output?.payload?.message === 'Connection Closed' || 
+                               err?.message?.includes('Connection Closed') ||
+                               err?.data === null;
+    if (isConnectionClosed) {
+      await sock.sendMessage(chatId, {
+        text: `⚠️ Die Verbindung zu WhatsApp wurde unterbrochen. Bitte versuche es in ein paar Sekunden erneut.\n> ${botName}`
+      }, { quoted: msg });
+    } else {
+      await sock.sendMessage(chatId, {
+        text: `❌ Oh nein… da ist etwas schiefgelaufen:\n${err?.message || 'Unbekannter Fehler'}\n> ${botName}`
+      }, { quoted: msg });
+    }
+  } finally {
+    // Clean up temp file if it exists
+    try {
+      const cleanTitle = (args.join(' ') || 'temp').replace(/[\\/:*?"<>|]/g, '').trim();
+      const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (e) {
+      // ignore cleanup errors
+    }
   }
 
   break;
@@ -7993,16 +9307,15 @@ case 'addadmin': {
   break;
 }
 case 'grouplist2': {
- 
-    const senderRank = ranks.getRank(sender);
+    const senderForRank = (msg.key.participant || chatId || '').toString();
+    const senderRank = ranks.getRank(senderForRank) || ranks.getRank((senderForRank || '').split('@')[0]) || ranks.getRank((senderForRank || '').split('@')[0] + '@s.whatsapp.net') || ranks.getRank((senderForRank || '').split('@')[0] + '@lid');
     const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
 
-      if (!allowed.includes(senderRank)) {
+    if (!allowed.includes(senderRank)) {
       await sendReaction(from, msg, '🔒');
-    await sock.sendMessage(from, { text:"⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber\n•🛡️ Moderatoren "
- }, { quoted: msg });
-    break;
-  }
+      await sock.sendMessage(from, { text: "⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber\n•🛡️ Moderatoren " }, { quoted: msg });
+      break;
+    }
   try {
     // Hole ALLE Gruppen, in denen der Bot drin ist
     const groups = await sock.groupFetchAllParticipating();
@@ -8041,13 +9354,14 @@ case 'grouplist2': {
 
 
 case 'grouplist': {
-  const senderRank = ranks.getRank(sender);
-
-  // Nur Owner dürfen
-  const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber'];
+  const senderForRank = (msg.key.participant || chatId || '').toString();
+  const senderRank = ranks.getRank(senderForRank) || ranks.getRank((senderForRank || '').split('@')[0]) || ranks.getRank((senderForRank || '').split('@')[0] + '@s.whatsapp.net') || ranks.getRank((senderForRank || '').split('@')[0] + '@lid');
+  // Erlaubte Ränge (Owner, Stellvertreter, Moderatoren, Supporter)
+  const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator', 'Supporter'];
 
   if (!allowedRanks.includes(senderRank)) {
-    return await sock.sendMessage(from, { text: '🚫 Nur Owner dürfen diesen Befehl nutzen.' });
+    await sendReaction(from, msg, '🔒');
+    return await sock.sendMessage(from, { text: `⛔ *Zugriff verweigert!*\n\nNur folgende Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber\n• 🛡️ Moderatoren\n• 🧰 Supporter` }, { quoted: msg });
   }
 
   try {
@@ -8274,13 +9588,13 @@ case 'penis': {
   break;
 }
 case 'addcoins': {
-  const senderRank = ranks.getRank(sender); // Rang des Command-Senders
+  const senderForRank = (msg.key.participant || chatId || '').toString();
+  const senderRank = ranks.getRank(senderForRank) || ranks.getRank((senderForRank || '').split('@')[0]) || ranks.getRank((senderForRank || '').split('@')[0] + '@s.whatsapp.net') || ranks.getRank((senderForRank || '').split('@')[0] + '@lid');
   const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
 
-   if (!allowed.includes(senderRank)) {
-      await sendReaction(from, msg, '🔒');
-    await sock.sendMessage(from, { text:"⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
- }, { quoted: msg });
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { text: "⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber" }, { quoted: msg });
     break;
   }
   // Argumente checken
@@ -8303,16 +9617,16 @@ case 'addcoins': {
     break;
   }
 
-  // User laden
-  const targetUser = getUser(targetId);
+  // User laden/garantieren
+  let targetUser = getUser(targetId);
   if (!targetUser) {
-    await sock.sendMessage(chatId, { text: '❌ Benutzer nicht gefunden oder nicht registriert.' }, { quoted: msg });
-    break;
+    ensureUser(targetId, targetId.split('@')[0]);
+    targetUser = getUser(targetId);
   }
 
-  // Coins hinzufügen
-  targetUser.balance += amount;
-  updateUserStmt.run(targetUser.balance, targetUser.xp, targetUser.level, targetUser.name, targetId);
+  // Coins hinzufügen (balance Update)
+  const newBalance = (targetUser.balance || 0) + amount;
+  updateUser(targetId, newBalance, targetUser.xp, targetUser.level, targetUser.name);
 
   await sock.sendMessage(chatId, { 
     text: `✅ ${amount} 💸 wurden erfolgreich an ${targetUser.name || targetId} vergeben!`
@@ -8373,47 +9687,454 @@ case 'delcoins': {
 }
 
 case 'pethunt': {
-  // Alle Pets des Users aus der DB abrufen
-  const pets = db.prepare("SELECT * FROM pets WHERE jid = ?").all(jid);
+  // Pet Hunt - Find wild pets, name them, and bring them home!
+  const huntSubcommand = (args[0] || '').toLowerCase();
+  
+  // Wild Pet Datenbank
+  const wildPets = [
+    { name: '🐕 Hund', emoji: '🐕', url: 'https://api.pngimg.com/v2/dog/d1.png', hunt: { min: 10, max: 30 }, rarity: 'common' },
+    { name: '🐈 Katze', emoji: '🐈', url: 'https://api.pngimg.com/v2/cat/c1.png', hunt: { min: 5, max: 20 }, rarity: 'common' },
+    { name: '🦅 Falke', emoji: '🦅', url: 'https://images.unsplash.com/photo-1535856971217-78cdc78ef6a0?w=200', hunt: { min: 50, max: 150 }, rarity: 'rare' },
+    { name: '🐺 Wolf', emoji: '🐺', url: 'https://images.unsplash.com/photo-1564760055-d3a675a67c6c?w=200', hunt: { min: 100, max: 300 }, rarity: 'rare' },
+    { name: '🐉 Drache', emoji: '🐉', url: 'https://images.unsplash.com/photo-1609034227505-5876f6aa4e90?w=200', hunt: { min: 500, max: 1000 }, rarity: 'legendary' },
+    { name: '🦎 Leguan', emoji: '🦎', url: 'https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=200', hunt: { min: 25, max: 60 }, rarity: 'uncommon' },
+    { name: '🐢 Schildkröte', emoji: '🐢', url: 'https://images.unsplash.com/photo-1576336896822-77f02e8acdc1?w=200', hunt: { min: 15, max: 35 }, rarity: 'uncommon' }
+  ];
 
-  if (!pets || pets.length === 0) {
-    await sock.sendMessage(chatId, { text: "❌ Du hast kein Pet! Kaufe dir eines im Shop mit `/shop`." }, { quoted: msg });
-    break;
-  }
-
-  // Erstes Pet für die Jagd auswählen
-  const petObj = pets[0];
-  const pet = petObj.petName;
-
-  // Jagdergebnisse definieren
-  const huntResults = {
-    "Hund": { min: 10, max: 30 },
-    "Katze": { min: 5, max: 20 },
-    "Falke": { min: 50, max: 150 },
-    "Wolf": { min: 100, max: 300 },
-    "Drache": { min: 500, max: 1000 }
+  // Hilfsfunktion: Alle Pets eines Users laden
+  const getPetCount = (jid) => {
+    try {
+      const result = getDB().prepare("SELECT COUNT(*) as count FROM pets WHERE jid = ?").get(jid);
+      return result?.count || 0;
+    } catch (e) {
+      return 0;
+    }
   };
 
-  const range = huntResults[pet];
-  if (!range) {
-    await sock.sendMessage(chatId, { text: "❌ Dein Pet kann nicht jagen." }, { quoted: msg });
+  // Hilfsfunktion: Letzte Hunt-Zeit des Users laden/speichern
+  const getLastHuntTime = (jid) => {
+    try {
+      const result = getDB().prepare("SELECT lastHuntTime FROM users WHERE jid = ?").get(jid);
+      return result?.lastHuntTime ? parseInt(result.lastHuntTime) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const setLastHuntTime = (jid, time) => {
+    try {
+      getDB().prepare("UPDATE users SET lastHuntTime = ? WHERE jid = ?").run(time, jid);
+    } catch (e) {
+      console.error('Fehler beim Speichern der Hunt-Zeit:', e);
+    }
+  };
+
+  // Hilfsfunktion: Cooldown berechnen
+  const getHuntCooldown = (jid) => {
+    const petCount = getPetCount(jid);
+    
+    // Max 5 Pets
+    if (petCount >= 5) {
+      return -1; // Keine weiteren Hunts möglich
+    }
+    
+    // 1. Hunt: 1 Tag Cooldown
+    if (petCount === 0) {
+      return 1 * 24 * 60 * 60 * 1000; // 1 Tag
+    }
+    
+    // 2-5 Pets: 5 Tage Cooldown
+    return 5 * 24 * 60 * 60 * 1000; // 5 Tage
+  };
+
+  if (huntSubcommand === 'hunt') {
+    const petCount = getPetCount(jid);
+    const cooldownMs = getHuntCooldown(jid);
+
+    // Check: Maximal 5 Pets
+    if (cooldownMs === -1) {
+      await sock.sendMessage(chatId, { 
+        text: `❌ Du hast bereits 5 Pets! Das ist das Maximum.\n\n💡 Du kannst Pets im Shop verkaufen oder trainieren.` 
+      }, { quoted: msg });
+      break;
+    }
+
+    // Check: Cooldown
+    const lastHuntTime = getLastHuntTime(jid);
+    const now = Date.now();
+    
+    if (lastHuntTime) {
+      const timeSinceLastHunt = now - lastHuntTime;
+      if (timeSinceLastHunt < cooldownMs) {
+        const timeLeft = cooldownMs - timeSinceLastHunt;
+        const days = Math.ceil(timeLeft / (24 * 60 * 60 * 1000));
+        const hours = Math.ceil(timeLeft / (60 * 60 * 1000));
+        
+        let waitMsg = `⏳ Du musst noch warten!\n\n`;
+        if (days > 0) {
+          waitMsg += `📅 **${days} Tag(e)** verbleibend\n`;
+        } else if (hours > 0) {
+          waitMsg += `⏱️ **${hours} Stunde(n)** verbleibend\n`;
+        }
+        waitMsg += `\n💡 Du hast aktuell **${petCount}/5** Pets.`;
+        
+        await sock.sendMessage(chatId, { text: waitMsg }, { quoted: msg });
+        break;
+      }
+    }
+
+    // Zufälliges Pet spawnen
+    const randomIndex = Math.floor(Math.random() * wildPets.length);
+    const spawnedPet = wildPets[randomIndex];
+    
+    const caughtMsg = `
+🎣 *PET HUNT ERFOLG!*
+
+${spawnedPet.emoji} **${spawnedPet.name}** gefunden!
+
+🌟 **Seltenheit:** ${spawnedPet.rarity === 'legendary' ? '⭐⭐⭐ Legendär' : spawnedPet.rarity === 'rare' ? '⭐⭐ Selten' : '⭐ Normal'}
+
+📸 [Pet Bild]
+
+💡 *Um dieses Pet zu zähmen, verwende:*
+\`/pethunt name <name>\`
+
+⏱️ *Dieses Pet bleibt 5 Minuten aktiv!*
+    `;
+    
+    // Speichere das aktive Pet temporär
+    const activeKey = `hunt_${jid}`;
+    global.activePets = global.activePets || {};
+    global.activePets[activeKey] = {
+      pet: spawnedPet,
+      time: Date.now(),
+      expires: Date.now() + 5 * 60 * 1000 // 5 Minuten
+    };
+    
+    // Aktualisiere die Hunt-Zeit
+    setLastHuntTime(jid, now);
+    
+    // Timeout für Ablauf setzen
+    setTimeout(() => {
+      delete global.activePets[activeKey];
+      try {
+        sock.sendMessage(chatId, { text: `⏰ Das ${spawnedPet.emoji} Pet ist weggelaufen!` });
+      } catch (e) {}
+    }, 5 * 60 * 1000);
+    
+    // Sende Nachricht mit Bild
+    try {
+      await sock.sendMessage(chatId, {
+        image: { url: spawnedPet.url },
+        caption: caughtMsg
+      });
+    } catch (imgErr) {
+      await sock.sendMessage(chatId, { text: caughtMsg }, { quoted: msg });
+    }
     break;
   }
 
-  // Belohnung berechnen
-  const reward = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+  if (huntSubcommand === 'name' && args[1]) {
+    const petName = args.slice(1).join(' ');
+    const activeKey = `hunt_${jid}`;
+    
+    if (!global.activePets || !global.activePets[activeKey]) {
+      await sock.sendMessage(chatId, { text: '❌ Du hast kein aktives Pet! Starte mit `/pethunt hunt`' }, { quoted: msg });
+      break;
+    }
 
-  // User-Daten updaten
+    // Check: Maximal 5 Pets
+    if (getPetCount(jid) >= 5) {
+      await sock.sendMessage(chatId, { 
+        text: `❌ Du hast bereits 5 Pets! Das ist das Maximum.\n\n💡 Du kannst Pets im Shop verkaufen oder trainieren.` 
+      }, { quoted: msg });
+      break;
+    }
+
+    const activePet = global.activePets[activeKey];
+    
+    // Speichere Pet in der Datenbank
+    try {
+      getDB().prepare("INSERT INTO pets (jid, petName, hunger, level, health) VALUES (?, ?, ?, ?, ?)").run(
+        jid,
+        petName,
+        Math.floor(Math.random() * 40) + 60, // Zufälliger Hunger 60-100
+        1,
+        100
+      );
+      
+      // Gebe Bonus-Coins für das Zähmen
+      const user = getUser(jid);
+      const bonus = 50;
+      user.balance += bonus;
+      user.xp += 20;
+      updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+      
+      const newPetCount = getPetCount(jid);
+      const cooldownMs = getHuntCooldown(jid);
+      let cooldownMsg = '';
+      
+      if (newPetCount < 5) {
+        if (newPetCount === 1) {
+          cooldownMsg = '\n\n⏳ Nächster Hunt in: **1 Tag**';
+        } else {
+          cooldownMsg = '\n\n⏳ Nächster Hunt in: **5 Tage**';
+        }
+      }
+      
+      await sock.sendMessage(chatId, { 
+        text: `✅ *Pet gezähmt!*\n\n${activePet.pet.emoji} **${petName}** wurde deinem Team hinzugefügt!\n\n💰 +${bonus} Coins für das Zähmen\n⭐ +20 XP\n\n🐾 Du hast jetzt **${newPetCount}/5** Pets${cooldownMsg}` 
+      }, { quoted: msg });
+      
+      // Lösche das aktive Pet
+      delete global.activePets[activeKey];
+    } catch (dbErr) {
+      console.error('Pet DB error:', dbErr);
+      await sock.sendMessage(chatId, { text: `❌ Fehler beim Speichern: ${dbErr.message}` }, { quoted: msg });
+    }
+    break;
+  }
+
+  if (huntSubcommand === 'info') {
+    // Infos über aktives Pet
+    const activeKey = `hunt_${jid}`;
+    if (!global.activePets || !global.activePets[activeKey]) {
+      await sock.sendMessage(chatId, { text: '❌ Du hast kein aktives Pet!' }, { quoted: msg });
+      break;
+    }
+    
+    const activePet = global.activePets[activeKey];
+    const timeLeft = Math.max(0, Math.floor((activePet.expires - Date.now()) / 1000));
+    
+    await sock.sendMessage(chatId, { 
+      text: `ℹ️ *Aktives Pet:*\n\n${activePet.pet.name}\n🌟 Seltenheit: ${activePet.pet.rarity}\n💰 Belohnung: ${activePet.pet.hunt.min}-${activePet.pet.hunt.max} Coins\n⏱️ Verfällt in: ${timeLeft}s\n\nStelle sicher, es zu zähmen mit \`/pethunt name <name>\`` 
+    }, { quoted: msg });
+    break;
+  }
+
+  // Standard Hunt-Befehl wenn alle Pets durch sind
+  const userPets = getDB().prepare("SELECT * FROM pets WHERE jid = ?").all(jid);
+  if (!userPets || userPets.length === 0) {
+    await sock.sendMessage(chatId, { text: "❌ Du hast noch keine Pets! Starte ein Hunt mit `/pethunt hunt` um eines zu finden." }, { quoted: msg });
+    break;
+  }
+
+  // Hunt mit bereits gefangenen Pets
+  const userPet = userPets[0];
+  const huntData = wildPets.find(p => p.name.includes(userPet.petName)) || { hunt: { min: 20, max: 60 } };
+  const reward = Math.floor(Math.random() * (huntData.hunt.max - huntData.hunt.min + 1)) + huntData.hunt.min;
+  
   const user = getUser(jid);
   user.balance += reward;
-  user.xp += 10; // XP Bonus
+  user.xp += 15;
   updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
 
-  // Ergebnis an den Chat senden
   await sock.sendMessage(chatId, { 
-    text: `🐾 Dein ${pet} war auf der Jagd!\n\n💰 Beute: ${reward} Coins\n⭐ +10 XP\n\nNeuer Kontostand: ${user.balance} 💸`
+    text: `🐾 Dein ${userPet.petName} war auf der Jagd!\n\n💰 Beute: ${reward} Coins\n⭐ +15 XP\n🍖 Hunger: ${Math.max(0, userPet.hunger - 10)}%\n\n✨ Neuer Kontostand: ${user.balance} 💸`
   }, { quoted: msg });
 
+  break;
+}
+
+case 'pets': {
+  try {
+    const userPets = getDB().prepare("SELECT * FROM pets WHERE jid = ?").all(jid);
+    const petCount = userPets?.length || 0;
+    
+    if (petCount === 0) {
+      await sock.sendMessage(chatId, { 
+        text: `🐾 *Dein Pet-Team ist leer!*\n\n💡 Starte dein erstes Hunt mit:\n\`/pethunt hunt\`\n\nOder kaufe im Shop mit:\n\`/shop pets\`` 
+      }, { quoted: msg });
+      break;
+    }
+
+    let petsList = `🐾 *Dein Pet-Team* (${petCount}/5)\n\n`;
+    
+    userPets.forEach((pet, i) => {
+      petsList += `**${i + 1}. ${pet.petName}**\n`;
+      petsList += `   ⭐ Level: ${pet.level}\n`;
+      petsList += `   ❤️ Health: ${pet.health}%\n`;
+      petsList += `   🍖 Hunger: ${pet.hunger}%\n\n`;
+    });
+
+    petsList += `\n💡 *Verwende:*\n`;
+    petsList += `• \`/pethunt hunt\` - Neues Pet fangen (max 5)\n`;
+    petsList += `• \`/shop pets\` - Pets kaufen\n`;
+
+    if (petCount < 5) {
+      const lastHuntTime = getDB().prepare("SELECT lastHuntTime FROM users WHERE jid = ?").get(jid)?.lastHuntTime;
+      if (lastHuntTime) {
+        const cooldownMs = petCount === 0 ? 1 * 24 * 60 * 60 * 1000 : 5 * 24 * 60 * 60 * 1000;
+        const timeLeft = cooldownMs - (Date.now() - parseInt(lastHuntTime));
+        
+        if (timeLeft > 0) {
+          const days = Math.ceil(timeLeft / (24 * 60 * 60 * 1000));
+          petsList += `⏳ Nächster Hunt in: ${days} Tag(e)\n`;
+        } else {
+          petsList += `✅ Bereit für einen neuen Hunt!\n`;
+        }
+      }
+    } else {
+      petsList += `❌ Du hast das Maximum von 5 Pets erreicht!\n`;
+    }
+
+    await sock.sendMessage(chatId, { text: petsList }, { quoted: msg });
+  } catch (e) {
+    console.error('Fehler bei /pets:', e);
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+case 'shop': {
+  try {
+    const subcommand = (args[0] || '').toLowerCase();
+    
+    const shopItems = {
+      pets: [
+        { name: '🐕 Hund', emoji: '🐕', price: 500, rarity: 'common' },
+        { name: '🐈 Katze', emoji: '🐈', price: 400, rarity: 'common' },
+        { name: '🦎 Leguan', emoji: '🦎', price: 800, rarity: 'uncommon' },
+        { name: '🐢 Schildkröte', emoji: '🐢', price: 1000, rarity: 'uncommon' },
+        { name: '🦅 Falke', emoji: '🦅', price: 2000, rarity: 'rare' },
+        { name: '🐺 Wolf', emoji: '🐺', price: 3500, rarity: 'rare' },
+        { name: '🐉 Drache', emoji: '🐉', price: 10000, rarity: 'legendary' }
+      ]
+    };
+
+    if (subcommand === 'pets') {
+      const user = getUser(jid);
+      const petCount = getDB().prepare("SELECT COUNT(*) as count FROM pets WHERE jid = ?").get(jid)?.count || 0;
+      
+      if (petCount >= 5) {
+        await sock.sendMessage(chatId, { 
+          text: `❌ Du hast das Maximum von 5 Pets erreicht!\n\n💡 Verkaufe ein Pet oder jage neue.` 
+        }, { quoted: msg });
+        break;
+      }
+
+      let shopText = `🛍️ *Pet Shop*\n\n💰 Dein Kontostand: ${user.balance} 💸\n🐾 Deine Pets: ${petCount}/5\n\n`;
+      shopText += `*Verfügbare Pets:*\n\n`;
+
+      shopItems.pets.forEach((pet, i) => {
+        shopText += `**${i + 1}. ${pet.emoji} ${pet.name}**\n`;
+        shopText += `   💰 Preis: ${pet.price} Coins\n`;
+        shopText += `   🌟 Seltenheit: ${pet.rarity === 'legendary' ? '⭐⭐⭐ Legendär' : pet.rarity === 'rare' ? '⭐⭐ Selten' : pet.rarity === 'uncommon' ? '⭐ Uncommon' : 'Normal'}\n`;
+        shopText += `   💬 \`/shop buy ${i + 1}\`\n\n`;
+      });
+
+      await sock.sendMessage(chatId, { text: shopText }, { quoted: msg });
+      break;
+    }
+
+    if (subcommand === 'buy' && args[1]) {
+      const user = getUser(jid);
+      const itemIndex = parseInt(args[1]) - 1;
+      const petCount = getDB().prepare("SELECT COUNT(*) as count FROM pets WHERE jid = ?").get(jid)?.count || 0;
+
+      if (itemIndex < 0 || itemIndex >= shopItems.pets.length) {
+        await sock.sendMessage(chatId, { text: `❌ Ungültige Nummer! Verwende /shop pets zum Ansehen.` }, { quoted: msg });
+        break;
+      }
+
+      if (petCount >= 5) {
+        await sock.sendMessage(chatId, { 
+          text: `❌ Du hast das Maximum von 5 Pets erreicht!\n\n💡 Verkaufe ein Pet bevor du ein neues kaufst.` 
+        }, { quoted: msg });
+        break;
+      }
+
+      const pet = shopItems.pets[itemIndex];
+
+      if (user.balance < pet.price) {
+        const needed = pet.price - user.balance;
+        await sock.sendMessage(chatId, { 
+          text: `❌ Du hast nicht genug Coins!\n\n💰 Dir fehlen: ${needed} Coins\n💸 Dein Kontostand: ${user.balance}` 
+        }, { quoted: msg });
+        break;
+      }
+
+      // Pet kaufen
+      user.balance -= pet.price;
+      updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+
+      // Pet mit generiertem Namen hinzufügen
+      const petNames = ['Max', 'Luna', 'Rex', 'Bella', 'Charlie', 'Daisy', 'Rocky', 'Milo', 'Zoe', 'Buddy'];
+      const randomName = petNames[Math.floor(Math.random() * petNames.length)];
+
+      getDB().prepare("INSERT INTO pets (jid, petName, hunger, level, health) VALUES (?, ?, ?, ?, ?)").run(
+        jid,
+        `${pet.emoji} ${randomName}`,
+        Math.floor(Math.random() * 30) + 70,
+        1,
+        100
+      );
+
+      const newPetCount = petCount + 1;
+
+      await sock.sendMessage(chatId, { 
+        text: `✅ *Pet gekauft!*\n\n${pet.emoji} ${randomName} wurde zu deinem Team hinzugefügt!\n\n💰 Kosten: ${pet.price} Coins\n💸 Neuer Kontostand: ${user.balance} Coins\n🐾 Pets: ${newPetCount}/5` 
+      }, { quoted: msg });
+      break;
+    }
+
+    if (!subcommand) {
+      await sock.sendMessage(chatId, { 
+        text: `🛍️ *Shop Befehle:*\n\n/shop pets - Zeige alle Pets\n/shop buy <nummer> - Kaufe ein Pet` 
+      }, { quoted: msg });
+      break;
+    }
+
+  } catch (e) {
+    console.error('Fehler bei /shop:', e);
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+case 'sellpet': {
+  try {
+    const petId = parseInt(args[0]);
+    if (isNaN(petId)) {
+      const userPets = getDB().prepare("SELECT * FROM pets WHERE jid = ?").all(jid);
+      let sellText = `🛒 *Pets verkaufen*\n\n`;
+      sellText += `Deine Pets (Verkaufspreis 50% des Kaufpreises):\n\n`;
+      
+      userPets.forEach((pet, i) => {
+        sellText += `**${i + 1}. ${pet.petName}**\n`;
+        sellText += `   💰 Verkaufspreis: ~${Math.floor(500 * 0.5 + Math.random() * 1000)}\n`;
+      });
+      
+      sellText += `\nVerwende: /sellpet <nummer>`;
+      
+      await sock.sendMessage(chatId, { text: sellText }, { quoted: msg });
+      break;
+    }
+
+    const pet = getDB().prepare("SELECT * FROM pets WHERE jid = ? LIMIT ?, 1").get(jid, petId - 1);
+    
+    if (!pet) {
+      await sock.sendMessage(chatId, { text: `❌ Pet #${petId} nicht gefunden!` }, { quoted: msg });
+      break;
+    }
+
+    // Verkaufspreis: 40-60% des Durchschnittskaufpreises
+    const sellPrice = Math.floor(Math.random() * (3000 - 200) + 200);
+    const user = getUser(jid);
+    user.balance += sellPrice;
+    updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+
+    // Lösche das Pet
+    getDB().prepare("DELETE FROM pets WHERE id = ?").run(pet.id);
+
+    await sock.sendMessage(chatId, { 
+      text: `✅ ${pet.petName} verkauft!\n\n💰 Erlös: ${sellPrice} Coins\n💸 Neuer Kontostand: ${user.balance} Coins` 
+    }, { quoted: msg });
+
+  } catch (e) {
+    console.error('Fehler bei /sellpet:', e);
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
+  }
   break;
 }
 
@@ -8449,6 +10170,78 @@ case 'ban': {
   }, { quoted: msg });
 
   console.log(`[BAN] User: ${targetJid} | By: ${sender} | Reason: ${reason}`);
+  break;
+}
+
+case 'ipban': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { 
+      text: "⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
+    }, { quoted: msg });
+    break;
+  }
+
+  if (!args[0]) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib eine IP-Adresse an.\n\nVerwendung: /ipban <IP> <Grund>' 
+    }, { quoted: msg });
+    break;
+  }
+
+  const targetIP = args[0];
+  const reason = args.slice(1).join(' ') || 'Kein Grund angegeben';
+
+  // Validiere IP-Format (einfache Prüfung)
+  const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (!ipRegex.test(targetIP)) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Ungültiges IP-Format! Beispiel: 192.168.1.1' 
+    }, { quoted: msg });
+    break;
+  }
+
+  // IP bannen
+  banIP(targetIP, reason);
+
+  await sock.sendMessage(chatId, { 
+    text: `🚫 IP-Adresse ${targetIP} wurde gebannt.\nGrund: ${reason}\n\n⚠️ Diese IP kann sich nicht mehr mit dem Bot verbinden.` 
+  }, { quoted: msg });
+
+  console.log(`[IP-BAN] IP: ${targetIP} | By: ${sender} | Reason: ${reason}`);
+  break;
+}
+
+case 'ipunban': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { 
+      text: "⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
+    }, { quoted: msg });
+    break;
+  }
+
+  if (!args[0]) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib eine IP-Adresse an.\n\nVerwendung: /ipunban <IP>' 
+    }, { quoted: msg });
+    break;
+  }
+
+  const targetIP = args[0];
+  unbanIP(targetIP);
+
+  await sock.sendMessage(chatId, { 
+    text: `✅ IP-Adresse ${targetIP} wurde entbannt.` 
+  }, { quoted: msg });
+
+  console.log(`[IP-UNBAN] IP: ${targetIP} | By: ${sender}`);
   break;
 }
 
@@ -8498,6 +10291,134 @@ case 'whois': {
   }
 
   await sock.sendMessage(chatId, { text: reply }, { quoted: msg });
+  break;
+}
+
+case 'showuser': {
+  let targetJid = null;
+
+  // Prüfe auf Mentions
+  if (msg.mentionedJid && msg.mentionedJid.length > 0) {
+    targetJid = msg.mentionedJid[0];
+  } 
+  // Prüfe auf Argument (LID/JID oder Nummer)
+  else if (args[0]) {
+    let arg = args[0];
+    // Wenn es mit @ beginnt, entferne es
+    if (arg.startsWith('@')) {
+      arg = arg.substring(1);
+    }
+    // Wenn es nur Zahlen sind, konvertiere zu LID
+    if (/^\d+$/.test(arg)) {
+      targetJid = arg + '@lid';
+    } else {
+      targetJid = arg;
+    }
+  } else {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib eine LID/Nummer an oder @mention einen User.' 
+    }, { quoted: msg });
+    break;
+  }
+
+  const user = getUser(targetJid);
+  const bannedEntry = isBanned(targetJid);
+
+  let reply = `📋 User Informationen:\n\n`;
+  reply += `👤 **LID/JID:** ${targetJid}\n`;
+
+  // Rang abfragen
+  const userRank = ranks.getRank(targetJid) || 'Kein Rang';
+  reply += `🏆 **Rang:** ${userRank}\n`;
+
+  // LID-Teil (Baileys liefert keine echten IPs; wir verwenden die lokale ID)
+  const targetLid = (targetJid || '').split('@')[0];
+  reply += `🆔 **LID:** ${targetLid}\n`;
+  const lidBan = isIPBanned(targetLid);
+  reply += `🔒 **LID-Status:** ${lidBan ? 'Gebannt' : 'Nicht gebannt'}\n`;
+
+  if (user) {
+    // Registrierter User
+    reply += `\n💰 **Balance:** ${user.balance}€\n`;
+    reply += `⚡ **XP:** ${user.xp}\n`;
+    reply += `🎮 **Level:** ${user.level}\n`;
+    reply += `📝 **Name:** ${user.name || 'Nicht gesetzt'}\n`;
+    reply += `🎂 **Alter:** ${user.age || 'Nicht gesetzt'}`;
+  } else {
+    // Nicht registrierter User
+    reply += `\n❌ **Status:** Nicht registriert`;
+  }
+
+  if (bannedEntry) {
+    reply += `\n\n🚫 **GEBANNT**\n• Grund: ${bannedEntry.reason}\n• Zeit: ${new Date(bannedEntry.timestamp).toLocaleString('de-DE')}`;
+  } else {
+    reply += `\n✅ **Status:** Nicht gebannt`;
+  }
+
+  await sock.sendMessage(chatId, { text: reply }, { quoted: msg });
+  break;
+}
+
+case 'ip': {
+  // Gebe die IP (LID-Teil) eines Users zurück. Wenn kein Argument, eigene IP.
+  let targetJid = null;
+  if (msg.mentionedJid && msg.mentionedJid.length > 0) {
+    targetJid = msg.mentionedJid[0];
+  } else if (args[0]) {
+    let arg = args[0];
+    if (arg.startsWith('@')) arg = arg.substring(1);
+    targetJid = /^\d+$/.test(arg) ? arg + '@lid' : arg;
+  } else {
+    targetJid = msg.key.fromMe ? sock.user.id : sender;
+  }
+
+  const lidVal = (targetJid || '').split('@')[0];
+  const ipBanEntry = isIPBanned(lidVal);
+
+  let ipReply = `📡 LID Information:\n`;
+  ipReply += `• LID/JID: ${targetJid}\n`;
+  ipReply += `• LID: ${lidVal}\n`;
+  ipReply += `• LID-Status: ${ipBanEntry ? 'Gebannt' : 'Nicht gebannt'}`;
+
+  await sock.sendMessage(chatId, { text: ipReply }, { quoted: msg });
+  break;
+}
+
+case 'forcebot': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+  if (!allowed.includes(senderRank)) {
+    await sock.sendMessage(chatId, { text: '⛔ Zugriff verweigert.' }, { quoted: msg });
+    break;
+  }
+
+  const sub = (args[0] || '').toLowerCase();
+  if (sub === 'add' && args[1]) {
+    let arg = args[1]; if (arg.startsWith('@')) arg = arg.substring(1);
+    const jid = /^\d+$/.test(arg) ? arg + '@lid' : arg;
+    setDeviceOverride(jid, 'WhatsApp Web / Bot (Forced)');
+    await sock.sendMessage(chatId, { text: `✅ Device override gesetzt für ${jid}` }, { quoted: msg });
+    break;
+  }
+  if (sub === 'remove' && args[1]) {
+    let arg = args[1]; if (arg.startsWith('@')) arg = arg.substring(1);
+    const jid = /^\d+$/.test(arg) ? arg + '@lid' : arg;
+    removeDeviceOverride(jid);
+    await sock.sendMessage(chatId, { text: `✅ Device override entfernt für ${jid}` }, { quoted: msg });
+    break;
+  }
+  if (sub === 'list') {
+    const list = loadDeviceOverrides();
+    if (!list.length) {
+      await sock.sendMessage(chatId, { text: '📋 Keine Device-Overrides gesetzt.' }, { quoted: msg });
+    } else {
+      const out = list.map(i => `${i.jid} → ${i.label}`).join('\n');
+      await sock.sendMessage(chatId, { text: `📋 Device-Overrides:\n${out}` }, { quoted: msg });
+    }
+    break;
+  }
+
+  await sock.sendMessage(chatId, { text: 'Verwendung: /forcebot add|remove|list <jid>' }, { quoted: msg });
   break;
 }
 
@@ -8743,6 +10664,62 @@ case 'antidelete': {
     break;
 }
 
+case 'spam': {
+  if (!args[0]) {
+    await sock.sendMessage(chatId, { 
+      text: `⚙️ Aktueller Spam-Intervall: ${spamInterval}ms\n\nVerwendung: /spam <millisekunden>` 
+    }, { quoted: msg });
+    break;
+  }
+
+  const duration = parseInt(args[0]);
+  if (isNaN(duration) || duration < 0) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib eine gültige Millisekunden-Zahl ein (z.B. /spam 1000)' 
+    }, { quoted: msg });
+    break;
+  }
+
+  spamInterval = duration;
+  await sock.sendMessage(chatId, { 
+    text: `✅ Spam-Intervall auf ${duration}ms gesetzt!\n\nNutze jetzt /message <text> um zu testen.` 
+  }, { quoted: msg });
+  break;
+}
+
+case 'message': {
+  if (spamInterval === 0) {
+    await sock.sendMessage(chatId, { 
+      text: '⚠️ Spam-Intervall nicht gesetzt!\n\nSetze ihn zuerst mit /spam <millisekunden>' 
+    }, { quoted: msg });
+    break;
+  }
+
+  if (!args.join('').trim()) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib eine Nachricht ein.' 
+    }, { quoted: msg });
+    break;
+  }
+
+  const testMessage = args.join(' ');
+  const startTime = Date.now();
+  let responseTime = 0;
+
+  // Nachricht senden
+  await sock.sendMessage(chatId, { text: testMessage });
+
+  // Warte auf den Intervall
+  await new Promise((res) => setTimeout(res, spamInterval));
+
+  responseTime = Date.now() - startTime;
+
+  const reply = `📊 Spam-Test Ergebnis:\n\n⏱️ **Antwortzeit:** ${responseTime}ms\n⏳ **Eingestellter Intervall:** ${spamInterval}ms\n📝 **Nachricht:** "${testMessage}"\n\n${responseTime <= spamInterval ? '✅ Schneller als erwartet!' : '⚠️ Langsamer als erwartet'}`;
+  
+  await sock.sendMessage(chatId, { text: reply }, { quoted: msg });
+  break;
+}
+
 
 async function isUserAdmin(jid, sender) {
   try {
@@ -8773,6 +10750,8 @@ case 'welcome0000000000000000000000': {
 break;
 
 case 'tagall': {
+  const isGroup = from.endsWith('@g.us');
+  
   if (!isGroup) {
     await sock.sendMessage(from, { text: 'Dieser Befehl funktioniert nur in Gruppen.' });
     break;
@@ -9649,18 +11628,27 @@ case 'add': {
       break;
     }
 
-    const numberToAdd = args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-    if (!numberToAdd) {
-      await sock.sendMessage(from, { text: 'Bitte gib eine gültige Nummer an, z.B. !add 491234567890' });
+    const cleanNumber = args[0]?.replace(/[^0-9]/g, '');
+    if (!cleanNumber || cleanNumber.length < 10) {
+      await sock.sendMessage(from, { text: 'Bitte gib eine gültige Nummer an, z.B. /add 491234567890' });
       break;
     }
 
+    const numberToAdd = cleanNumber + '@s.whatsapp.net';
+
     await sock.groupParticipantsUpdate(from, [numberToAdd], 'add');
-    await sock.sendMessage(from, { text: `✅ Benutzer mit der Nummer +${numberToAdd.split('@')[0]} wurde hinzugefügt.` });
+    await sock.sendMessage(from, { text: `✅ Benutzer mit der Nummer +${cleanNumber} wurde hinzugefügt.` });
 
   } catch (error) {
-    console.error('Fehler beim Hinzufügen:', error);
-    await sock.sendMessage(from, { text: '❌ Fehler beim Hinzufügen des Benutzers.' });
+    console.error('Fehler beim Hinzufügen:', error.message);
+    const errMsg = error.message || '';
+    if (errMsg.includes('bad-request')) {
+      await sock.sendMessage(from, { text: '❌ Die Nummer ist nicht gültig oder bereits in der Gruppe. Prüfe die Nummer und versuche es erneut.' });
+    } else if (errMsg.includes('not-authorized')) {
+      await sock.sendMessage(from, { text: '❌ Der Bot hat keine Berechtigung, Benutzer hinzuzufügen. Stelle sicher, dass der Bot ein Gruppenadmin ist.' });
+    } else {
+      await sock.sendMessage(from, { text: `❌ Fehler beim Hinzufügen des Benutzers: ${errMsg}` });
+    }
   }
   break;
 }
@@ -10423,7 +12411,7 @@ case 'newqr': {
   const { state, saveCreds } = await useMultiFileAuthState(dir);
   const sockNew = makeWASocket({
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: logger,
     browser: ['Dragon', 'Desktop', '1.0.0'],
     printQRInTerminal: false,
   });
@@ -10488,7 +12476,7 @@ case 'newsessionssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
         version,
         printQRInTerminal: false,
         auth: state,
-        logger: pino({ level: 'silent' }),
+        logger: logger,
         browser: Browsers.ubuntu('Edge'),
     });
 
@@ -10553,7 +12541,7 @@ case 'newqr1': {
 
   const sockNew = require('@717development/baileys').default({
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: logger,
     browser: ['Storm', 'Desktop', '1.0.0'],
     printQRInTerminal: false,
   });
@@ -10616,7 +12604,7 @@ case 'newqr2': {
 
   const sockNew = require('@717development/baileys').default({
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: logger,
     browser: ['Dragon', 'Desktop', '1.0.0'],
     printQRInTerminal: false,
   });
@@ -10837,11 +12825,31 @@ case 'ranksssssssssssssssssssss': {
   const all = ranks.list();
   const entries = Object.entries(all);
   if (!entries.length) return reply('📭 Keine Ränge vergeben.');
-  let txt = '📋 *Vergebene Ränge*\n\n';
-  entries.forEach(([id, rank]) => {
-    txt += `• @${id.split('@')[0]} → ${rank}\n`;
-  });
-  reply(txt, { mentions: entries.map(([id]) => id) });
+  
+  // Pagination: max 10 pro Nachricht
+  const pageSize = 10;
+  const pages = Math.ceil(entries.length / pageSize);
+  
+  for (let page = 0; page < pages; page++) {
+    const start = page * pageSize;
+    const end = Math.min(start + pageSize, entries.length);
+    const pageEntries = entries.slice(start, end);
+    
+    let txt = `📋 *Vergebene Ränge (Seite ${page + 1}/${pages})*\n\n`;
+    pageEntries.forEach(([id, rank]) => {
+      txt += `• @${id.split('@')[0]} → ${rank}\n`;
+    });
+    
+    await sock.sendMessage(from, { 
+      text: txt,
+      mentions: pageEntries.map(([id]) => id)
+    });
+    
+    // Kleine Verzögerung zwischen Nachrichten
+    if (page < pages - 1) {
+      await sleep(500);
+    }
+  }
   break;
 }
             // ====================== LIST SESSIONS ====================== //
@@ -10865,9 +12873,25 @@ case 'ranksssssssssssssssssssss': {
 
                 if (names.length === 0) return reply('📭 Keine Sessions gefunden.');
 
-                let list = `📊 *Gefundene Sessions (${names.length})*:\n\n`;
-                names.forEach((n, i) => list += `${i + 1}. \`${n}\`\n`);
-                reply(list);
+                // Pagination: max 10 pro Nachricht
+                const pageSize = 10;
+                const pages = Math.ceil(names.length / pageSize);
+                
+                for (let page = 0; page < pages; page++) {
+                  const start = page * pageSize;
+                  const end = Math.min(start + pageSize, names.length);
+                  const pageNames = names.slice(start, end);
+                  
+                  let list = `📊 *Gefundene Sessions (${names.length} gesamt, Seite ${page + 1}/${pages})*:\n\n`;
+                  pageNames.forEach((n, i) => list += `${start + i + 1}. \`${n}\`\n`);
+                  
+                  await sock.sendMessage(from, { text: list });
+                  
+                  // Kleine Verzögerung zwischen Nachrichten
+                  if (page < pages - 1) {
+                    await sleep(500);
+                  }
+                }
                 break;
             }
 

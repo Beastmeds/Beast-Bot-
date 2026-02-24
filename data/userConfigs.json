@@ -1,1 +1,79 @@
-{}
+{
+  "164403227979839@lid": {
+    "aiModel": "Groq",
+    "birthday": "20.09.2009",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "157805923274884@lid": {
+    "aiModel": "Claude",
+    "birthday": null,
+    "favoriteGame": "Minecraft",
+    "language": "de",
+    "theme": "dark"
+  },
+  "42894358491214@lid": {
+    "aiModel": "Claude",
+    "birthday": null,
+    "favoriteGame": "<Spiel>",
+    "language": "de",
+    "theme": "dark"
+  },
+  "200437550551198@lid": {
+    "aiModel": "Claude",
+    "birthday": "01.08.2000",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "252510371586095@lid": {
+    "aiModel": "Claude",
+    "birthday": "26.02.1998",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "211733432025338@lid": {
+    "aiModel": "Claude",
+    "birthday": "01.02.2003",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "112228065927207@lid": {
+    "aiModel": "Claude",
+    "birthday": "03.05.1999",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "95065443704939@lid": {
+    "aiModel": "Claude",
+    "birthday": "04.07.1996",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "139771473060070@lid": {
+    "aiModel": "Claude",
+    "birthday": "12.03.1997",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "220783112663096@lid": {
+    "aiModel": "Claude",
+    "birthday": "04.10.2001",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "173169323331709@lid": {
+    "aiModel": "Claude",
+    "birthday": "01.03.2012",
+    "favoriteGame": "Forza Horizon 5",
+    "language": "de",
+    "theme": "dark"
+  }
+}

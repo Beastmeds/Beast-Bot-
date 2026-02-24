@@ -1,0 +1,26 @@
+{
+  "claude": {
+    "enabled": true,
+    "apiKey": "sk-pt5iPeW3f7s27f060bwSZZwyK1xFm",
+    "baseUrl": "https://api.skycoding.ai/v1",
+    "model": "anthropic/claude-sonnet-4.5"
+  },
+  "groq": {
+    "enabled": true,
+    "apiKey": "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",
+    "baseUrl": "https://api.groq.com/openai/v1",
+    "model": "openai/gpt-oss-20b"
+  },
+  "nyxion": {
+    "enabled": false,
+    "apiKey": "YOUR_NYXION_API_KEY_HERE",
+    "baseUrl": "https://api.nyxion.ai/v1",
+    "model": "nyxion-v1"
+  },
+  "openai": {
+    "enabled": false,
+    "apiKey": "YOUR_OPENAI_API_KEY_HERE",
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-4"
+  }
+}
