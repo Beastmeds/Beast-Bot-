@@ -1,0 +1,39 @@
+{
+  "nextId": 5,
+  "requests": [
+    {
+      "id": 1,
+      "sender": "168178520998107@lid",
+      "senderName": "Owner Cats  ",
+      "groupLink": "https://chat.whatsapp.com/DkpkKUo8x1B6AIz7Qs9ikV?mode=gi_t",
+      "timestamp": 1771347688981,
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "sender": "4145247432784@lid",
+      "senderName": "c",
+      "groupLink": "https://chat.whatsapp.com/Eo6FEBLK5nY5txtiwIGhei?mode=gi_t",
+      "timestamp": 1771368679812,
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "sender": "4145247432784@lid",
+      "senderName": "c",
+      "groupLink": "https://chat.whatsapp.com/Eo6FEBLK5nY5txtiwIGhei?mode=gi_t",
+      "timestamp": 1771371609542,
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "sender": "168178520998107@lid",
+      "senderName": "Owner Cats  ",
+      "groupLink": "https://chat.whatsapp.com/DwSFjCdWw2gDS3zy79Pcti?mode=gi_t",
+      "timestamp": 1771602326372,
+      "status": "accepted",
+      "acceptedBy": "157805923274884@lid",
+      "acceptedAt": 1771603818071
+    }
+  ]
+}

@@ -8,6 +8,6 @@
   "antibot": false,
   "autosticker": false,
   "mutegc": false,
-  "autoreact": true,
+  "autoreact": false,
   "badwords": []
 }

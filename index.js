@@ -104,26 +104,58 @@ async function startSock(sessionName, mode) {
         console.log(`❌ Fehler beim Senden der Online-Nachricht für Session ${sessionName}: ${error.message}`);
       }
 
-      // Wrap groupMetadata with a small cache and retry to avoid rate-overlimit crashes
+      // Wrap groupMetadata with a small cache and exponential backoff retry to avoid rate-overlimit crashes
       try {
         const originalGroupMetadata = sock.groupMetadata.bind(sock);
         const groupMetadataCache = new Map();
+        const REQUEST_CACHE_TTL = 60 * 1000; // 60 seconds
+        const REQUEST_DELAY = 2500; // 2.5 second minimum delay between requests
+        let lastRequestTime = 0;
+        
         sock.groupMetadata = async (jid) => {
           const now = Date.now();
           const cached = groupMetadataCache.get(jid);
-          if (cached && (now - cached.ts) < 60 * 1000) return cached.md;
+          if (cached && (now - cached.ts) < REQUEST_CACHE_TTL) return cached.md;
+          
+          // Implement minimum delay between requests
+          const timeSinceLastRequest = now - lastRequestTime;
+          if (timeSinceLastRequest < REQUEST_DELAY) {
+            await new Promise(r => setTimeout(r, REQUEST_DELAY - timeSinceLastRequest));
+          }
+          
           try {
+            lastRequestTime = Date.now();
             const md = await originalGroupMetadata(jid);
             groupMetadataCache.set(jid, { md, ts: Date.now() });
             return md;
           } catch (e) {
             const msg = e && e.message ? e.message : '';
-            if (msg.includes('rate-overlimit') || (e && e.data === 429)) {
-              // brief backoff then retry once
-              await new Promise(r => setTimeout(r, 2000));
-              const md2 = await originalGroupMetadata(jid);
-              groupMetadataCache.set(jid, { md: md2, ts: Date.now() });
-              return md2;
+            const isRateLimit = msg.includes('rate-overlimit') || (e && e.data === 429);
+            
+            if (isRateLimit) {
+              console.log(`⚠️ Rate limited on groupMetadata(${jid}). Retrying with exponential backoff...`);
+              let retryCount = 0;
+              const maxRetries = 3;
+              let lastErr = e;
+              
+              while (retryCount < maxRetries) {
+                const backoffMs = (3000 * Math.pow(2, retryCount)) + Math.random() * 1000;
+                console.log(`⏱️ Waiting ${Math.round(backoffMs)}ms before retry ${retryCount + 1}/${maxRetries}...`);
+                await new Promise(r => setTimeout(r, backoffMs));
+                
+                try {
+                  lastRequestTime = Date.now();
+                  const md2 = await originalGroupMetadata(jid);
+                  groupMetadataCache.set(jid, { md: md2, ts: Date.now() });
+                  return md2;
+                } catch (retryErr) {
+                  lastErr = retryErr;
+                  retryCount++;
+                  if (retryCount >= maxRetries) {
+                    throw lastErr;
+                  }
+                }
+              }
             }
             throw e;
           }
@@ -132,7 +164,40 @@ async function startSock(sessionName, mode) {
         console.error('Warn: could not wrap groupMetadata:', e.message || e);
       }
 
-      const mainPath = path.resolve('./2StormBot.js');
+      // Wrap sendMessage to add delay between sends to avoid rate limiting
+      try {
+        const originalSendMessage = sock.sendMessage.bind(sock);
+        const sendMessageDelays = new Map(); // Track last send time per recipient
+        const SEND_MESSAGE_DELAY = 500; // 500ms minimum between sends to same recipient
+        
+        sock.sendMessage = async (jid, message, options = {}) => {
+          const now = Date.now();
+          const lastSendTime = sendMessageDelays.get(jid) || 0;
+          const timeSinceLastSend = now - lastSendTime;
+          
+          if (timeSinceLastSend < SEND_MESSAGE_DELAY) {
+            const waitTime = SEND_MESSAGE_DELAY - timeSinceLastSend;
+            await new Promise(r => setTimeout(r, waitTime));
+          }
+          
+          try {
+            sendMessageDelays.set(jid, Date.now());
+            const result = await originalSendMessage(jid, message, options);
+            return result;
+          } catch (e) {
+            const isRateLimit = e?.message?.includes('rate-overlimit') || e?.data === 429;
+            if (isRateLimit) {
+              console.log(`⚠️ Rate limited on sendMessage to ${jid}. Waiting and retrying...`);
+              await new Promise(r => setTimeout(r, 5000 + Math.random() * 2000));
+              sendMessageDelays.set(jid, Date.now());
+              return await originalSendMessage(jid, message, options);
+            }
+            throw e;
+          }
+        };
+      } catch (e) {
+        console.error('Warn: could not wrap sendMessage:', e.message || e);
+      }
       let mainModule = require(mainPath);
       mainModule(sock, sessionName);
 
