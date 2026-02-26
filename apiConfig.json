@@ -12,9 +12,10 @@
     "model": "openai/gpt-oss-20b"
   },
   "nyxion": {
-    "enabled": false,
-    "apiKey": "YOUR_NYXION_API_KEY_HERE",
-    "baseUrl": "https://api.nyxion.ai/v1",
+    "enabled": true,
+    "apiKey": "sk_4mtkhktwqy49u4bxoe2c94",
+  
+    "baseUrl": "https://preview-sandbox--69871c017d936c3202ba7f8e.base44.app/api/validateApiKey",
     "model": "nyxion-v1"
   },
   "openai": {

@@ -6080,46 +6080,29 @@ case 'nyxion': {
     const statusMsg = await sock.sendMessage(from, { text: `🤖 *Nyxion fragt...*\n\n💬 Frage: ${question}\n\n⏳ Wird verarbeitet...` });
 
     try {
-      // Konfiguriere Nyxion API - ANMERKUNG: Bitte anpassen mit deinen Anmeldedaten
-      const NYXION_URL = 'https://nyxion.base44.app'; // Beispiel-URL
-      const NYXION_EMAIL = '21'; // Bitte ändern
-      const NYXION_PASSWORD = 'dein-passwort'; // Bitte ändern
+      // Neue Nyxion-Integration über API Key / Base URL aus apiConfig.json
+      const apiConfig = require('./apiConfig.json');
+      const nyxCfg = apiConfig.nyxion || {};
+      const NYXION_API_KEY = nyxCfg.apiKey || '';
+      const NYXION_URL = nyxCfg.baseUrl || 'https://preview-sandbox--69871c017d936c3202ba7f8e.base44.app/api/validateApiKey';
 
-      // Schritt 1: Login bei Nyxion
-      let sessionToken = null;
-      try {
-        const loginResponse = await axios.post(NYXION_URL.replace('/query', '/login'), {
-          email: NYXION_EMAIL,
-          password: NYXION_PASSWORD
-        }, { timeout: 10000 });
+      if (!NYXION_API_KEY) throw new Error('Nyxion API-Key nicht konfiguriert');
 
-        if (loginResponse.data && loginResponse.data.token) {
-          sessionToken = loginResponse.data.token;
-        }
-      } catch (loginErr) {
-        console.error('Nyxion Login Fehler:', loginErr.message);
-        // Fallback: Versuche ohne Session zu arbeiten
-      }
-
-      // Schritt 2: Sende Frage an Nyxion
-      const requestConfig = {
-        timeout: 30000,
-        headers: sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {}
-      };
-
+      // Sende Frage an Nyxion-Endpoint mit einfachem JSON payload
       const queryResponse = await axios.post(NYXION_URL, {
-        query: question,
-        model: 'nyxion-v1' // Oder das verfügbare Modell
-      }, requestConfig);
+        message: question
+      }, {
+        timeout: 30000,
+        headers: {
+          'Authorization': `Bearer ${NYXION_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
 
       let nyxionAnswer = '❌ Keine Antwort erhalten';
-      
-      if (queryResponse.data && queryResponse.data.response) {
-        nyxionAnswer = queryResponse.data.response;
-      } else if (queryResponse.data && queryResponse.data.answer) {
-        nyxionAnswer = queryResponse.data.answer;
-      } else if (typeof queryResponse.data === 'string') {
-        nyxionAnswer = queryResponse.data;
+      if (queryResponse.data) {
+        // Standardfeld aus Beispiel ist response
+        nyxionAnswer = queryResponse.data.response || queryResponse.data.answer || JSON.stringify(queryResponse.data);
       }
 
       // Schritt 3: Gebe Antwort im Chat aus
