@@ -1682,28 +1682,18 @@ if (isIPBanned(userIP)) {
 if (isBanned(sender)) {
   const banData = isBanned(sender); // enthält { jid, reason, timestamp }
 
-  // Reagiere auf die Nachricht
-  await sock.sendMessage(from, { react: { text: '⛔', key: msg.key } });
+  // Gebannte User dürfen NUR /unbanrequest ausführen
+  if (command !== 'unbanrequest') {
+    // Reagiere auf die Nachricht
+    await sock.sendMessage(from, { react: { text: '⛔', key: msg.key } });
 
-  // Nachricht mit Grund
-  await sock.sendMessage(chatId, { 
-    text: `🚫 Du bist gebannt und kannst keine Commands ausführen.\n📝 Grund: ${banData.reason}\nDu kannst bei wa.me/4915679717020 den Entban-Antrag stellen.`
-  }, { quoted: msg });
+    // Nachricht mit Grund
+    await sock.sendMessage(chatId, { 
+      text: `🚫 Du bist gebannt und kannst keine Commands ausführen.\n📝 Grund: ${banData.reason}\n\n💬 Du kannst nur den Befehl */unbanrequest* verwenden, um einen Entban-Antrag zu stellen.`
+    }, { quoted: msg });
 
-  // Kick aus allen Gruppen, in denen der User ist
-  const groups = await sock.groupFetchAllParticipating(); // alle Gruppen holen
-  for (let gid in groups) {
-    const group = groups[gid];
-    if (group.participants.includes(sender)) {
-      try {
-        await sock.groupParticipantsUpdate(gid, [sender], 'remove');
-      } catch (err) {
-        console.error(`Fehler beim Kicken von ${sender} aus ${gid}:`, err);
-      }
-    }
+    return; // damit keine weiteren Commands ausgeführt werden
   }
-
-  return; // damit keine weiteren Commands ausgeführt werden
 }
 
 const user = getUser(senderJid);
@@ -1800,7 +1790,7 @@ const commandsList = [
   'id', 'leave', 'leave2', 'join', 'addme', 'sessions', 'antideletepn',
 
   
-  'ban', 'unban', 'unregister', 'broadcast', 'tagall', 'grpinfo', 'antidelete', 
+  'ban', 'unban', 'unbanrequest', 'approveunban', 'rejectunban', 'unregister', 'broadcast', 'tagall', 'grpinfo', 'antidelete', 
   // Stranger Things fun
   'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon', 'redrun', 'darkweb', 'strangergame', 'moviequote', 'hawkins', 'dna', 'friends', 'gate',
   // AI Commands
@@ -2388,6 +2378,72 @@ Viel Erfolg! 🚀
 `.trim();
 
   await sock.sendMessage(chatId, { text }, { quoted: msg });
+  break;
+}
+
+case 'unbanrequest': {
+  try {
+    // Prüfe ob der User überhaupt gebannt ist
+    if (!isBanned(sender)) {
+      return await sock.sendMessage(chatId, {
+        text: '✅ Du bist nicht gebannt! Du kannst den Bot normal nutzen.',
+      }, { quoted: msg });
+    }
+
+    const query = args.join(" ");
+    const banData = isBanned(sender);
+
+    if (!query) {
+      return await sock.sendMessage(chatId, {
+        text: "📝 Bitte gib einen Grund für deine Entban-Anfrage an.\n\n💡 Beispiel:\n`/unbanrequest Ich habe mich nicht regelkonform verhalten, entschuldige mich aber dafür.`",
+      }, { quoted: msg });
+    }
+
+    // Lade oder erstelle Entban-Request-Daten
+    const banRequestFile = './data/unbanRequests.json';
+    if (!fs.existsSync(banRequestFile)) {
+      fs.writeFileSync(banRequestFile, JSON.stringify({ lastId: 0, requests: [] }, null, 2));
+    }
+
+    const data = JSON.parse(fs.readFileSync(banRequestFile, 'utf8'));
+    const newId = data.lastId + 1;
+    data.lastId = newId;
+
+    data.requests.push({
+      id: newId,
+      user: sender,
+      chat: from,
+      message: query,
+      banReason: banData.reason,
+      status: "offen",
+      timestamp: Date.now(),
+    });
+
+    fs.writeFileSync(banRequestFile, JSON.stringify(data, null, 2));
+
+    // Sende Anfrage an Support-Gruppe
+    const supportGroup = getSupportGroup();
+    
+    const unbanText = `🚫➡️✅ *Neue Entban-Anfrage #${newId}*\n\n👤 *Von:* @${sender.split("@")[0]}\n⛔ *Grund des Bans:* ${banData.reason}\n\n📩 *Grund für Entban-Anfrage:*\n${query}\n\n💡 *Zum Antworten:* \`/approveunban ${newId}\` oder \`/rejectunban ${newId}\``;
+
+    if (supportGroup) {
+      await sock.sendMessage(supportGroup, {
+        text: unbanText,
+        mentions: [sender],
+      });
+    }
+
+    await sock.sendMessage(chatId, {
+      text: `✅ Deine Entban-Anfrage wurde erfolgreich eingereicht!\n\n🆔 Anfrage-ID: *#${newId}*\n⏳ Das Team wird deine Anfrage überprüfen und dir antworten.`,
+    }, { quoted: msg });
+
+    await sock.sendMessage(chatId, { react: { text: "📨", key: msg.key } });
+  } catch (err) {
+    console.error(err);
+    await sock.sendMessage(chatId, {
+      text: "❌ Fehler beim Senden der Entban-Anfrage. Bitte versuche es später erneut.",
+    }, { quoted: msg });
+  }
   break;
 }
  
@@ -10477,7 +10533,139 @@ case 'unban': {
   break;
 }
 
+case 'approveunban': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator', 'Supporter'];
 
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { 
+      text: "⛔ *Zugriff verweigert!*\n\nNur Moderatoren und höher dürfen Entban-Anfragen genehmigen." 
+    }, { quoted: msg });
+    break;
+  }
+
+  const requestId = parseInt(args[0]);
+  if (isNaN(requestId)) {
+    return await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib die Anfrage-ID an.\n\nVerwendung: /approveunban <ID>' 
+    }, { quoted: msg });
+  }
+
+  try {
+    const banRequestFile = './data/unbanRequests.json';
+    if (!fs.existsSync(banRequestFile)) {
+      return await sock.sendMessage(chatId, { 
+        text: '❌ Keine Entban-Anfragen gefunden.' 
+      }, { quoted: msg });
+    }
+
+    const data = JSON.parse(fs.readFileSync(banRequestFile, 'utf8'));
+    const request = data.requests.find(r => r.id === requestId);
+
+    if (!request) {
+      return await sock.sendMessage(chatId, { 
+        text: `❌ Anfrage #${requestId} nicht gefunden.` 
+      }, { quoted: msg });
+    }
+
+    if (request.status !== 'offen') {
+      return await sock.sendMessage(chatId, { 
+        text: `⚠️ Diese Anfrage wurde bereits bearbeitet (Status: ${request.status}).` 
+      }, { quoted: msg });
+    }
+
+    // Entbanne den User
+    unbanUser(request.user);
+    request.status = 'genehmigt';
+    fs.writeFileSync(banRequestFile, JSON.stringify(data, null, 2));
+
+    // Benachrichtige den User
+    await sock.sendMessage(request.chat, {
+      text: `✅ Deine Entban-Anfrage #${requestId} wurde genehmigt! 🎉\n\nDu kannst jetzt wieder den Bot nutzen.`,
+    });
+
+    await sock.sendMessage(chatId, {
+      text: `✅ Entban-Anfrage #${requestId} genehmigt!\n\nUser @${request.user.split("@")[0]} wurde entbannt.`,
+      mentions: [request.user],
+    }, { quoted: msg });
+
+    console.log(`[APPROVEUNBAN] Request #${requestId} | By: ${sender}`);
+  } catch (err) {
+    console.error(err);
+    await sock.sendMessage(chatId, { 
+      text: `❌ Fehler bei der Bearbeitung: ${err.message}` 
+    }, { quoted: msg });
+  }
+  break;
+}
+
+case 'rejectunban': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator', 'Supporter'];
+
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { 
+      text: "⛔ *Zugriff verweigert!*\n\nNur Moderatoren und höher dürfen Entban-Anfragen ablehnen." 
+    }, { quoted: msg });
+    break;
+  }
+
+  const requestId = parseInt(args[0]);
+  if (isNaN(requestId)) {
+    return await sock.sendMessage(chatId, { 
+      text: '❌ Bitte gib die Anfrage-ID an.\n\nVerwendung: /rejectunban <ID> [Grund]' 
+    }, { quoted: msg });
+  }
+
+  const reason = args.slice(1).join(' ') || 'Deine Anfrage wurde abgelehnt.';
+
+  try {
+    const banRequestFile = './data/unbanRequests.json';
+    if (!fs.existsSync(banRequestFile)) {
+      return await sock.sendMessage(chatId, { 
+        text: '❌ Keine Entban-Anfragen gefunden.' 
+      }, { quoted: msg });
+    }
+
+    const data = JSON.parse(fs.readFileSync(banRequestFile, 'utf8'));
+    const request = data.requests.find(r => r.id === requestId);
+
+    if (!request) {
+      return await sock.sendMessage(chatId, { 
+        text: `❌ Anfrage #${requestId} nicht gefunden.` 
+      }, { quoted: msg });
+    }
+
+    if (request.status !== 'offen') {
+      return await sock.sendMessage(chatId, { 
+        text: `⚠️ Diese Anfrage wurde bereits bearbeitet (Status: ${request.status}).` 
+      }, { quoted: msg });
+    }
+
+    request.status = 'abgelehnt';
+    request.rejectReason = reason;
+    fs.writeFileSync(banRequestFile, JSON.stringify(data, null, 2));
+
+    // Benachrichtige den User
+    await sock.sendMessage(request.chat, {
+      text: `❌ Deine Entban-Anfrage #${requestId} wurde abgelehnt.\n\n📝 Grund: ${reason}\n\nDu kannst erneut eine Anfrage stellen, wenn du dein Verhalten gebessert hast.`,
+    });
+
+    await sock.sendMessage(chatId, {
+      text: `❌ Entban-Anfrage #${requestId} abgelehnt.\n\n📝 Grund: ${reason}`,
+    }, { quoted: msg });
+
+    console.log(`[REJECTUNBAN] Request #${requestId} | Reason: ${reason} | By: ${sender}`);
+  } catch (err) {
+    console.error(err);
+    await sock.sendMessage(chatId, { 
+      text: `❌ Fehler bei der Bearbeitung: ${err.message}` 
+    }, { quoted: msg });
+  }
+  break;
+}
 
 
 case 'unmute': {
