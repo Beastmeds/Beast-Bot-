@@ -13,7 +13,7 @@
   },
   "nyxion": {
     "enabled": true,
-    "apiKey": "sk_4mtkhktwqy49u4bxoe2c94",
+    "apiKey": "nyx_df56d75b0e324e0971b487b025b562b27212ed271173ad0252944acb2cb7032f",
   
     "baseUrl": "https://preview-sandbox--69871c017d936c3202ba7f8e.base44.app/api/validateApiKey",
     "model": "nyxion-v1"
@@ -23,5 +23,11 @@
     "apiKey": "YOUR_OPENAI_API_KEY_HERE",
     "baseUrl": "https://api.openai.com/v1",
     "model": "gpt-4"
+  },
+  "axiom": {
+    "enabled": true,
+    "apiKey": "axiom_playground_e6dedae442d4f1d3a474a61d0ac667ab466673825a2839052e579cedd5809598",
+    "baseUrl": "https://fluorescent-leana-doubtful.ngrok-free.dev",
+    "model": "axiom-playground"
   }
 }

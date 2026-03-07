@@ -34,13 +34,42 @@ Die API Keys werden in der Datei **`apiConfig.json`** gespeichert, die sich im H
   "model": "mixtral-8x7b-32768"
 }
 ```
-- API Key bekommst du auf: https://console.groq.com/
-- Kostenloses Tier: 30 API Calls pro Minute
+> **Tipp:** du kannst den Schlüssel statt in `apiConfig.json` auch in einer
+> Umgebungsvariable ablegen (`NYX_API_KEY`). Der Bot liest ihn automatisch und
+> überschreibt dann den Wert aus der JSON‑Datei. Auf einem Linux/macOS‑Host
+> exportiere etwa `export NYX_API_KEY="nyx_..."` oder trage ihn in deine
+> `config.env`/`.env`-Datei ein. Dadurch landet der Key nie im Git‑Repo.
+> Optional kannst du einen anderen Host/Port angeben (z.B. beim lokalen
+> Testen). Setze dazu `NYX_HOST` als Umgebungsvariable oder in `config.env`:
+> `NYX_HOST="http://localhost:8000/v1"`. Dieser Wert überschreibt den
+> `baseUrl`-Eintrag in `apiConfig.json`.
+
+**Request-Beispiel** (wenn du das LLM-Service unabhängig testen möchtest):
+```
+POST /v1/generate HTTP/1.1
+Host: localhost:8000
+Content-Type: application/json
+X-API-Key: nyx_YOUR_KEY_HERE
+
+{"prompt":"Hello, world","max_new_tokens":50}
+```
+Jeder gültige Aufruf muss den `X-API-Key`-Header enthalten; der Bot fügt ihn
+automatisch aus der Umgebungsvariable oder `apiConfig.json` hinzu.
+
+*Hinweis:* bei einem **HTTP 412 Precondition Failed** kommt der Dienst gern
+wenn das JSON nicht genau stimmt (z.B. zusätzlicher Feldnamen). Der Bot
+protokolliert solche Fehler und versucht automatisch einen zweiten Aufruf ohne
+`max_new_tokens`. Falls du den Fehler wieder siehst, kontrolliere `NYX_HOST`
+und die Server‑Logs.*
 
 #### **Nyxion**
+Hinweis: wenn du den Key per `NYX_API_KEY` einstellst, funktioniert der Befehl
+genauso – es ist nur keiner in den Quellen gespeichert.
 ```json
-"nyxion": {
-  "enabled": true,
+**Nyxion-spezifisch:** Jeder Schlüssel ist rate‑limitiert (ca. 500 Anfragen/min, 
+100 000 / Tag) und kann über `DELETE /v1/keys/<id>` oder die Verwaltungs‑API
+revoked werden. Wird ein Schlüssel kompromittiert, sofort löschen und neu
+anlegen.
   "apiKey": "nyx_xxxxxxxxxxxxxxxxxxxx",
   "baseUrl": "https://api.nyxion.ai/v1",
   "model": "nyxion-v1"
@@ -63,6 +92,18 @@ Setze dann `baseUrl` auf diesen vollen Link; der Bot sendet den Inhalt als `{ me
 }
 ```
 - API Key bekommst du auf: https://platform.openai.com/api-keys
+
+#### **Axiom**
+```json
+"axiom": {
+  "enabled": true,
+  "apiKey": "axiom_playground_xxxxxxxxxxxxx",
+  "baseUrl": "https://fluorescent-leana-doubtful.ngrok-free.dev",
+  "model": "axiom-playground"
+}
+```
+- Der API Key kann auch in `AXIOM_API_KEY` als Umgebungsvariable abgelegt werden.
+- `AXIOM_HOST` erlaubt das Überschreiben des Endpunkts (z.B. für Sandbox oder Produktion).
 
 ---
 
@@ -87,6 +128,7 @@ Nach dem Eintragen der API Keys können diese Commands genutzt werden:
 | Claude | claude-3-sonnet-20240229 | 💰💰 | ⚡⚡ |
 | Groq | mixtral-8x7b-32768 | 💰 | ⚡⚡⚡ |
 | Nyxion | nyxion-v1 | 💰 | ⚡⚡ |
+| Axiom | axiom-playground | 💰 | ⚡⚡ |
 | OpenAI | gpt-4 | 💰💰💰 | ⚡ |
 
 ---

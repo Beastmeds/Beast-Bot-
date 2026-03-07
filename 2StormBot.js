@@ -26,6 +26,7 @@ const { getAudioBuffer, saveTempAudio } = require('./audioHelper');
 const FormData = require('form-data');
 const ranks = require('./rangsystem/ranks.js');
 const { isGroupLocked, lockGroup, unlockGroup } = require('./lib/lockedGroups');
+const { initNyxion, handleNyxionMessage, sendNyxionResponse, isNyxionCommand } = require('./lib/nyxion');
 
 // Lazy load heavy dependencies
 let ffmpeg, fetch, getPreview;
@@ -45,6 +46,16 @@ const loadBlocked = () => JSON.parse(fs.readFileSync(blockedFile));
 const saveBlocked = (data) => fs.writeFileSync(blockedFile, JSON.stringify(data, null, 2));
 
 const path = require('path');
+// load optional environment variables (can live in config.env or a .env file)
+// this allows you to keep sensitive API keys out of the repo and/or override
+// the values that are stored in `apiConfig.json`.
+try {
+  require('dotenv').config({ path: path.join(__dirname, 'config.env') });
+} catch {} // ignore if dotenv isn't installed or file doesn't exist
+
+// convenience variables for LLM keys from environment
+const NYX_API_KEY = process.env.NYX_API_KEY || '';
+const AXIOM_API_KEY = process.env.AXIOM_API_KEY || '';
 
 // create shared logger that writes to logs/log.txt
 if (!fs.existsSync(path.join(__dirname, 'logs'))) fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
@@ -241,13 +252,13 @@ function saveUserConfigs(data) {
 
 function getUserConfig(jid) {
   const configs = loadUserConfigs();
-  return configs[jid] || {
-    aiModel: 'Claude',
-    birthday: null,
-    favoriteGame: null,
-    language: 'de',
-    theme: 'dark'
-  };
+      return configs[jid] || {
+        aiModel: 'Claude',
+        birthday: null,
+        favoriteGame: null,
+        language: 'de',
+        theme: 'dark'
+      };
 }
 
 function setUserConfig(jid, config) {
@@ -989,6 +1000,10 @@ console.log('║                                                            ║'
 console.log('╚════════════════════════════════════════════════════════════╝');
 console.log('');
 
+// Initialize Nyxion AI
+const nyxion = initNyxion(sock);
+console.log('🤖 Nyxion AI Modul initialisiert');
+
 // Starte File Watcher für users.json
 startUserFileWatcher();
 console.log('👁️ File Watcher für users.json aktiviert');
@@ -1661,7 +1676,7 @@ console.log(chalk.gray(`> Argument: ${args.join(' ')}`));
 global.bannedUsers = new Set();
 
 // IP-Ban Check
-const userIP = msg.key?.participant?.split('@')[0] || sender?.split('@')[0] || 'unknown';
+const userIP = (senderJid && senderJid.split('@')[0]) || 'unknown';
 if (isIPBanned(userIP)) {
   const ipBanData = isIPBanned(userIP);
   
@@ -1679,8 +1694,8 @@ if (isIPBanned(userIP)) {
 }
 
 // Dieser Check sollte **vor dem Switch/Command-Handler** laufen
-if (isBanned(sender)) {
-  const banData = isBanned(sender); // enthält { jid, reason, timestamp }
+if (isBanned(senderJid)) {
+  const banData = isBanned(senderJid); // enthält { jid, reason, timestamp }
 
   // Gebannte User dürfen NUR /unbanrequest ausführen
   if (command !== 'unbanrequest') {
@@ -1689,7 +1704,7 @@ if (isBanned(sender)) {
 
     // Nachricht mit Grund
     await sock.sendMessage(chatId, { 
-      text: `🚫 Du bist gebannt und kannst keine Commands ausführen.\n📝 Grund: ${banData.reason}\n\n💬 Du kannst nur den Befehl */unbanrequest* verwenden, um einen Entban-Antrag zu stellen.`
+      text: `🚫 Du wurdest gebannt und kannst keine Befehle ausführen.\n📝 Grund: ${banData.reason}\n\n💬 Mit dem Befehl */unbanrequest <Grund>* kannst du eine Entban-Anfrage an die Support-Gruppe senden.`
     }, { quoted: msg });
 
     return; // damit keine weiteren Commands ausgeführt werden
@@ -1782,9 +1797,12 @@ const commandsList = [
 
   
   'shop', 'buy', 'use', 'inventory', 'register', 'me', 'profile',
+  'version',
+  'pay',
+  'user',
   'addcoins', 'delcoins', 'topcoins', 'topxp', 'pets', 'pethunt', 'sellpet', 'fish', 'fishlist',
 
-  'hug', 'kiss', 'slap', 'pat', 'poke', 'cuddle', 'fuck', 'horny', 'goon', 'penis', 'tok', 'tok2',
+  'hug', 'kiss', 'slap', 'pat', 'poke', 'cuddle', 'fuck', 'horny', 'kill', 'goon', 'penis', 'tok', 'tok2',
 
  
   'id', 'leave', 'leave2', 'join', 'addme', 'sessions', 'antideletepn',
@@ -1921,7 +1939,7 @@ sock.ev.on('group-participants.update', async (update) => {
 // Prüfe global deaktivierte Befehle vor dem switch
 try {
   const disabledList = loadDisabledCommands();
-  if (disabledList.includes(command) && command !== 'enable' && command !== 'disable') {
+  if (disabledList.includes(command) && command !== 'enable' && command !== 'disable' && command !== 'nyx') {
     await sock.sendMessage(chatId, { text: `⛔ Befehl '${command}' ist global deaktiviert.` }, { quoted: msg });
     return;
   }
@@ -1930,6 +1948,32 @@ try {
 }
 
 switch (command) {
+case 'nyx': {
+  if (!q) {
+    await sock.sendMessage(chatId, { text: '🤖 Nyxion AI\n\nVerwendung: */nyx <Frage>*\n\nBeispiel: */nyx Was ist KI?*' }, { quoted: msg });
+    break;
+  }
+
+  try {
+    await sock.sendPresenceUpdate('composing', chatId);
+    
+    console.log(`🤖 Nyxion: Verarbeite Anfrage von ${cleanedSenderNumber}...`);
+    
+    const response = await handleNyxionMessage(q, chatId, sock, from);
+    console.log(`📤 Nyxion Response erhalten: "${response.substring(0, 50)}..."`);
+    
+    await sendNyxionResponse(sock, chatId, response);
+    console.log(`✅ Nyxion Antwort erfolgreich gesendet`);
+    
+    await sock.sendPresenceUpdate('available', chatId);
+  } catch (error) {
+    console.error('Nyxion Command Error:', error.message);
+    console.error('Stack:', error.stack);
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${error.message}` }, { quoted: msg });
+  }
+  break;
+}
+
 case 'fishlist': {
   let text = '🎣 **Liste aller Fische und ihr Wert:**\n\n';
   fishes.forEach(f => {
@@ -2384,14 +2428,14 @@ Viel Erfolg! 🚀
 case 'unbanrequest': {
   try {
     // Prüfe ob der User überhaupt gebannt ist
-    if (!isBanned(sender)) {
+    if (!isBanned(senderJid)) {
       return await sock.sendMessage(chatId, {
         text: '✅ Du bist nicht gebannt! Du kannst den Bot normal nutzen.',
       }, { quoted: msg });
     }
 
     const query = args.join(" ");
-    const banData = isBanned(sender);
+    const banData = isBanned(senderJid);
 
     if (!query) {
       return await sock.sendMessage(chatId, {
@@ -2434,7 +2478,7 @@ case 'unbanrequest': {
     }
 
     await sock.sendMessage(chatId, {
-      text: `✅ Deine Entban-Anfrage wurde erfolgreich eingereicht!\n\n🆔 Anfrage-ID: *#${newId}*\n⏳ Das Team wird deine Anfrage überprüfen und dir antworten.`,
+      text: `✅ Deine Entban-Anfrage wurde erfolgreich an die Support-Gruppe gesendet!\n\n🆔 Anfrage-ID: *#${newId}*\n⏳ Das Team wird deine Anfrage überprüfen und dir antworten.`,
     }, { quoted: msg });
 
     await sock.sendMessage(chatId, { react: { text: "📨", key: msg.key } });
@@ -2518,7 +2562,9 @@ case 'team': {
 
     if (mentions.length === 0) text = '⚠️ Keine Team-Mitglieder gefunden.';
 
-    await sock.sendMessage(chatId, { text, mentions }, { quoted: msg });
+    // Sende die Teamliste OHNE das `mentions`-Array, damit in Clients
+    // keine rohen JIDs/Nummern als Erwähnung neben Namen angezeigt werden.
+    await sock.sendMessage(chatId, { text }, { quoted: msg });
   } catch (e) {
     console.error('Fehler bei /team:', e);
     await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
@@ -3704,6 +3750,127 @@ case 'sticker': {
     }
     break;
 }
+
+case 'qrcode': {
+  try {
+    const QRCode = require('qrcode');
+    
+    let dataToEncode = '';
+    
+    // Prüfe ob eine Antwort auf eine Nachricht
+    if (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
+      const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage;
+      dataToEncode = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text || '';
+      
+      if (!dataToEncode) {
+        await sock.sendMessage(from, { text: '❌ Konnte keinen Text aus der zitierten Nachricht extrahieren.' }, { quoted: msg });
+        break;
+      }
+    } else if (q) {
+      // Nutze das Argument
+      dataToEncode = q;
+    } else {
+      await sock.sendMessage(from, { text: '❌ Bitte gib einen Text ein oder zitiere eine Nachricht!\n\nBeispiel: /qrcode Hallo Welt\nOder: Antworte auf eine Nachricht mit /qrcode' }, { quoted: msg });
+      break;
+    }
+    
+    console.log(`📱 Erstelle QR-Code für: ${dataToEncode.substring(0, 50)}...`);
+    
+    // Generiere QR-Code als PNG
+    const qrBuffer = await QRCode.toBuffer(dataToEncode, {
+      errorCorrectionLevel: 'H',
+      type: 'image/png',
+      quality: 0.95,
+      margin: 1,
+      width: 300
+    });
+    
+    await sock.sendMessage(from, {
+      image: qrBuffer,
+      caption: `📱 *QR-Code erstellt*\n\nDaten: ${dataToEncode.substring(0, 50)}${dataToEncode.length > 50 ? '...' : ''}`
+    }, { quoted: msg });
+    
+    console.log(`✅ QR-Code erfolgreich erstellt`);
+    
+  } catch (error) {
+    console.error('QR-Code Fehler:', error.message);
+    await sock.sendMessage(from, { text: `❌ Fehler beim Erstellen des QR-Codes: ${error.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+case 'qrread': {
+  try {
+    const jsQR = require('jsqr');
+    const Jimp = require('jimp');
+    
+    let imageMessage = null;
+    
+    // Prüfe aktuelle Nachricht
+    if (msg.message?.imageMessage) {
+      imageMessage = msg.message.imageMessage;
+    } 
+    // Prüfe zitierte Nachricht
+    else if (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
+      imageMessage = msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage;
+    }
+    
+    if (!imageMessage) {
+      await sock.sendMessage(from, { text: '❌ Bitte sende ein Bild mit einem QR-Code oder zitiere ein Bild!\n\nBeispiel: Antworte auf ein Bild mit /qrread' }, { quoted: msg });
+      break;
+    }
+    
+    console.log(`📱 Lese QR-Code aus Bild...`);
+    
+    // Lade Bild herunter
+    const stream = await downloadContentFromMessage(imageMessage, 'image');
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+    }
+    
+    // Verwende Jimp um Bild zu laden
+    const image = await Jimp.read(buffer);
+    
+    // Extrahiere Pixel-Daten
+    const imageData = {
+      data: new Uint8ClampedArray(image.bitmap.data),
+      width: image.bitmap.width,
+      height: image.bitmap.height
+    };
+    
+    // Versuche QR-Code zu lesen
+    const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
+    
+    if (qrCode) {
+      const decodedData = qrCode.data;
+      
+      // Prüfe ob es eine URL ist
+      const isUrl = decodedData.startsWith('http://') || decodedData.startsWith('https://');
+      
+      let responseText = `✅ *QR-Code gelesen*\n\n`;
+      responseText += `📱 *Inhalt:* ${decodedData}\n\n`;
+      
+      if (isUrl) {
+        responseText += `🔗 *Typ:* URL\n`;
+        responseText += `🌐 *Link:* ${decodedData}`;
+      } else {
+        responseText += `📝 *Typ:* Text`;
+      }
+      
+      await sock.sendMessage(from, { text: responseText }, { quoted: msg });
+      console.log(`✅ QR-Code erfolgreich gelesen: ${decodedData.substring(0, 50)}`);
+    } else {
+      await sock.sendMessage(from, { text: '❌ Konnte keinen QR-Code im Bild finden!\n\nStelle sicher, dass der QR-Code deutlich sichtbar ist.' }, { quoted: msg });
+    }
+    
+  } catch (error) {
+    console.error('QR-Read Fehler:', error.message);
+    await sock.sendMessage(from, { text: `❌ Fehler beim Lesen des QR-Codes: ${error.message}` }, { quoted: msg });
+  }
+  break;
+}
+
 case 'givecase': {
   try {
     const senderRank = ranks.getRank(sender);
@@ -3972,8 +4139,14 @@ case 'ai': // oder 'gptde'
         providerConfig = apiConfig.claude;
       } else if (userConfig.aiModel === 'Groq' && apiConfig.groq && apiConfig.groq.apiKey) {
         providerConfig = apiConfig.groq;
-      } else if (userConfig.aiModel === 'Nyxion' && apiConfig.nyxion && apiConfig.nyxion.apiKey) {
-        providerConfig = apiConfig.nyxion;
+      } else if (userConfig.aiModel === 'Nyxion' &&
+                 (NYX_API_KEY || (apiConfig.nyxion && apiConfig.nyxion.apiKey))) {
+        providerConfig = Object.assign({}, apiConfig.nyxion || {});
+        if (NYX_API_KEY) providerConfig.apiKey = NYX_API_KEY;
+      } else if (userConfig.aiModel === 'Axiom' &&
+                 (AXIOM_API_KEY || (apiConfig.axiom && apiConfig.axiom.apiKey))) {
+        providerConfig = Object.assign({}, apiConfig.axiom || {});
+        if (AXIOM_API_KEY) providerConfig.apiKey = AXIOM_API_KEY;
       } else {
         // Fallback: Nutze ersten verfügbaren Provider
         if (apiConfig.claude && apiConfig.claude.apiKey) {
@@ -3982,6 +4155,20 @@ case 'ai': // oder 'gptde'
         } else if (apiConfig.groq && apiConfig.groq.apiKey) {
           providerConfig = apiConfig.groq;
           providerName = 'Groq';
+        } else if (NYX_API_KEY) {
+          // only env var is set, use default host if available
+          providerConfig = {
+            baseUrl: process.env.NYX_HOST || 'http://localhost:8000',
+            apiKey: NYX_API_KEY
+          };
+          providerName = 'Nyxion';
+        } else if (AXIOM_API_KEY) {
+          // only env var is set, use default host
+          providerConfig = {
+            baseUrl: process.env.AXIOM_HOST || 'https://fluorescent-leana-doubtful.ngrok-free.dev',
+            apiKey: AXIOM_API_KEY
+          };
+          providerName = 'Axiom';
         } else {
           throw new Error('Keine AI API konfiguriert. Nutze /config ai <Provider>');
         }
@@ -3992,25 +4179,57 @@ case 'ai': // oder 'gptde'
         ? 'Du bist ein hilfreicher KI-Assistent. Antworte immer auf Deutsch, wenn der User auf Deutsch spricht. Seie freundlich, informativ und hilfreich.'
         : 'You are a helpful AI assistant. Respond in English unless the user asks otherwise.';
 
-      const response = await axios.post(`${providerConfig.baseUrl}/chat/completions`, {
-        model: providerConfig.model,
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: query
-          }
-        ],
-        max_tokens: 2048,
-        temperature: 0.7
-      }, {
-        headers: {
+      // Axiom hat anderes Request-Format
+      let requestBody, requestHeaders, endpoint;
+      if (providerName === 'Axiom') {
+        endpoint = `/api/chat`;
+        requestBody = {
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: query
+            }
+          ]
+        };
+        requestHeaders = {
           'Authorization': `Bearer ${providerConfig.apiKey}`,
           'Content-Type': 'application/json'
-        }
+        };
+      } else if (providerName === 'Nyxion') {
+        // Verwende die spezielle Nyxion-Funktion
+        const nyxionResponse = await handleNyxionMessage(query, sender, sock, from);
+        await sendNyxionResponse(sock, from, nyxionResponse);
+        return; // Beende den /ai Befehl hier
+      } else {
+        // Standard OpenAI-Format
+        endpoint = `/chat/completions`;
+        requestBody = {
+          model: providerConfig.model,
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: query
+            }
+          ],
+          max_tokens: 2048,
+          temperature: 0.7
+        };
+        requestHeaders = {
+          'Authorization': `Bearer ${providerConfig.apiKey}`,
+          'Content-Type': 'application/json'
+        };
+      }
+
+      const response = await axios.post(`${providerConfig.baseUrl}${endpoint}`, requestBody, {
+        headers: requestHeaders
       });
 
       if (response.data && response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
@@ -4020,9 +4239,20 @@ case 'ai': // oder 'gptde'
         throw new Error(`Ungültige Antwort von ${providerName} API`);
       }
     } catch (aiErr) {
-      console.error('AI API Error:', aiErr.response?.data || aiErr.message);
+      console.error('AI API Error:', aiErr.response?.status, aiErr.response?.data || aiErr.message);
       
-      // Fallback auf einfalen kostenlosen Service
+      // Detaillierte Fehlerausgabe für Debugging
+      if (aiErr.response?.status === 403) {
+        console.error('❌ Axiom Authentifizierungsfehler (403). API-Key oder Captcha-Problem.');
+        return await sock.sendMessage(from, { text: `❌ Axiom API: Authentifizierungsfehler (403). Überprüfe API-Key und ngrok-URL in apiConfig.json.` }, { quoted: msg });
+      }
+      
+      if (aiErr.response?.status === 429) {
+        console.error('⚠️ Rate-Limit erreicht');
+        return await sock.sendMessage(from, { text: `⚠️ Zu viele Anfragen. Bitte warte ein paar Minuten.` }, { quoted: msg });
+      }
+      
+      // Fallback auf einfachen kostenlosen Service
       try {
         const fallbackResponse = await axios.post('https://api.cohere.ai/v1/generate', {
           prompt: query,
@@ -4044,7 +4274,8 @@ case 'ai': // oder 'gptde'
           throw new Error('Fallback API antwortet nicht');
         }
       } catch (fallbackErr) {
-        await sock.sendMessage(from, { text: `❌ AI Fehler: ${aiErr.response?.data?.error?.message || 'API temporär nicht verfügbar. Versuche später erneut.'}` }, { quoted: msg });
+        const errorMsg = aiErr.response?.data?.error?.message || aiErr.response?.data?.detail || 'API temporär nicht verfügbar. Versuche später erneut.';
+        await sock.sendMessage(from, { text: `❌ AI Fehler: ${errorMsg}` }, { quoted: msg });
       }
     }
 
@@ -4805,6 +5036,53 @@ case 'support': {
   break;
 }
 
+// ========== COMMUNITY ==========
+case 'community': {
+  try {
+    const supportGroup = getSupportGroup();
+    if (!supportGroup) {
+      return await sock.sendMessage(from, {
+        text: '❌ Es ist keine Support-Gruppe konfiguriert. Bitte lasse einen Admin die Gruppe mit `/supportgroup set <Gruppen-ID>` setzen.',
+      });
+    }
+    // determine whether the support group belongs to a larger community; if
+    // so we want to send the *community* invite instead of the raw support
+    // group link. groupMetadata may include a `community` field with the
+    // community JID when the group is nested.
+    let targetJid = supportGroup;
+    try {
+      const meta = await sock.groupMetadata(supportGroup);
+      if (meta && meta.community) {
+        // use the community id rather than the subgroup itself
+        targetJid = meta.community;
+      }
+    } catch (e) {
+      // if metadata fetch fails we just fall back to the support group
+      console.error('Fehler beim Laden der Gruppen-Metadaten für Community-Befehl:', e);
+    }
+
+    let inviteLink;
+    try {
+      const code = await sock.groupInviteCode(targetJid);
+      inviteLink = `https://chat.whatsapp.com/${code}`;
+    } catch (e) {
+      console.error('Fehler beim Ermitteln des Invite-Codes für Community:', e);
+      inviteLink = '❌ Konnte den Einladungslink nicht abrufen (bin ich Admin?).';
+    }
+
+    await sock.sendMessage(from, {
+      text: `🌐 *BeastBot Community*
+Hier kannst du der offiziellen Support‑Community beitreten:
+${inviteLink}`,
+    });
+  } catch (err) {
+    console.error('Community-Befehl fehlgeschlagen:', err);
+    await sock.sendMessage(from, {
+      text: '❌ Beim Abrufen der Community ist ein Fehler aufgetreten.',
+    });
+  }
+  break;
+}
 
 // ========== REPLY ==========
 case 'reply': {
@@ -5535,6 +5813,8 @@ case 'help': {
   │ 💻 ${currentPrefix}server
   │ ⏱️ ${currentPrefix}runtime
   │ 🧾 ${currentPrefix}cmds
+  │ � ${currentPrefix}support
+  │ �🌐 ${currentPrefix}community
   ╰──────────────────╯
   `,
 
@@ -5580,11 +5860,14 @@ case 'help': {
 │ 🛌 ${currentPrefix}cuddle
 │ 🍑 ${currentPrefix}fuck
 │ 😈 ${currentPrefix}horny
+│ 🔪 ${currentPrefix}kill
 │ 💀 ${currentPrefix}goon
 │ 🍆 ${currentPrefix}penis
 │ 🐟 ${currentPrefix}fish
 │ 🪙 ${currentPrefix}addcoins
 │ ❌ ${currentPrefix}delcoins
+│ 🔄 ${currentPrefix}pay <@User|LID> <Betrag>
+│ 👥 ${currentPrefix}user - Liste aller registrierten Benutzer
 │ 🐾 ${currentPrefix}pethunt
 │ 🎣 ${currentPrefix}fishlist
 ╰────────────────────╯
@@ -5596,7 +5879,7 @@ case 'help': {
 │ 💣 ${currentPrefix}leaveall
 │ 📜 ${currentPrefix}grouplist
 │ 📜 ${currentPrefix}grouplist2
-│ 🧍 ${currentPrefix}addme
+│ 🧍 ${currentPrefix}addme  (bot braucht Admin-Rechte)
 │ 🔐 ${currentPrefix}setrank
 │ 🧹 ${currentPrefix}delrank
 │ 🧱 ${currentPrefix}ranks
@@ -5646,6 +5929,8 @@ case 'help': {
 │ 🪞 ${currentPrefix}viewonce
 │ 🤖 ${currentPrefix}ai <Frage>
 │ 🎨 ${currentPrefix}imagine <Beschreibung>
+│ 📱 ${currentPrefix}qrcode <Text|Nachricht> - QR-Code erstellen
+│ 📖 ${currentPrefix}qrread - QR-Code aus Bild lesen
 ╰────────────────────╯
 `,
 
@@ -6083,26 +6368,30 @@ case 'nyxion': {
       // Neue Nyxion-Integration über API Key / Base URL aus apiConfig.json
       const apiConfig = require('./apiConfig.json');
       const nyxCfg = apiConfig.nyxion || {};
-      const NYXION_API_KEY = nyxCfg.apiKey || '';
-      const NYXION_URL = nyxCfg.baseUrl || 'https://preview-sandbox--69871c017d936c3202ba7f8e.base44.app/api/validateApiKey';
+      const NYXION_API_KEY = NYX_API_KEY || nyxCfg.apiKey || '';
+      // allow overriding the host via environment variable (e.g. for local dev)
+      const NYXION_URL = (process.env.NYX_HOST || nyxCfg.baseUrl || 'http://localhost:8000/v1').replace(/\/+$/,'');
 
       if (!NYXION_API_KEY) throw new Error('Nyxion API-Key nicht konfiguriert');
 
-      // Sende Frage an Nyxion-Endpoint mit einfachem JSON payload
-      const queryResponse = await axios.post(NYXION_URL, {
-        message: question
+      // Sende Frage an Nyxion-Endpoint mit vollem JSON payload wie im Python-Beispiel
+      const queryResponse = await axios.post(`${NYXION_URL}/generate`, {
+        prompt: question,
+        max_new_tokens: 100,
+        temperature: 0.7,
+        top_p: 0.95
       }, {
         timeout: 30000,
         headers: {
-          'Authorization': `Bearer ${NYXION_API_KEY}`,
+          'X-API-Key': NYXION_API_KEY,
           'Content-Type': 'application/json'
         }
       });
 
       let nyxionAnswer = '❌ Keine Antwort erhalten';
       if (queryResponse.data) {
-        // Standardfeld aus Beispiel ist response
-        nyxionAnswer = queryResponse.data.response || queryResponse.data.answer || JSON.stringify(queryResponse.data);
+        // Wie im Python-Beispiel: generated_text
+        nyxionAnswer = queryResponse.data.generated_text || queryResponse.data.response || JSON.stringify(queryResponse.data);
       }
 
       // Schritt 3: Gebe Antwort im Chat aus
@@ -6119,7 +6408,28 @@ case 'nyxion': {
       } catch (e) {}
 
     } catch (apiErr) {
+      // log full response when available
       console.error('Nyxion API Fehler:', apiErr.message);
+      if (apiErr.response) {
+        console.error('--> status', apiErr.response.status);
+        console.error('--> data', JSON.stringify(apiErr.response.data));
+      }
+      // if 412 occurred, try again without max_new_tokens field just in case
+      if (apiErr.response && apiErr.response.status === 412) {
+        try {
+          const retry = await axios.post(`${NYXION_URL}/generate`, { prompt: question }, {
+            timeout: 30000,
+            headers: { 'X-API-Key': NYXION_API_KEY, 'Content-Type': 'application/json' }
+          });
+          const nyxionAnswer = retry.data.response || retry.data.answer || JSON.stringify(retry.data);
+          await sock.sendMessage(from, {
+            text: `🤖 *Nyxion KI-Antwort (FALLBACK)*\n\n💬 *Deine Frage:*\n${question}\n\n✨ *Antwort:*\n${nyxionAnswer}`
+          }, { quoted: msg });
+          return;
+        } catch (retryErr) {
+          console.error('Nyxion Retry fehlgeschlagen:', retryErr.message);
+        }
+      }
       
       // Fallback: Verwende lokale KI-Antwort
       const fallbackResponses = [
@@ -6368,7 +6678,8 @@ case 'config': {
 🎨 Design: *${config.theme}*
 
 *Befehle:*
-/config ai <Claude|Groq|Nyxion> - KI-Modell ändern
+/config ai <Claude|Groq|Nyxion|Axiom> - KI-Modell ändern
+/config nyxkey <API-Key> - Nyxion API-Key setzen
 /config birthday <TT.MM.YYYY> - Geburtstag setzen
 /config game <Spiel> - Lieblingsspiel setzen
 /config lang <de|en|es|fr> - Sprache ändern
@@ -6379,15 +6690,53 @@ case 'config': {
 
     if (subcommand.toLowerCase() === 'ai') {
       const aiModel = args[1];
-      if (!aiModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion>' }, { quoted: msg });
+      if (!aiModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion|Axiom>' }, { quoted: msg });
       
-      const validModels = ['Claude', 'Groq', 'Nyxion'];
+      const validModels = ['Claude', 'Groq', 'Nyxion', 'Axiom'];
       if (!validModels.includes(aiModel)) {
         return await sock.sendMessage(from, { text: `❌ Ungültige KI. Verfügbar: ${validModels.join(', ')}` }, { quoted: msg });
       }
       
       setUserConfig(sender, { aiModel });
       return await sock.sendMessage(from, { text: `✅ KI-Modell auf *${aiModel}* gesetzt!` }, { quoted: msg });
+    }
+
+    if (subcommand.toLowerCase() === 'nyxkey' || subcommand.toLowerCase() === 'nyxionkey') {
+      const apiKey = args[1];
+      if (!apiKey) return await sock.sendMessage(from, { text: '❗ Usage: /config nyxkey <API-Key>' }, { quoted: msg });
+      
+      // Validiere API-Key Format (sollte mit nyx_ beginnen)
+      if (!apiKey.startsWith('nyx_')) {
+        return await sock.sendMessage(from, { text: '❌ Ungültiger Nyxion API-Key! Muss mit "nyx_" beginnen.' }, { quoted: msg });
+      }
+      
+      // Speichere API-Key in config.env
+      const fs = require('fs');
+      const path = require('path');
+      const envPath = path.join(__dirname, 'config.env');
+      
+      try {
+        let envContent = '';
+        if (fs.existsSync(envPath)) {
+          envContent = fs.readFileSync(envPath, 'utf8');
+        }
+        
+        // Entferne alte NYX_API_KEY Zeile falls vorhanden
+        const lines = envContent.split('\n').filter(line => !line.startsWith('NYX_API_KEY='));
+        
+        // Füge neue NYX_API_KEY hinzu
+        lines.push(`NYX_API_KEY=${apiKey}`);
+        
+        fs.writeFileSync(envPath, lines.join('\n'));
+        
+        // Lade config.env neu
+        require('dotenv').config({ path: envPath, override: true });
+        
+        return await sock.sendMessage(from, { text: `✅ Nyxion API-Key erfolgreich gesetzt!` }, { quoted: msg });
+      } catch (error) {
+        console.error('Fehler beim Speichern des API-Keys:', error);
+        return await sock.sendMessage(from, { text: '❌ Fehler beim Speichern des API-Keys.' }, { quoted: msg });
+      }
     }
 
     if (subcommand.toLowerCase() === 'birthday') {
@@ -6442,14 +6791,16 @@ case 'config': {
 ⚙️ *Konfigurationsoptionen*
 
 /config oder /config view - Zeige aktuelle Einstellungen
-/config ai <Modell> - Wähle KI (Claude, Groq, Nyxion)
+/config ai <Modell> - Wähle KI (Claude, Groq, Nyxion, Axiom)
+/config nyxkey <API-Key> - Setze Nyxion API-Key
 /config birthday <TT.MM.YYYY> - Setze Geburtstag
 /config game <Spiel> - Setze Lieblingsspiel
 /config lang <Sprache> - Wähle Sprache (de, en, es, fr)
 /config theme <Design> - Wähle Design (dark, light)
 
 *Beispiele:*
-/config ai Groq
+/config ai Nyxion
+/config nyxkey nyx_dein_api_key_hier
 /config birthday 25.12.1995
 /config game Minecraft
 /config lang en
@@ -9275,19 +9626,43 @@ case 'addme': {
             return await sock.sendMessage(from, { text: '❌ Ungültiger Gruppenlink oder Fehler beim Beitreten.\n' + err.message });
         }
     } else if (input.endsWith('@g.us')) {
-     
+        
         groupId = input;
     } else {
         return await sock.sendMessage(from, { text: '❌ Ungültiger Gruppenlink oder Gruppen-ID.' });
     }
 
+    // Wenn wir eine Gruppen-ID verwenden, kann der Bot nicht automatisch beitreten.
+    // Prüfe mit den Metadaten, ob wir Mitglied sind und Admin-Rechte besitzen.
     try {
-   
+        const metadata = await sock.groupMetadata(groupId);
+        const botJid = sock.user.id;
+        const botParticipant = metadata.participants.find(p => p.id === botJid);
+        if (!botParticipant) {
+            if (!linkMatch) {
+                return await sock.sendMessage(from, { text: '❌ Ich bin noch nicht in dieser Gruppe. Bitte verwende einen gültigen Gruppenlink oder füge mich zuerst manuell hinzu.' });
+            }
+            // bei LinkMatch versuchen wir oben bereits beizutreten
+        } else if (!['admin','superadmin'].includes(botParticipant.admin)) {
+            return await sock.sendMessage(from, { text: '❌ Ich benötige Admin-Rechte in der Gruppe, um dich hinzufügen zu können. Bitte mache mich zum Admin.' });
+        }
+    } catch (err) {
+        console.error('Fehler beim Abrufen der Gruppenmetadaten:', err);
+        // Wir fangen den Fehler weiter unten beim Hinzufügen ab
+    }
+
+    try {
+        
         await sock.groupParticipantsUpdate(groupId, [sender], 'add');
         await sock.sendMessage(from, { text: `✅ Du wurdest in die Gruppe hinzugefügt (ID: ${groupId}).` });
     } catch (err) {
         console.error('Fehler beim Hinzufügen des Senders:', err);
-        await sock.sendMessage(from, { text: '❌ Fehler: Konnte dich nicht hinzufügen.\n' + err.message });
+        let reply = '❌ Fehler: Konnte dich nicht hinzufügen.';
+        if (err.message) reply += '\n' + err.message;
+        if (err.message && err.message.toLowerCase().includes('bad-request')) {
+            reply += '\n💡 Stelle sicher, dass der Bot in der Gruppe ist und Admin-Rechte hat.';
+        }
+        await sock.sendMessage(from, { text: reply });
     }
 
     break;
@@ -9582,6 +9957,27 @@ case 'horny': {
   break;
 }
 
+case 'kill': {
+  const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentioned || mentioned.length === 0) {
+    await sock.sendMessage(from, { text: `❌ Bitte markiere jemanden.` });
+    break;
+  }
+  const target = mentioned[0].split('@')[0];
+  const sender = (msg.key.participant || msg.key.remoteJid).split('@')[0];
+
+  const messages = [
+    `⚰️ @${sender} schikt @${target}ins Grab! RIP @${target} 💀`,
+    `🪦 @${sender} tötet @${target}! RIP @${target} 💀`,
+    `☠️ @${sender} killt @${target}. RIP @${target} 💀`
+  ];
+
+  const randomText = messages[Math.floor(Math.random() * messages.length)];
+
+  await sock.sendMessage(from, { text: randomText, contextInfo: { mentionedJid: [msg.key.participant, mentioned[0]] } });
+  break;
+}
+
 case 'goon': {
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
@@ -9624,6 +10020,82 @@ case 'penis': {
   const messageText = `${emoji} @${sender} misst @${target}s Penis: *${length}cm*!\n${comment} ${emoji}`;
 
   await sock.sendMessage(from, { text: messageText, contextInfo: { mentionedJid: [msg.key.participant, mentioned[0]] } });
+  break;
+}
+case 'pay': {
+  // Geld von einem Nutzer zum anderen überweisen
+  // Nutzung: /pay @User <Betrag> oder /pay <LID> <Betrag>
+  if (args.length < 2) {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: /pay <@User|LID> <Betrag>' }, { quoted: msg });
+    break;
+  }
+
+  // Empfänger ermitteln
+  let targetId;
+  if (msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0]) {
+    targetId = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
+  } else {
+    targetId = args[0];
+  }
+
+  const amount = parseInt(args[1]);
+  if (isNaN(amount) || amount <= 0) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte gib einen gültigen Betrag an.' }, { quoted: msg });
+    break;
+  }
+
+  const senderId = jid; // definiert weiter oben als teilnehmender JID
+  if (senderId === targetId) {
+    await sock.sendMessage(chatId, { text: '❌ Du kannst dir selbst kein Geld senden.' }, { quoted: msg });
+    break;
+  }
+
+  // lade oder erstelle Sender und Empfänger in DB
+  let senderUser = getUser(senderId);
+  if (!senderUser) {
+    ensureUser(senderId, senderId.split('@')[0]);
+    senderUser = getUser(senderId);
+  }
+  let targetUser = getUser(targetId);
+  if (!targetUser) {
+    ensureUser(targetId, targetId.split('@')[0]);
+    targetUser = getUser(targetId);
+  }
+
+  if ((senderUser.balance || 0) < amount) {
+    await sock.sendMessage(chatId, { text: '❌ Du hast nicht genug Coins für diese Überweisung.' }, { quoted: msg });
+    break;
+  }
+
+  // Transfer
+  const newSenderBal = senderUser.balance - amount;
+  const newTargetBal = (targetUser.balance || 0) + amount;
+  updateUser(senderId, newSenderBal, senderUser.xp, senderUser.level, senderUser.name);
+  updateUser(targetId, newTargetBal, targetUser.xp, targetUser.level, targetUser.name);
+
+  await sock.sendMessage(chatId, {
+    text: `✅ Überweisung erfolgreich!\n${amount} 💸 von ${senderUser.name || senderId} an ${targetUser.name || targetId} gesendet.`
+  }, { quoted: msg });
+  break;
+}
+case 'user': {
+  try {
+    // Holen alle Benutzernamen aus der Datenbank
+    const rows = getDB().prepare("SELECT name FROM users ORDER BY name COLLATE NOCASE").all();
+    if (!rows || rows.length === 0) {
+      await sock.sendMessage(chatId, { text: '❌ Keine registrierten Benutzer gefunden.' }, { quoted: msg });
+      break;
+    }
+    let text = '👥 *Registrierte Benutzer*\n';
+    rows.forEach((r, i) => {
+      const name = r.name || 'Unbekannt';
+      text += `${i + 1}. ${name}\n`;
+    });
+    await sock.sendMessage(chatId, { text }, { quoted: msg });
+  } catch (e) {
+    console.error('Fehler bei /user:', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler beim Abrufen der Benutzerliste.' }, { quoted: msg });
+  }
   break;
 }
 case 'addcoins': {
@@ -11788,6 +12260,27 @@ case 'id': {
    
     await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen der IDs.' });
    await sendReaction(from, msg, '❌');
+  }
+}
+break;
+
+case 'version': {
+  try {
+    // use __dirname so the path is correct even if the bot is started from another CWD
+    const pkgPath = path.join(__dirname, 'package.json');
+    let pkg = {};
+    try {
+      pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) || {};
+    } catch (e) {
+      console.warn('Konnte package.json nicht lesen:', e.message);
+    }
+    const ver = pkg.version || 'unbekannt';
+    const nodev = process.version || 'unknown';
+    await sock.sendMessage(from, { text: `🔖 Bot-Info\n• Name: ${botName}\n• Version: ${ver}\n• Node: ${nodev}` }, { quoted: msg });
+    await sendReaction(from, msg, '✅');
+  } catch (e) {
+    console.error('Fehler bei /version:', e);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen der Version.' });
   }
 }
 break;
