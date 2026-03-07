@@ -84,7 +84,7 @@ module.exports = {
     menuTitle: '📜 *BeastBot Hauptmenü*',
     helpText: 'ℹ️ *Hilfe & Übersicht aller Befehle*',
     footer: '© 2026 BeastBot – Alle Rechte vorbehalten.',
-    supportNote: '❓ Bei Fragen: /support verwenden oder Channel abonnieren.'
+    supportNote: '❓ Bei Fragen: /support verwenden oder Channel abonnieren. /community zeigt den Link zur Community.'
   },
 
   limits: {

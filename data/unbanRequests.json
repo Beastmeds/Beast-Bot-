@@ -1,0 +1,23 @@
+{
+  "lastId": 2,
+  "requests": [
+    {
+      "id": 1,
+      "user": "132822333415489@lid",
+      "chat": "120363424624178238@g.us",
+      "message": "Unban mich oder du bekommst keine Kaffeemaschine",
+      "banReason": "Kein Grund angegeben",
+      "status": "genehmigt",
+      "timestamp": 1772281224354
+    },
+    {
+      "id": 2,
+      "user": "100408349470937@lid",
+      "chat": "100408349470937@lid",
+      "message": "Ich habe den owner nd hs genannt un auch nd gespamt",
+      "banReason": "Anrufen des Bottes, den Bot voll Spämen, Den Owner HS genannt.",
+      "status": "genehmigt",
+      "timestamp": 1772289434148
+    }
+  ]
+}

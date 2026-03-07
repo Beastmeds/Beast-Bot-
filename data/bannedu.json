@@ -28,5 +28,10 @@
     "jid": "@100408349470937",
     "reason": "owner beleidigt als hs",
     "timestamp": 1772041669960
+  },
+  {
+    "jid": "100408349470937",
+    "reason": "Anrufen des Bottes, den Bot voll Spämen, Den Owner HS genannt.",
+    "timestamp": 1772286804873
   }
 ]

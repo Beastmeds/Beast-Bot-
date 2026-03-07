@@ -1,5 +1,5 @@
 {
-  "lastId": 2,
+  "lastId": 6,
   "tickets": [
     {
       "id": 1,
@@ -16,6 +16,38 @@
       "message": "Test",
       "status": "offen",
       "timestamp": 1771075060009
+    },
+    {
+      "id": 3,
+      "user": "148816338624520@lid",
+      "chat": "148816338624520@lid",
+      "message": "Warum stinkt ir alle so",
+      "status": "beantwortet",
+      "timestamp": 1772306233015
+    },
+    {
+      "id": 4,
+      "user": "157805923274884@lid",
+      "chat": "157805923274884@lid",
+      "message": "Erste Person die antwortet bekommt 5k",
+      "status": "beantwortet",
+      "timestamp": 1772456897082
+    },
+    {
+      "id": 5,
+      "user": "157805923274884@lid",
+      "chat": "120363424624178238@g.us",
+      "message": "Test",
+      "status": "beantwortet",
+      "timestamp": 1772483484315
+    },
+    {
+      "id": 6,
+      "user": "100408349470937@lid",
+      "chat": "100408349470937@lid",
+      "message": "<irgendwas>",
+      "status": "beantwortet",
+      "timestamp": 1772720839979
     }
   ]
 }
