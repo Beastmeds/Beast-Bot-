@@ -19,8 +19,8 @@ module.exports = {
   },
 
   forwardedNewsletter: {
-    jid: '',
-    name: 'undefined       <---𝐂𝐥𝐢𝐜𝐤 𝐇𝐞𝐫𝐞🩸'
+    jid: '120363426257461540@g.us',
+    name: 'BeastBot News 🩸'
   },
 
   admins: [

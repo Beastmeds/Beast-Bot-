@@ -116,3 +116,8 @@
 [25.10.2025 18:38:21] ❌ Socket getrennt
 [25.10.2025 22:40:18] ✅ Socket verbunden (auth) — Client IP: 193.111.249.187
 [25.10.2025 23:15:45] ✅ Socket verbunden (auth) — Client IP: 62.91.108.13
+[11.3.2026 13:08:40] [ERR] Serverfehler: Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+[11.3.2026 13:08:40] 🌐 Dashboard läuft auf http://192.168.178.81:3000/login
+[11.3.2026 13:08:40] 🌐 Oder via localhost: http://localhost:3000/login
+[11.3.2026 13:09:27] ✅ Socket verbunden (auth) — Client IP: 192.168.178.67
+[11.3.2026 13:09:45] ❌ Socket getrennt
