@@ -1,5 +1,5 @@
 {
-  "lastId": 6,
+  "lastId": 11,
   "tickets": [
     {
       "id": 1,
@@ -48,6 +48,46 @@
       "message": "<irgendwas>",
       "status": "beantwortet",
       "timestamp": 1772720839979
+    },
+    {
+      "id": 7,
+      "user": "148816338624520@lid",
+      "chat": "120363423198975634@g.us",
+      "message": "bitte nico fix auch mal /welcome on das geht net danke 😑",
+      "status": "offen",
+      "timestamp": 1773167610431
+    },
+    {
+      "id": 8,
+      "user": "172357406736619@lid",
+      "chat": "120363406360911771@g.us",
+      "message": "die slots sind kaputt man verliert nur",
+      "status": "beantwortet",
+      "timestamp": 1773210648759
+    },
+    {
+      "id": 9,
+      "user": "61822044508252@lid",
+      "chat": "120363407120987052@g.us",
+      "message": "🎰 Slot-Ergebnis: ⭐ | ⭐ | ⭐ 🎉 Du gewinnst 2 💸! Neuer Kontostand: 124 💸",
+      "status": "offen",
+      "timestamp": 1773231807439
+    },
+    {
+      "id": 10,
+      "user": "172357406736619@lid",
+      "chat": "120363406360911771@g.us",
+      "message": "BeastBot ist der beste",
+      "status": "beantwortet",
+      "timestamp": 1773233507997
+    },
+    {
+      "id": 11,
+      "user": "132822333415489@lid",
+      "chat": "132822333415489@lid",
+      "message": "wie ändert man das Prefix???",
+      "status": "beantwortet",
+      "timestamp": 1773297143884
     }
   ]
 }

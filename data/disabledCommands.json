@@ -1,6 +1,6 @@
 {
   "disabled": [
-    "owner",
-    "community"
+    "users",
+    "user"
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "nextId": 8,
+  "nextId": 25,
   "requests": [
     {
       "id": 1,
@@ -58,6 +58,158 @@
       "groupLink": "https://chat.whatsapp.com/K4a6cZXspsOLvm7MQrxAQx?mode=gi_t",
       "timestamp": 1772297436104,
       "status": "pending"
+    },
+    {
+      "id": 8,
+      "sender": "157805923274884@lid",
+      "senderName": "Nico",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773079690449,
+      "status": "pending"
+    },
+    {
+      "id": 9,
+      "sender": "157805923274884@lid",
+      "senderName": "Nico",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773079889415,
+      "status": "pending"
+    },
+    {
+      "id": 10,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773080038107,
+      "status": "pending"
+    },
+    {
+      "id": 11,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/LRHDNdeetAT8Iwta6QuCyb?mode=gi_t",
+      "timestamp": 1773081177216,
+      "status": "accepted",
+      "acceptedBy": "148816338624520@lid",
+      "acceptedAt": 1773081317009
+    },
+    {
+      "id": 12,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773082621254,
+      "status": "pending"
+    },
+    {
+      "id": 13,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773082866759,
+      "status": "pending"
+    },
+    {
+      "id": 14,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773086321483,
+      "status": "pending"
+    },
+    {
+      "id": 15,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773124463731,
+      "status": "pending"
+    },
+    {
+      "id": 16,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/If3MorIVYLI9ZnO359Wkmr",
+      "timestamp": 1773125389633,
+      "status": "accepted",
+      "acceptedBy": "157805923274884@lid",
+      "acceptedAt": 1773125423847
+    },
+    {
+      "id": 17,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773127515441,
+      "status": "pending"
+    },
+    {
+      "id": 18,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/",
+      "timestamp": 1773127948013,
+      "status": "pending"
+    },
+    {
+      "id": 19,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/GEdkrMpA5DOAl406StYzDi?mode=hq2tcla",
+      "timestamp": 1773141579137,
+      "status": "accepted",
+      "acceptedBy": "157805923274884@lid",
+      "acceptedAt": 1773142833503
+    },
+    {
+      "id": 20,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/JLYM4DmeGG72kUsRyftetd?mode=gi_t",
+      "timestamp": 1773151643551,
+      "status": "accepted",
+      "acceptedBy": "168178520998107@lid",
+      "acceptedAt": 1773151688755
+    },
+    {
+      "id": 21,
+      "sender": "172357406736619@lid",
+      "senderName": "†〩𝓖𝓸𝓸𝓭 𝓿𝓲𝓫𝓮𝓼\n〩†",
+      "groupLink": "https://chat.whatsapp.com/GAF1EjApcL34yqjfKZEXVM?mode=gi_t",
+      "timestamp": 1773152784094,
+      "status": "accepted",
+      "acceptedBy": "168178520998107@lid",
+      "acceptedAt": 1773152805035
+    },
+    {
+      "id": 22,
+      "sender": "228531367858203@lid",
+      "senderName": "Luca",
+      "groupLink": "https://chat.whatsapp.com/BjuPq7wQnuO54yrLPnindp?mode=gi_t",
+      "timestamp": 1773233402194,
+      "status": "accepted",
+      "acceptedBy": "157805923274884@lid",
+      "acceptedAt": 1773233476210
+    },
+    {
+      "id": 23,
+      "sender": "247248969531590@lid",
+      "senderName": "…",
+      "groupLink": "https://chat.whatsapp.com/HBXc8JiGQ2N7EDv2nnqJAi?mode=hqcthdi",
+      "timestamp": 1773246113416,
+      "status": "accepted",
+      "acceptedBy": "132822333415489@lid",
+      "acceptedAt": 1773246591813
+    },
+    {
+      "id": 24,
+      "sender": "247248969531590@lid",
+      "senderName": "…",
+      "groupLink": "https://chat.whatsapp.com/LycArdjYgmGIikBuTGvrnN?mode=gi_t",
+      "timestamp": 1773253273655,
+      "status": "accepted",
+      "acceptedBy": "132822333415489@lid",
+      "acceptedAt": 1773295464072
     }
   ]
 }

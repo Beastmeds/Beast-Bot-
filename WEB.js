@@ -391,7 +391,8 @@ socket.on("killCmd", () => {
 });
 
 // --- Start server ---
-server.listen(PORT, () => {
-  console.log(`🌐 Dashboard läuft auf http://193.111.249.187:${PORT}/login`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🌐 Dashboard läuft auf http://192.168.178.81:${PORT}/login`);
+  console.log(`🌐 Oder via localhost: http://localhost:${PORT}/login`);
 });
 server.on("error", (err) => console.error("Serverfehler:", err));

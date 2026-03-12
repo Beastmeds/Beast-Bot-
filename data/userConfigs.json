@@ -77,7 +77,7 @@
     "theme": "dark"
   },
   "172357406736619@lid": {
-    "aiModel": "Claude",
+    "aiModel": "Groq",
     "birthday": "22.05.2011",
     "favoriteGame": "battelfield 6",
     "language": "de",
@@ -107,6 +107,27 @@
   "61822044508252@lid": {
     "aiModel": "Claude",
     "birthday": "02.06.2010",
+    "favoriteGame": null,
+    "language": "de",
+    "theme": "dark"
+  },
+  "78829997527065@lid": {
+    "aiModel": "Claude",
+    "birthday": "23.04.2011",
+    "favoriteGame": "World of Warcraft",
+    "language": "de",
+    "theme": "dark"
+  },
+  "63080604160008@lid": {
+    "aiModel": "Claude",
+    "birthday": null,
+    "favoriteGame": "ARC Raiders",
+    "language": "de",
+    "theme": "dark"
+  },
+  "212364976738409@lid": {
+    "aiModel": "Nyxion",
+    "birthday": "07.04.2012",
     "favoriteGame": null,
     "language": "de",
     "theme": "dark"

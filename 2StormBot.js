@@ -1,6 +1,8 @@
 const tttGames = {}; // { jid: { board: ['','','','','','','','',''], turn: 'X'|'O', status: 'playing' } }
 const bjGames = {}; // { jid: { hand: [], dealer: [], status: 'playing'|'stand', bet: Zahl } }
 let spamInterval = 0; // Intervall zwischen Nachrichten in ms für Spam-Funktion
+let dbInstance = null; // Global database reference for economy functions
+const timeoutUsers = {}; // { userId: { chatId: 'xxx', expiresAt: Date, reason: 'string' } }
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -162,6 +164,7 @@ function loadGroupFeatures(groupId) {
       autosticker: false,
       mutegc: false,
       autoreact: false,
+      eilmeldungen: true,
       badwords: []
     };
   } catch (e) {
@@ -176,6 +179,7 @@ function loadGroupFeatures(groupId) {
       autosticker: false,
       mutegc: false,
       autoreact: false,
+      eilmeldungen: true,
       badwords: []
     };
   }
@@ -481,6 +485,75 @@ function unbanIP(ip) {
   saveIPBans(bans);
 }
 
+// Prank Ban System
+const prankBanFile = path.join(dataDir, 'prankban.json');
+
+function loadPrankBans() {
+  if (!fs.existsSync(prankBanFile)) {
+    fs.writeFileSync(prankBanFile, "[]", 'utf-8');
+  }
+  return JSON.parse(fs.readFileSync(prankBanFile, 'utf-8'));
+}
+
+function savePrankBans(list) {
+  fs.writeFileSync(prankBanFile, JSON.stringify(list, null, 2), 'utf-8');
+}
+
+function isPrankBanned(jid) {
+  const prankbans = loadPrankBans();
+  return prankbans.find(b => b.jid === jid) || null;
+}
+
+function prankBanUser(jid, pranker = 'Unknown') {
+  const prankbans = loadPrankBans();
+  if (!prankbans.some(b => b.jid === jid)) {
+    prankbans.push({ jid, pranker, timestamp: Date.now() });
+    savePrankBans(prankbans);
+  }
+}
+
+function unprankBanUser(jid) {
+  let prankbans = loadPrankBans();
+  prankbans = prankbans.filter(b => b.jid !== jid);
+  savePrankBans(prankbans);
+}
+
+// AFK System
+const afkFile = path.join(dataDir, 'afk.json');
+
+function loadAFK() {
+  if (!fs.existsSync(afkFile)) {
+    fs.writeFileSync(afkFile, "{}", 'utf-8');
+  }
+  return JSON.parse(fs.readFileSync(afkFile, 'utf-8'));
+}
+
+function saveAFK(afkData) {
+  fs.writeFileSync(afkFile, JSON.stringify(afkData, null, 2), 'utf-8');
+}
+
+function getAFKStatus(jid) {
+  const afkData = loadAFK();
+  return afkData[jid] || null;
+}
+
+function setAFK(jid, reason = 'Kein Grund angegeben') {
+  const afkData = loadAFK();
+  afkData[jid] = {
+    jid,
+    reason,
+    timestamp: Date.now(),
+    name: jid.split('@')[0]
+  };
+  saveAFK(afkData);
+}
+
+function removeAFK(jid) {
+  const afkData = loadAFK();
+  delete afkData[jid];
+  saveAFK(afkData);
+}
+
 // Lazy load Database
 let db;
 const getDB = () => {
@@ -562,6 +635,10 @@ function updateUser(jid, balance, xp, level, name) {
   const result = updateUserStmt.run(balance, xp, level, name, jid);
   // Auch zu JSON synchen
   syncUserToJSON(jid, { name, balance, xp, level });
+  // Balance mit Economy-Cash synchronisieren (coins = bargeld)
+  const econ = getEconomy(jid);
+  econ.cash = balance;
+  setEconomy(jid, econ);
   return result;
 }
 
@@ -596,6 +673,83 @@ function getInventory(jid) {
   return getAllFishStmt.all(jid);
 }
 
+// === ECONOMY HELPERS ===
+function getEconomy(jid) {
+  const stmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
+  return stmt.get(jid) || { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+}
+
+function setEconomy(jid, econ) {
+  const stmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  stmt.run(jid, econ.cash || 100, econ.bank || 0, econ.gems || 0, econ.lastDaily || 0, econ.lastWeekly || 0, econ.lastWork || 0, econ.lastBeg || 0, econ.jailedUntil || 0);
+}
+
+function isJailed(jid) {
+  const econ = getEconomy(jid);
+  return econ.jailedUntil > Date.now();
+}
+
+function sendToJail(jid, ms) {
+  const econ = getEconomy(jid);
+  econ.jailedUntil = Date.now() + ms;
+  setEconomy(jid, econ);
+}
+
+function removeFromJail(jid) {
+  const econ = getEconomy(jid);
+  econ.jailedUntil = 0;
+  setEconomy(jid, econ);
+}
+
+function formatMoney(amount) {
+  return amount.toLocaleString('de-DE');
+}
+
+function formatTime(ms) {
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000);
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+// === PREMIUM SYSTEM ===
+function getPremium(jid) {
+  const stmt = dbInstance.prepare('SELECT * FROM premium WHERE jid = ?');
+  return stmt.get(jid) || { jid, isPremium: 0, premiumUntil: 0, premiumLevel: 0, title: '', color: '#FFFFFF', emoji: '👤', autowork: 0, autofish: 0, multidaily: 0, lastSpawnmoney: 0, spawnmoneyToday: 0 };
+}
+
+function setPremium(jid, prem) {
+  const stmt = dbInstance.prepare('INSERT OR REPLACE INTO premium (jid, isPremium, premiumUntil, premiumLevel, title, color, emoji, autowork, autofish, multidaily, lastSpawnmoney, spawnmoneyToday) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  stmt.run(jid, prem.isPremium || 0, prem.premiumUntil || 0, prem.premiumLevel || 0, prem.title || '', prem.color || '#FFFFFF', prem.emoji || '👤', prem.autowork || 0, prem.autofish || 0, prem.multidaily || 0, prem.lastSpawnmoney || 0, prem.spawnmoneyToday || 0);
+}
+
+function isPremium(jid) {
+  const prem = getPremium(jid);
+  if (!prem.isPremium) return false;
+  if (prem.premiumUntil && prem.premiumUntil < Date.now()) {
+    prem.isPremium = 0;
+    setPremium(jid, prem);
+    return false;
+  }
+  return true;
+}
+
+function addPremium(jid, days = 30) {
+  const prem = getPremium(jid);
+  prem.isPremium = 1;
+  prem.premiumUntil = Math.max(prem.premiumUntil || 0, Date.now()) + (days * 24 * 60 * 60 * 1000);
+  prem.premiumLevel = Math.max(prem.premiumLevel, 1);
+  setPremium(jid, prem);
+}
+
+function removePremium(jid) {
+  const prem = getPremium(jid);
+  prem.isPremium = 0;
+  prem.premiumUntil = 0;
+  setPremium(jid, prem);
+}
 
 // === FISHING DATA ===
 const fishes = [
@@ -802,7 +956,7 @@ function saveFarewellData() {
 //=================================================================//
 module.exports = async function (sock, sessionName) {
   // Initialisiere Datenbank zuerst
-  const dbInstance = getDB();
+  dbInstance = getDB();
   
   // Erstelle Tabellen
   dbInstance.prepare(`
@@ -835,6 +989,78 @@ CREATE TABLE IF NOT EXISTS inventory (
   )
 `).run();
 
+  // Economy Tables
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS economy (
+    jid TEXT PRIMARY KEY,
+    cash INTEGER DEFAULT 100,
+    bank INTEGER DEFAULT 0,
+    gems INTEGER DEFAULT 0,
+    lastDaily INTEGER DEFAULT 0,
+    lastWeekly INTEGER DEFAULT 0,
+    lastWork INTEGER DEFAULT 0,
+    lastBeg INTEGER DEFAULT 0,
+    jailedUntil INTEGER DEFAULT 0
+  )
+`).run();
+
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS bankAccounts (
+    jid TEXT PRIMARY KEY,
+    accountBalance INTEGER DEFAULT 0,
+    interestRate REAL DEFAULT 0.01,
+    monthlyFee INTEGER DEFAULT 10
+  )
+`).run();
+
+  // Premium System Tables
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS premium (
+    jid TEXT PRIMARY KEY,
+    isPremium INTEGER DEFAULT 0,
+    premiumUntil INTEGER DEFAULT 0,
+    premiumLevel INTEGER DEFAULT 0,
+    title TEXT DEFAULT '',
+    color TEXT DEFAULT '#FFFFFF',
+    emoji TEXT DEFAULT '👤',
+    autowork INTEGER DEFAULT 0,
+    autofish INTEGER DEFAULT 0,
+    multidaily INTEGER DEFAULT 0,
+    lastSpawnmoney INTEGER DEFAULT 0,
+    spawnmoneyToday INTEGER DEFAULT 0
+  )
+`).run();
+
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS premiumShop (
+    jid TEXT,
+    itemId TEXT,
+    boughtAt INTEGER,
+    PRIMARY KEY(jid, itemId)
+  )
+`).run();
+
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS businesses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jid TEXT,
+    businessType TEXT,
+    level INTEGER DEFAULT 1,
+    lastCollection INTEGER DEFAULT 0,
+    earnings INTEGER DEFAULT 0
+  )
+`).run();
+
+  dbInstance.prepare(`
+  CREATE TABLE IF NOT EXISTS crypto (
+    jid TEXT,
+    symbol TEXT,
+    amount REAL DEFAULT 0,
+    boughtAt REAL DEFAULT 0,
+    PRIMARY KEY(jid, symbol)
+  )
+`).run();
+
   // Initialisiere Prepared Statements
   getUserStmt = dbInstance.prepare('SELECT * FROM users WHERE jid = ?');
   ensureUserStmt = dbInstance.prepare('INSERT INTO users (jid, name, balance, xp, level) VALUES (?, ?, ?, ?, ?)');
@@ -846,6 +1072,10 @@ CREATE TABLE IF NOT EXISTS inventory (
   getAllFishStmt = dbInstance.prepare('SELECT * FROM inventory WHERE jid = ?');
   topCoinsStmt = dbInstance.prepare('SELECT name, balance FROM users ORDER BY balance DESC LIMIT ?');
   topXpStmt = dbInstance.prepare('SELECT name, xp, level FROM users ORDER BY xp DESC LIMIT ?');
+
+  // Economy Statements
+  const getEconomyStmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
+  const setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
   // Datenbank-Migrationen: Füge lastHuntTime hinzu falls nicht vorhanden
   try {
@@ -1014,7 +1244,70 @@ sock.ev.on('messages.upsert', async (m) => {
 
   const chatId = msg.key.remoteJid;
   const from = chatId;
+  const isGroupChat = chatId && chatId.endsWith('@g.us');
+  
+  // Sammle alle Chat-IDs für Eilmeldungen
+  if (!global._allChatIds) global._allChatIds = new Set();
+  if (chatId) global._allChatIds.add(chatId);
+  
   const body = msg.message.conversation || msg.message.extendedTextMessage?.text;
+  
+  // === AUTOSTICKER: Muss VOR "if (!body) return" prüfen, da Sticker kein Text-Feld haben ===
+  if (isGroupChat && !msg.key.fromMe) {
+    // === TIMEOUT CHECK für Sticker ===
+    const userKey = msg.key.participant || msg.key.remoteJid || chatId;
+    const userTimeout = timeoutUsers[userKey];
+    if (userTimeout && userTimeout.expiresAt > Date.now()) {
+      // User ist im Timeout
+      const getRank = (jid) => {
+        try {
+          const ranks = require('./ranksConfig.json');
+          return ranks[jid]?.rank || null;
+        } catch (e) {
+          return null;
+        }
+      };
+      
+      const rank = getRank(userKey);
+      const isTeam = ['Inhaber', 'Stellvertreter Inhaber'].includes(rank);
+      
+      if (!isTeam && msg.message?.stickerMessage) {
+        // User darf im Timeout keine Sticker verwenden
+        try {
+          await sock.sendMessage(chatId, { delete: msg.key });
+        } catch (e) {
+          // ignore
+        }
+        try {
+          await sock.sendMessage(chatId, { text: `⏳ Du stehst im Timeout! Du darfst keine Sticker verwenden!`, mentions: [userKey] });
+        } catch (e) {
+          // ignore
+        }
+        return;
+      }
+    } else if (userTimeout && userTimeout.expiresAt <= Date.now()) {
+      // Timeout abgelaufen
+      delete timeoutUsers[userKey];
+    }
+
+    const features = loadGroupFeatures(chatId);
+    if (features.autosticker) {
+      try {
+        if (msg.message?.stickerMessage) {
+          try {
+            await sock.sendMessage(chatId, { delete: msg.key });
+            await sock.sendMessage(chatId, { text: '🎨 Sticker sind in dieser Gruppe nicht erlaubt. Sticker entfernt.' }, { quoted: msg });
+          } catch (delErr) {
+            console.error('Autosticker delete failed:', delErr && delErr.message ? delErr.message : delErr);
+          }
+          return;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+  
   if (!body) return;
 
   // 📌 Definiere pushName früh, damit es überall verfügbar ist
@@ -1022,7 +1315,6 @@ sock.ev.on('messages.upsert', async (m) => {
 
   // 📌 Definiere cleanedSenderNumber auch früh
   let senderNumber;
-  const isGroupChat = chatId && chatId.endsWith('@g.us');
   if (msg.key.fromMe) {
     senderNumber = (msg.key.participant || msg.key.remoteJid || '').split('@')[0];
   } else if (isGroupChat) {
@@ -1036,6 +1328,44 @@ sock.ev.on('messages.upsert', async (m) => {
 
   // Ignoriere nicht-Command-Nachrichten von dir selbst, aber verarbeite deine Befehle
   if (msg.key.fromMe && !body.startsWith(prefix)) return;
+
+  // === TIMEOUT CHECK für normale Nachrichten ===
+  if (!body.startsWith(prefix) && isGroupChat && !msg.key.fromMe) {
+    const userKey = msg.key.participant || msg.key.remoteJid || chatId;
+    const userTimeout = timeoutUsers[userKey];
+    if (userTimeout && userTimeout.expiresAt > Date.now()) {
+      // User ist im Timeout und versucht zu schreiben
+      const getRank = (jid) => {
+        try {
+          const ranks = require('./ranksConfig.json');
+          return ranks[jid]?.rank || null;
+        } catch (e) {
+          return null;
+        }
+      };
+      
+      const rank = getRank(userKey);
+      const isTeam = ['Inhaber', 'Stellvertreter Inhaber'].includes(rank);
+      
+      if (!isTeam) {
+        // Timeout: Normale User dürfen nicht schreiben
+        try {
+          await sock.sendMessage(chatId, { delete: msg.key });
+        } catch (e) {
+          // ignore
+        }
+        try {
+          await sock.sendMessage(chatId, { text: `⏳ Du stehst im Timeout! Du darfst keine Nachrichten schreiben!`, mentions: [userKey] });
+        } catch (e) {
+          // ignore
+        }
+        return;
+      }
+    } else if (userTimeout && userTimeout.expiresAt <= Date.now()) {
+      // Timeout abgelaufen
+      delete timeoutUsers[userKey];
+    }
+  }
 
   // === Jede Nachricht automatisch als gelesen markieren ===
   await sock.readMessages([msg.key]);
@@ -1378,23 +1708,6 @@ try {
     }
   }
 
-  // Autosticker: lösche Sticker-Nachrichten, wenn aktiviert
-  if (features.autosticker && isGroupChat) {
-    try {
-      if (msg.message?.stickerMessage) {
-        try {
-          await sock.sendMessage(chatId, { delete: msg.key });
-          await sock.sendMessage(chatId, { text: '� sticker sind in dieser Gruppe nicht erlaubt. Sticker entfernt.' }, { quoted: msg });
-        } catch (delErr) {
-          console.error('Autosticker delete failed:', delErr && delErr.message ? delErr.message : delErr);
-        }
-        return;
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
   // Antispam: wenn gleiche User innerhalb 5s erneut sendet, löschen und warnen
   if (features.antispam && isGroupChat) {
     try {
@@ -1660,6 +1973,34 @@ if (isGroupChat && isUserMuted(chatId, sender)) {
   }
 }
 
+// AFK Check - VOR Prefix-Prüfung, damit normale Nachrichten auch erkannt werden
+const afkStatusCheck = getAFKStatus(senderJid);
+if (afkStatusCheck) {
+  // User war AFK und schreibt jetzt wieder - Status entfernen
+  removeAFK(senderJid);
+  
+  // Berechne die Dauer der AFK-Zeit
+  const afkDuration = Date.now() - afkStatusCheck.timestamp;
+  const hours = Math.floor(afkDuration / (1000 * 60 * 60));
+  const minutes = Math.floor((afkDuration % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((afkDuration % (1000 * 60)) / 1000);
+  
+  let durationText = '';
+  if (hours > 0) {
+    durationText = `${hours}h ${minutes}m ${seconds}s`;
+  } else if (minutes > 0) {
+    durationText = `${minutes}m ${seconds}s`;
+  } else {
+    durationText = `${seconds}s`;
+  }
+  
+  await sock.sendMessage(chatId, {
+    text: `👋 @${senderJid.split('@')[0]} ist nun wieder online! 🟢\n\n⏱️ AFK-Zeit: ${durationText}`,
+    contextInfo: { mentionedJid: [senderJid] }
+  });
+  console.log(`[AFK] User ${senderJid} ist durch eine Nachricht wieder online (Dauer: ${durationText})`);
+}
+
 const pfx = getPrefixForChat(chatId);
 if (!messageBody.startsWith(pfx)) return;
 
@@ -1733,12 +2074,13 @@ if (command !== 'register' && !user) {
 const dbBlocked = loadBlocked();
 if (dbBlocked.blocked.includes(sender)) return; 
 
-// Lockgroup-Prüfung: Silent mode - nur Inhaber hört
+// Lockgroup-Prüfung: Silent mode - nur Inhaber und Co-Owner hören
 if (isGroupLocked(from)) {
-  // Nur Inhaber darf Commands ausführen
+  // Nur Inhaber und Co-Owner dürfen Commands ausführen
   const senderRank = ranks.getRank(sender);
+  const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber'];
   
-  if (senderRank !== 'Inhaber') {
+  if (!allowedRanks.includes(senderRank)) {
     // Silent - keine Meldung an andere Nutzer
     return; 
   }
@@ -1812,11 +2154,41 @@ const commandsList = [
   // Stranger Things fun
   'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon', 'redrun', 'darkweb', 'strangergame', 'moviequote', 'hawkins', 'dna', 'friends', 'gate',
   // AI Commands
-  'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define', 'nyxion',
+  'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define', 'nyxion', 'nayvy',
   // User Config
   'config',
   // Audio Effects
   'bassboost', 'slowed', 'spedup', 'nightcore', 'reverb', 'reverse', 'deep', 'echo', 'vaporwave', '8d', 'earrape', 'chipmunk',
+  // ECONOMY - Basic
+  'balance', 'bal', 'daily', 'weekly', 'work', 'beg', 
+  // ECONOMY - Gambling
+  'slots', 'roulette', 'dice', 'blackjack',
+  // ECONOMY - Jobs
+  'mine', 'hunt', 'farm',
+  // ECONOMY - Crime
+  'rob', 'crime', 'heist', 'jail',
+  // ECONOMY - Bank
+  'bank', 'deposit', 'withdraw',
+  // ECONOMY - Leaderboards
+  'topbalance', 'topbank',
+  // PREMIUM ECONOMY
+  'spawnmoney', 'cooldowns', 'rich', 'boost',
+  // PREMIUM CASINO
+  'highroller', 'jackpot', 'double',
+  // PREMIUM SHOP
+  'premiumshop', 'buypremium',
+  // PREMIUM CUSTOMIZATION
+  'settitle', 'setcolor', 'setemoji',
+  // AUTO FEATURES
+  'autowork', 'autofish', 'multidaily',
+  // BUSINESS SYSTEM
+  'business', 'buybusiness', 'collect',
+  // CRYPTO
+  'crypto', 'buybtc', 'sellbtc', 'market', 'buycrypto', 'sellcrypto',
+  // PREMIUM ACCOUNT
+  'premium',
+  // INFO COMMANDS
+  'device',
 ];
 
 
@@ -1859,6 +2231,17 @@ sock.ev.on('group-participants.update', async (update) => {
     const db = loadWelcome();
     const groupId = update.id;
 
+    // Debounce-System: Verhindere mehrfaches Versenden innerhalb von 5 Sekunden
+    if (!global._welcomeDebounce) global._welcomeDebounce = {};
+    const debounceKey = `${groupId}-${update.action}`;
+    const now = Date.now();
+    
+    if (global._welcomeDebounce[debounceKey] && (now - global._welcomeDebounce[debounceKey]) < 5000) {
+      console.log(`[WELCOME/GOODBYE] Debounced - zu schnelle Wiederholung für ${groupId}`);
+      return;
+    }
+    global._welcomeDebounce[debounceKey] = now;
+
     // Load per-group feature toggles (default: all off)
     let groupFeatures = {};
     try {
@@ -1879,11 +2262,15 @@ sock.ev.on('group-participants.update', async (update) => {
       // JOIN (send a single welcome message for all new participants)
       if (update.action === 'add') {
         const gFeat = groupFeatures[groupId] || {};
-        if (db[groupId]?.enabled || gFeat.welcome) {
+        // NUR das neue System verwenden (gFeat.welcome), nicht das alte (db[groupId]?.enabled)
+        if (gFeat.welcome) {
           try {
             const namesList = uniqueParticipants.map(u => `@${u.split('@')[0]}`).join(' ');
-            const welcomeText = (db[groupId]?.text || 'Willkommen @user 🎉').replace(/@user/gi, namesList);
+            // Verwende custom Text wenn gesetzt, sonst Standard
+            let welcomeText = gFeat.welcomeText || 'Willkommen @user 🎉';
+            welcomeText = welcomeText.replace(/@user/gi, namesList);
             await sock.sendMessage(groupId, { text: welcomeText, mentions: uniqueParticipants });
+            console.log(`[WELCOME] Nachricht in ${groupId} versendet`);
           } catch (msgErr) {
             if (msgErr?.data !== 429) console.error('Welcome message error:', msgErr?.message || msgErr);
           }
@@ -1914,11 +2301,15 @@ sock.ev.on('group-participants.update', async (update) => {
       // LEAVE / REMOVE (send a single goodbye message for all removed participants)
       if (update.action === 'remove' || update.action === 'leave') {
         const gFeatLeave = groupFeatures[groupId] || {};
-        if (db[groupId]?.goodbye || gFeatLeave.goodbye) {
+        // NUR das neue System verwenden (gFeatLeave.goodbye), nicht das alte (db[groupId]?.goodbye)
+        if (gFeatLeave.goodbye) {
           try {
             const namesList = uniqueParticipants.map(u => `@${u.split('@')[0]}`).join(' ');
-            const goodbyeText = (db[groupId]?.goodbyeText || 'Tschüss @user 👋').replace(/@user/gi, namesList);
+            // Verwende custom Text wenn gesetzt, sonst Standard
+            let goodbyeText = gFeatLeave.goodbyeText || 'Tschüss @user 👋';
+            goodbyeText = goodbyeText.replace(/@user/gi, namesList);
             await sock.sendMessage(groupId, { text: goodbyeText, mentions: uniqueParticipants });
+            console.log(`[GOODBYE] Nachricht in ${groupId} versendet`);
           } catch (msgErr) {
             if (msgErr?.data !== 429) console.error('Goodbye message error:', msgErr?.message || msgErr);
           }
@@ -1945,6 +2336,24 @@ try {
   }
 } catch (e) {
   // ignore
+}
+
+// === TIMEOUT CHECK: Prüfe ob User im Timeout ist ===
+const userKey = msg.key.participant || msg.key.remoteJid || chatId;
+const userTimeout = timeoutUsers[userKey];
+if (userTimeout && userTimeout.expiresAt > Date.now()) {
+  // User ist noch im Timeout
+  const rank = ranks.getRank(userKey);
+  const isTeam = ['Inhaber', 'Stellvertreter Inhaber'].includes(rank);
+  
+  if (!isTeam) {
+    // Timeout: Nur Team darf Befehle nutzen
+    await sock.sendMessage(chatId, { text: `⏳ Du stehst im Timeout! ${command !== 'timeout' ? 'Du darfst keine Befehle nutzen.' : ''}` }, { quoted: msg });
+    return;
+  }
+} else if (userTimeout && userTimeout.expiresAt <= Date.now()) {
+  // Timeout abgelaufen
+  delete timeoutUsers[userKey];
 }
 
 switch (command) {
@@ -2398,6 +2807,10 @@ case 'owner': {
 • Name: Beastmeds
 • Nummer: +4367764694963
 
+🛡️ *Co-Owner*
+• Name: Lian
+• Nummer: +49 176 72395249
+
 `.trim();
   await sock.sendMessage(from, { text });
 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
@@ -2756,19 +3169,20 @@ case 'autossssssssssssssssssssssssssssss': {
 case 'lockgroup':
 {
   const senderRank = ranks.getRank(sender);
+  const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber'];
   
-  // Nur Inhaber darf lockgroup nutzen
-  if (senderRank !== 'Inhaber') {
+  // Nur Owner und Co-Owner dürfen lockgroup nutzen
+  if (!allowedRanks.includes(senderRank)) {
     await sendReaction(from, msg, '🔒');
     await sock.sendMessage(from, {
-      text: `⛔ *Zugriff verweigert!*\n\nNur Inhaber dürfen diesen Befehl nutzen.`
+      text: `⛔ *Zugriff verweigert!*\n\nNur Owner und Co-Owner dürfen diesen Befehl nutzen.`
     }, { quoted: msg });
     break;
   }
 
   lockGroup(from);
   await sock.sendMessage(from, {
-    text: `🔒 *Diese Gruppe wurde gesperrt!*\n\nNur Inhaber können noch Commands nutzen.`
+    text: `🔒 *Diese Gruppe wurde gesperrt!*\n\nNur Owner und Co-Owner können noch Commands nutzen.`
   }, { quoted: msg });
 }
 break;
@@ -2893,12 +3307,13 @@ case 'device': {
 
 case 'unlockgroup': {
   const senderRank = ranks.getRank(sender);
+  const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber'];
   
-  // Nur Inhaber darf unlockgroup nutzen
-  if (senderRank !== 'Inhaber') {
+  // Nur Owner und Co-Owner dürfen unlockgroup nutzen
+  if (!allowedRanks.includes(senderRank)) {
     await sendReaction(from, msg, '🔓');
     await sock.sendMessage(from, {
-      text: `⛔ *Zugriff verweigert!*\n\nNur Inhaber dürfen diesen Befehl nutzen.`
+      text: `⛔ *Zugriff verweigert!*\n\nNur Owner und Co-Owner dürfen diesen Befehl nutzen.`
     }, { quoted: msg });
     break;
   }
@@ -3173,19 +3588,21 @@ case 'setup': {
   try {
     // Prüfe ob in Gruppe
     if (!isGroupChat) {
-      return await sock.sendMessage(from, { text: '⛔ /setup funktioniert nur in Gruppen!' }, { quoted: msg });
+      return await sock.sendMessage(chatId, { text: '⛔ /setup funktioniert nur in Gruppen!' });
     }
 
-    const metadata = await sock.groupMetadata(from);
-    const participants = metadata.participants;
+    const metadata = await sock.groupMetadata(chatId);
+    const participants = metadata.participants || [];
 
-    // Prüfe ob Sender Admin
-    const senderIsAdmin = participants.some(p => p.id === sender && (p.admin === 'admin' || p.admin === 'superadmin'));
-    if (!senderIsAdmin) {
-      return await sock.sendMessage(from, { text: '⛔ Nur Gruppenadmins dürfen das Setup ausführen.' }, { quoted: msg });
+    // Prüfe ob Sender Team-Mitglied
+    const senderRank = ranks.getRank(sender);
+    const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+    
+    if (!allowedRanks.includes(senderRank)) {
+      return await sock.sendMessage(chatId, { text: '⛔ Nur Team-Mitglieder dürfen das Setup ausführen.' });
     }
 
-    await sock.sendMessage(from, { 
+    await sock.sendMessage(chatId, { 
       text: `⚙️ *Setup für BeastBot*\n\n` +
             `✋ Beachte:\n` +
             `• Der Bot muss Admin sein\n` +
@@ -3193,9 +3610,10 @@ case 'setup': {
             `📋 *Nächste Schritte:*\n` +
             `Teammmitglieder müssen folgendes ausführen:\n` +
             `/setupaccept\n\n` +
-            `Dies wird die Bot-Infos in die Gruppenbeschreibung schreiben.`,
+            `Dies wird die Bot-Infos in die Gruppenbeschreibung schreiben.\n\n` +
+            `👑 Owner: Beastmeds`,
       mentions: [sender]
-    }, { quoted: msg });
+    });
 
     // Notify join group about setup
     const joinGrp = getJoinGroup();
@@ -3213,26 +3631,21 @@ case 'setup': {
 
   } catch (e) {
     console.error('Fehler beim Setup der Gruppe:', e);
-    await sock.sendMessage(from, { text: `❌ Fehler: ${e.message}` }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: `❌ Fehler: ${e.message}` });
   }
   break;
 }
 
 case 'setupaccept': {
   try {
-    const metadata = await sock.groupMetadata(from);
-    const participants = metadata.participants;
+    const metadata = await sock.groupMetadata(chatId);
+    const participants = metadata.participants || [];
 
     const senderRank = ranks.getRank(sender);
     const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
     
     if (!allowed.includes(senderRank)) {
-      return await sock.sendMessage(from, { text: '⛔ Nur Team-Mitglieder dürfen setupaccept ausführen.' }, { quoted: msg });
-    }
-
-    const isBotAdmin = participants.some(p => p.id === sock.user.id && (p.admin === 'admin' || p.admin === 'superadmin'));
-    if (!isBotAdmin) {
-      return await sock.sendMessage(from, { text: '⛔ Der Bot muss Admin sein, um das Setup durchzuführen!' }, { quoted: msg });
+      return await sock.sendMessage(chatId, { text: '⛔ Nur Team-Mitglieder dürfen setupaccept ausführen.' });
     }
 
     const now = new Date();
@@ -3250,7 +3663,7 @@ case 'setupaccept': {
 
 💬 *Bot-Info:*
 - Status: *Immer aktiv ⚡*
-- Owner: *𝓞𝓷𝓮𝓓𝓮𝓿𝓲𝓵🩸*
+- Owner: *Beastmeds*
 
 Bei Fragen: /support
 Setup-Datum: ${formattedDate}
@@ -3258,12 +3671,12 @@ Setup-Datum: ${formattedDate}
 
     const currentDesc = metadata.desc || '';
     const newDesc = currentDesc + '\n' + appendText;
-    await sock.groupUpdateDescription(from, newDesc);
+    await sock.groupUpdateDescription(chatId, newDesc);
 
-    await sock.sendMessage(from, { 
+    await sock.sendMessage(chatId, { 
       text: '✅ Setup abgeschlossen! Bot-Infos wurden in die Gruppenbeschreibung hinzugefügt.',
       mentions: [sender]
-    }, { quoted: msg });
+    });
 
     // Nachricht in Join-Gruppe senden
     const joinGroup = getJoinGroup();
@@ -3285,7 +3698,7 @@ Setup-Datum: ${formattedDate}
 
   } catch (e) {
     console.error('Fehler bei setupaccept:', e);
-    await sock.sendMessage(from, { text: '❌ Fehler beim Setup. Prüfe die Logs!' }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: '❌ Fehler beim Setup. Prüfe die Logs!' });
   }
   break;
 }
@@ -3296,26 +3709,21 @@ case 'ownersetup': {
     const allowed = ['Inhaber'];
     
     if (!allowed.includes(senderRank)) {
-      return await sock.sendMessage(from, { text: '⛔ Nur der Owner darf diesen Befehl nutzen.' }, { quoted: msg });
+      return await sock.sendMessage(chatId, { text: '⛔ Nur der Owner darf diesen Befehl nutzen.' });
     }
 
-    const metadata = await sock.groupMetadata(from);
-    const participants = metadata.participants;
-
-    const isBotAdmin = participants.some(p => p.id === sock.user.id && (p.admin === 'admin' || p.admin === 'superadmin'));
-    if (!isBotAdmin) {
-      return await sock.sendMessage(from, { text: '⛔ Der Bot muss Admin sein!' }, { quoted: msg });
-    }
+    const metadata = await sock.groupMetadata(chatId);
+    const participants = metadata.participants || [];
 
     // Nur Admin-Setup ohne Beschreibung zu ändern
-    await sock.sendMessage(from, { 
+    await sock.sendMessage(chatId, { 
       text: `✅ Owner-Setup durchgeführt.\n\nKeine Beschreibungsänderung.`,
       mentions: [sender]
-    }, { quoted: msg });
+    });
 
   } catch (e) {
     console.error('Fehler bei ownersetup:', e);
-    await sock.sendMessage(from, { text: '❌ Fehler beim Owner-Setup.' }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: '❌ Fehler beim Owner-Setup.' });
   }
   break;
 }
@@ -4074,9 +4482,9 @@ case 'banlist': {
     }
 
     const dbBans = loadBans();
-    const bans = dbBans.bans;
+    const bans = dbBans?.bans || [];
 
-    if (bans.length === 0) {
+    if (!bans || bans.length === 0) {
       await sock.sendMessage(chatId, { text: 'ℹ️ Es gibt keine gebannten User.' }, { quoted: msg });
       break;
     }
@@ -4664,70 +5072,6 @@ case 'tts': {
 }
 
 
-case 'welcome': {
-  try {
-    // Gruppendaten abrufen
-    const groupMetadata = await sock.groupMetadata(from);
-    const senderIsAdmin = groupMetadata.participants
-      .find(p => p.id === sender)?.admin !== null;
-
-    if (!senderIsAdmin) {
-      await sock.sendMessage(from, { text: '🚫 Nur Admins können den Welcome-Command ausführen.' }, { quoted: msg });
-      break;
-    }
-
-    const db = loadWelcome();
-    const sub = args[0]?.toLowerCase();
-    switch (sub) {
-
-      case 'on': {
-      if (found) {
-        specialStatus = '\n│ ⭐ Status: Nayvy/Baileys detected (official bot)';
-
-        // Setze persistenten Override, damit es nicht mehr flippt
-        try {
-          setDeviceOverride(origJid, 'WhatsApp Web / Bot (Nayvy/Baileys)');
-          device = 'WhatsApp Web / Bot (Nayvy/Baileys)';
-          deviceEmoji = '🤖';
-        } catch (e) {
-          // ignore
-        }
-      }
-        saveWelcome(db);
-        await sock.sendMessage(from, { text: '✅ Welcome-Nachricht aktiviert!' }, { quoted: msg });
-        break;
-      }
-
-      case 'off':
-        db[from] = db[from] || {};
-        db[from].enabled = false;
-        saveWelcome(db);
-        await sock.sendMessage(from, { text: '❌ Welcome-Nachricht deaktiviert.' }, { quoted: msg });
-        break;
-
-      case 'set':
-        const text = args.slice(1).join(' ');
-        if (!text) {
-          await sock.sendMessage(from, { text: '⚠️ Bitte gib einen Begrüßungstext an.\nBeispiel: /welcome set Willkommen @user 🎉' }, { quoted: msg });
-          break;
-        }
-        db[from] = db[from] || {};
-        db[from].text = text;
-        saveWelcome(db);
-        await sock.sendMessage(from, { text: `✅ Begrüßungstext gesetzt:\n"${text}"` }, { quoted: msg });
-        break;
-
-      default:
-        await sock.sendMessage(from, { text: '⚠️ Ungültige Option.\nVerwende /welcome on, /welcome off oder /welcome set <Text>' }, { quoted: msg });
-        break;
-    }
-
-  } catch (err) {
-    console.error('Fehler bei welcome:', err);
-    await sock.sendMessage(from, { text: `❌ Fehler beim Ausführen des Commands:\n${err.message}` }, { quoted: msg });
-  }
-  break;
-}
 case 'join': {
   try {
     const supportGroup = "120363419556165028@g.us"; // Supportgruppe
@@ -5039,41 +5383,15 @@ case 'support': {
 // ========== COMMUNITY ==========
 case 'community': {
   try {
-    const supportGroup = getSupportGroup();
-    if (!supportGroup) {
-      return await sock.sendMessage(from, {
-        text: '❌ Es ist keine Support-Gruppe konfiguriert. Bitte lasse einen Admin die Gruppe mit `/supportgroup set <Gruppen-ID>` setzen.',
-      });
-    }
-    // determine whether the support group belongs to a larger community; if
-    // so we want to send the *community* invite instead of the raw support
-    // group link. groupMetadata may include a `community` field with the
-    // community JID when the group is nested.
-    let targetJid = supportGroup;
-    try {
-      const meta = await sock.groupMetadata(supportGroup);
-      if (meta && meta.community) {
-        // use the community id rather than the subgroup itself
-        targetJid = meta.community;
-      }
-    } catch (e) {
-      // if metadata fetch fails we just fall back to the support group
-      console.error('Fehler beim Laden der Gruppen-Metadaten für Community-Befehl:', e);
-    }
-
-    let inviteLink;
-    try {
-      const code = await sock.groupInviteCode(targetJid);
-      inviteLink = `https://chat.whatsapp.com/${code}`;
-    } catch (e) {
-      console.error('Fehler beim Ermitteln des Invite-Codes für Community:', e);
-      inviteLink = '❌ Konnte den Einladungslink nicht abrufen (bin ich Admin?).';
-    }
-
+    const communityLink = 'https://chat.whatsapp.com/Hu2gjCneSvQLj9q2RHw1E0';
+    
     await sock.sendMessage(from, {
       text: `🌐 *BeastBot Community*
-Hier kannst du der offiziellen Support‑Community beitreten:
-${inviteLink}`,
+
+Hier kannst du der offiziellen Community beitreten:
+${communityLink}
+
+🎉 Willkommen im BeastBot Community!`,
     });
   } catch (err) {
     console.error('Community-Befehl fehlgeschlagen:', err);
@@ -5242,29 +5560,113 @@ case 'reload': {
  }, { quoted: msg });
     break;
   }
-    const { exec } = require('child_process');
-    const path = require('path');
-    const batFile = path.join(__dirname, 'reload.bat'); // gleiche Ordner wie dein index.js
+    
  await sendReaction(from, msg, '🔄');
-    await sock.sendMessage(from, { text: '♻️ *BeastBot wird über PM2 neu gestartet...*' }, { quoted: msg });
+    await sock.sendMessage(from, { text: '♻️ *BeastBot wird neu gestartet...*\n\nBis gleich! 👋' }, { quoted: msg });
 
-    exec(`cmd /c "${batFile}"`, (error, stdout, stderr) => {
-      if (error) {
-        sock.sendMessage(from, { text: `❌ Fehler beim Neustart:\n${error.message}` }, { quoted: msg });
-        return;
-      }
-
-      sock.sendMessage(from, { text: `♻️*Neustartbefehl erfolgreich eingeleitet*` }, { quoted: msg });
-
-      // ⏳ kleine Verzögerung, dann Bot beenden
-      setTimeout(() => process.exit(0), 1500);
-    });
+    // Verzögerung vor dem Neustart, damit die Nachricht versendet wird
+    setTimeout(() => {
+      const { exec } = require('child_process');
+      
+      // PM2 startet den Bot neu - BB Prozess
+      exec('pm2 restart BB', (error, stdout, stderr) => {
+        if (error) {
+          console.error('[RELOAD] Error:', error);
+          return;
+        }
+        console.log('[RELOAD] Neustart-Befehl via PM2 gesendet');
+      });
+    }, 2000);
 
   } catch (e) {
     reply(`❌ Fehler beim Reload-Command: ${e.message}`);
   }
   break;
 }
+
+case 'restart': {
+  try {
+    const senderRank = ranks.getRank(sender);
+    const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+     if (!allowed.includes(senderRank)) {
+      await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { text:"⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
+ }, { quoted: msg });
+    break;
+  }
+    
+ await sendReaction(from, msg, '🔄');
+    await sock.sendMessage(from, { text: '♻️ *PM2 Prozess "BB" wird neu gestartet...*\n\nBis gleich! 👋' }, { quoted: msg });
+
+    // Verzögerung vor dem Neustart, damit die Nachricht versendet wird
+    setTimeout(() => {
+      const { exec } = require('child_process');
+      
+      // PM2 restart BB Prozess
+      exec('pm2 restart BB', (error, stdout, stderr) => {
+        if (error) {
+          console.error('[RESTART BB] Error:', error);
+          return;
+        }
+        console.log('[RESTART BB] Neustart-Befehl via PM2 gesendet');
+      });
+    }, 2000);
+
+  } catch (e) {
+    reply(`❌ Fehler beim Restart-Command: ${e.message}`);
+  }
+  break;
+}
+
+case 'log': {
+  try {
+    const senderRank = ranks.getRank(sender);
+    const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+    if (!allowed.includes(senderRank)) {
+      await sendReaction(from, msg, '🔒');
+      await sock.sendMessage(from, { text:"⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
+ }, { quoted: msg });
+      break;
+    }
+
+    await sendReaction(from, msg, '📋');
+    await sock.sendMessage(from, { text: '⏳ *PM2 Logs werden geladen...* \n\nBitte warten...' }, { quoted: msg });
+
+    const { exec } = require('child_process');
+
+    // PM2 Logs der letzten 50 Zeilen auslesen
+    exec('pm2 logs BB --lines 50 --nostream', (error, stdout, stderr) => {
+      if (error) {
+        sock.sendMessage(from, { text: `❌ Fehler beim Abrufen der Logs:\n\n${error.message}` }, { quoted: msg });
+        console.error('[LOG] Error:', error);
+        return;
+      }
+
+      // Logs begrenzen auf max. 4096 Zeichen (WhatsApp Limit)
+      const logs = stdout.substring(0, 4000) || 'Keine Logs verfügbar';
+      const logMessage = `📋 *PM2 Logs (BB Prozess):*\n\n\`\`\`\n${logs}\n\`\`\`\n\n⏱️ *Diese Nachricht wird in 20 Sekunden gelöscht!*`;
+
+      sock.sendMessage(from, { text: logMessage }, { quoted: msg }).then(sentMsg => {
+        // Nach 20 Sekunden löschen
+        setTimeout(() => {
+          try {
+            sock.sendMessage(from, { delete: sentMsg.key });
+            console.log('[LOG] Nachricht gelöscht');
+          } catch (delErr) {
+            console.error('[LOG] Delete error:', delErr);
+          }
+        }, 20000);
+      });
+    });
+
+  } catch (e) {
+    reply(`❌ Fehler beim Log-Command: ${e.message}`);
+  }
+  break;
+}
+
 case 'startmc': {
   try {
     const senderRank = ranks.getRank(sender);
@@ -5582,15 +5984,63 @@ case 'newpair': {
     break;
   }
 case 'sell': {
-  // args[0] = Fischname, args[1] = Anzahl
+  // args[0] = Fischname oder "inventory", args[1] = Anzahl
   const fishName = args[0];
   const amount = parseInt(args[1]) || 1;
 
   if (!fishName) {
-    await sock.sendMessage(chatId, { text: "❌ Bitte gib an, welchen Fisch du verkaufen willst.\nBeispiel: /sell Karpfen 3" }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: "❌ Bitte gib an, welchen Fisch du verkaufen willst.\nBeispiel: /sell Karpfen 3\nOder: /sell inventory" }, { quoted: msg });
     break;
   }
 
+  // Verkaufe ganzes Inventar
+  if (fishName.toLowerCase() === 'inventory') {
+    try {
+      const db = getDB();
+      const allFish = db.prepare("SELECT * FROM fish WHERE jid = ? AND count > 0").all(jid);
+
+      if (allFish.length === 0) {
+        await sock.sendMessage(chatId, { text: "🗳 Dein Inventar ist leer!" }, { quoted: msg });
+        break;
+      }
+
+      let totalCoins = 0;
+      let soldFish = [];
+
+      // Verkaufe alle Fische
+      for (const fish of allFish) {
+        const fishData = fishes.find(f => f.name === fish.name);
+        if (!fishData) continue;
+
+        const pricePerFish = Math.floor(Math.random() * (fishData.max - fishData.min + 1)) + fishData.min;
+        const totalPrice = pricePerFish * fish.count;
+        totalCoins += totalPrice;
+
+        soldFish.push(`${fish.count}x ${fish.name} = ${totalPrice} 💸`);
+
+        // Inventar auf 0 setzen
+        db.prepare("UPDATE fish SET count = 0 WHERE jid = ? AND name = ?").run(jid, fish.name);
+      }
+
+      // Coins zum User hinzufügen
+      const user = getUser(jid);
+      user.balance += totalCoins;
+      updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+
+      let responseText = `💰 *Gesamtes Inventar verkauft!*\n\n`;
+      responseText += soldFish.join('\n');
+      responseText += `\n\n💸 Gesamtverdienst: ${totalCoins} Coins\n💳 Neuer Kontostand: ${user.balance} 💸`;
+
+      await sock.sendMessage(chatId, { text: responseText }, { quoted: msg });
+      break;
+    } catch (e) {
+      console.error('Fehler beim Verkaufen des Inventars:', e);
+      await sock.sendMessage(chatId, { text: '❌ Fehler beim Verkaufen des Inventars!' }, { quoted: msg });
+      break;
+    }
+  }
+
+  // Verkaufe einzelnen Fisch
   const fishItem = getFishStmt.get(jid, fishName);
   if (!fishItem || fishItem.count < 1) {
     await sock.sendMessage(chatId, { text: `❌ Du hast keinen ${fishName} zum Verkaufen!` }, { quoted: msg });
@@ -5792,8 +6242,7 @@ case 'sell': {
     break;
   }
 
-case 'menu':
-case 'help': {
+case 'menu': {
   const ownerName = "Beastmeds";
 
   const menuArg = args[0]?.toLowerCase();
@@ -5806,7 +6255,8 @@ case 'help': {
   │ ⚙️ ${currentPrefix}ping
   │ 👑 ${currentPrefix}owner
   │ 🧠 ${currentPrefix}help
-  │ 💬 ${currentPrefix}menu
+  │ � ${currentPrefix}nayvy
+  │ �💬 ${currentPrefix}menu
   │ 🎵 ${currentPrefix}play
   │ 🎶 ${currentPrefix}play1
   │ 🎧 ${currentPrefix}play2
@@ -5896,19 +6346,19 @@ case 'help': {
 `,
 
     "5": `
-╭───❍ *Economy / RPG* ❍───╮
-│ 🛒 ${currentPrefix}shop
-│ 💰 ${currentPrefix}buy
-│ 🐾 ${currentPrefix}pets
-│ 🎒 ${currentPrefix}inventory
-│ 📦 ${currentPrefix}use
-│ 🪙 ${currentPrefix}topcoins
-│ 📈 ${currentPrefix}topxp
-│ 🪞 ${currentPrefix}profile
-│ 💳 ${currentPrefix}register
-│ 🧍 ${currentPrefix}me
-│ ⚒️ ${currentPrefix}resetwarn
-│ 💎 ${currentPrefix}addcoins ${currentPrefix}delcoins
+╭───❍ *Economy Basics* ❍───╮
+│ 💳 ${currentPrefix}register - Registrieren
+│ 🧍 ${currentPrefix}me - Profil anzeigen
+│ 💰 ${currentPrefix}balance - Kontostand
+│ 📊 ${currentPrefix}topbalance - Top-Reich
+│ 🎁 ${currentPrefix}daily - Täglicher Bonus
+│ 📅 ${currentPrefix}weekly - Wöchlicher Bonus
+│ ✂️ ${currentPrefix}work - Arbeiten
+│ 🙏 ${currentPrefix}beg - Betteln
+│ 🏦 ${currentPrefix}bank - Bank
+│
+│ 💡 Weitere Economy-Commands mit /menu 13
+│ 👑 Premium-Befehle mit /menu 14
 ╰────────────────────╯
 `,
 
@@ -6020,16 +6470,116 @@ case 'help': {
   ╰────────────────────╯
   `,
 
+    "13": `
+╭───❍ *Economy - Erweitert* ❍───╮
+│
+│ 🎰 *Glücksspiele*
+│ 🎰 ${currentPrefix}slots <Betrag> - Spielautomat
+│ 🎲 ${currentPrefix}roulette <Betrag> - Roulette
+│ 🃏 ${currentPrefix}dice <Betrag> - Würfelspiel
+│
+│ 💼 *Jobs*
+│ ⛏️ ${currentPrefix}mine - Im Berg arbeiten
+│ 🏹 ${currentPrefix}hunt - Jagen gehen
+│ 🌾 ${currentPrefix}farm - Landwirtschaft
+│
+│ 🚨 *Gefährlich*
+│ 🔫 ${currentPrefix}rob <@user|LID> - Raub
+│ 🕵️ ${currentPrefix}crime - Verbrechen
+│ 🚔 ${currentPrefix}jail <@user|LID> - In den Knast
+│
+│ 🏦 *Bank System*
+│ 🏦 ${currentPrefix}bank - Bank Optionen
+│
+│ 📊 *Rankings*
+│ 👑 ${currentPrefix}topbalance - Reichste Spieler
+│
+│ 💡 Basic-Befehle mit /menu 5
+│ 👑 Premium-Befehle mit /menu 14
+╰────────────────────╯
+`,
+
+    "14": `
+╭───❍ *Premium Befehle* ❍───❮ 👑 ❯───╮
+│
+│ 🎯 *Premium Status*
+│ 👑 ${currentPrefix}premium - Premium-Info
+│ � ${currentPrefix}premium add @user <Tage> - Premium geben*
+│ ✨ ${currentPrefix}spawnmoney <Betrag> - Geld spawnen
+│
+│ 💎 *Customization*
+│ 🏷️ ${currentPrefix}settitle <Titel> - Titel setzen
+│ 🎨 ${currentPrefix}setcolor <Farbe> - Farbe setzen
+│ 😊 ${currentPrefix}setemoji <Emoji> - Emoji setzen
+│
+│ 🎰 *Premium Casino*
+│ 🎲 ${currentPrefix}highroller <Betrag> - High Roller
+│ 🏆 ${currentPrefix}jackpot <Betrag> - Jackpot
+│ 2️⃣ ${currentPrefix}double <Betrag> - Double or Nothing
+│
+│ 💼 *Premium Geschäft*
+│ 🏢 ${currentPrefix}business - Geschäft-Info
+│ 🏭 ${currentPrefix}buybusiness <Typ> - Geschäft kaufen
+│ 💵 ${currentPrefix}collect - Gewinne einsammeln
+│
+│ 💰 *Kryptowährung*
+│ 📈 ${currentPrefix}crypto - Krypto-Portfolio
+│ 📊 ${currentPrefix}buycrypto <Symbol> <Betrag> - Kaufen
+│ 📉 ${currentPrefix}sellcrypto <Symbol> <Betrag> - Verkaufen
+│
+│ *Nur Owner/CoOwner/Premium können Premium vergeben
+│ 💡 Economy-Befehle mit /menu 5 & 13
+╰────────────────────────────────╯
+`,
+
+    "15": `
+╭───❍ *Death Note - Roleplay* ☠️ ❍───╮
+│
+│ 📖 *Death Note Commands*
+│ 🖊️ ${currentPrefix}deathnote [Name] - Name ins Death Note schreiben
+│ 👹 ${currentPrefix}shinigami - Zeigt deinen Shinigami
+│ ⏳ ${currentPrefix}lifespan @user - Lebenszeit checken
+│ 👁️ ${currentPrefix}eyes - Shinigami Eyes aktivieren
+│
+│ 🔍 *L Investigation*
+│ 🕵️ ${currentPrefix}investigate @user - Ist jemand Kira?
+│ 📋 ${currentPrefix}suspectlist - Verdächtige Liste
+│ 🎲 ${currentPrefix}case - Zufälliger Kriminalfall
+│ 🧩 ${currentPrefix}solve - Rätsel lösen
+│
+│ 👑 *Kira Commands*
+│ 👤 ${currentPrefix}kira - Bist du Kira?
+│ ⚖️ ${currentPrefix}judgement @user - Kira Urteil
+│ 🌍 ${currentPrefix}newworld - Neue Welt Monolog
+│
+│ 💀 *Shinigami*
+│ 🍎 ${currentPrefix}apple - Ryuk Apfel geben
+│ 👻 ${currentPrefix}shinigamilist - Alle Shinigamis
+│ 👹 ${currentPrefix}summonryuk - Ruft Ryuk auf
+│
+│ 🎮 *Games & Events*
+│ 🎯 ${currentPrefix}kiraevent - Zufälliger wird Kira
+│ 🕹️ ${currentPrefix}deathnote-game - Wer ist Kira?
+│ 📈 ${currentPrefix}rank - Dein Ermittler-Rang
+│ 🏆 ${currentPrefix}topdetectives - Beste Spieler
+│
+│ 🔥 *Special*
+│ ✍️ ${currentPrefix}write [Name] [Todesart] - Custom Tod
+│ 📜 ${currentPrefix}rule - Random Death Note Regel
+│ 🎬 ${currentPrefix}episode - Random Episode
+╰────────────────────╯
+`,
+
     "cmds": `
 ╭───❍ *Alle Befehle* ❍───╮
 │ Enthält alle Commands:
-│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung, Minecraft, Stranger Things, KI
+│ Main, Admin, Fun, Owner, Economy, Utility, Downloader, Misc, Verschlüsselung, Minecraft, Stranger Things, KI, Economy+, Premium, Death Note
 │
 │ ➤ ${currentPrefix}menu 1  → Main
 │ ➤ ${currentPrefix}menu 2  → Admin
 │ ➤ ${currentPrefix}menu 3  → Fun
 │ ➤ ${currentPrefix}menu 4  → Owner
-│ ➤ ${currentPrefix}menu 5  → Economy
+│ ➤ ${currentPrefix}menu 5  → Economy Basics
 │ ➤ ${currentPrefix}menu 6  → Utility
 │ ➤ ${currentPrefix}menu 7  → Downloader
 │ ➤ ${currentPrefix}menu 8  → Misc (Audio Edit)
@@ -6037,6 +6587,9 @@ case 'help': {
 │ ➤ ${currentPrefix}menu 10 → Minecraft
 │ ➤ ${currentPrefix}menu 11 → Stranger Things
 │ ➤ ${currentPrefix}menu 12 → KI Commands
+│ ➤ ${currentPrefix}menu 13 → Economy Erweitert
+│ ➤ ${currentPrefix}menu 14 → Premium Commands 👑
+│ ➤ ${currentPrefix}menu 15 → Death Note ☠️
 ╰────────────────────╯
 `
   };
@@ -6052,7 +6605,7 @@ case 'help': {
 │ 2️⃣ ${currentPrefix}menu 2 → Admin
 │ 3️⃣ ${currentPrefix}menu 3 → Fun
 │ 4️⃣ ${currentPrefix}menu 4 → Owner (geschützt)
-│ 5️⃣ ${currentPrefix}menu 5 → Economy
+│ 5️⃣ ${currentPrefix}menu 5 → Economy Basics
 │ 6️⃣ ${currentPrefix}menu 6 → Utility
 │ 7️⃣ ${currentPrefix}menu 7 → Downloader
 │ 8️⃣ ${currentPrefix}menu 8 → Misc (Audio Edit)
@@ -6060,6 +6613,9 @@ case 'help': {
 │ 1️⃣0️⃣ ${currentPrefix}menu 10 → Minecraft
 │ 1️⃣1️⃣ ${currentPrefix}menu 11 → Stranger Things
 │ 1️⃣2️⃣ ${currentPrefix}menu 12 → KI Commands
+│ 1️⃣3️⃣ ${currentPrefix}menu 13 → Economy Erweitert
+│ 1️⃣4️⃣ ${currentPrefix}menu 14 → Premium Commands 👑
+│ 1️⃣5️⃣ ${currentPrefix}menu 15 → Death Note ☠️
 │ 💡 ${currentPrefix}menu cmds → Alle Befehle
 │ 🌐 Website: https://shorturl.at/IVn29
 ╰────────────────────╯`;
@@ -6326,6 +6882,384 @@ case 'gate': {
   } catch (e) {
     console.error('gate err', e);
     await sock.sendMessage(from, { text: '❌ Fehler.' }, { quoted: msg });
+  }
+  break;
+}
+
+// ================== DEATH NOTE ROLEPLAY ==================
+
+case 'deathnote': {
+  try {
+    const name = args.join(' ');
+    if (!name) return await sock.sendMessage(chatId, { text: '📖 Bitte gib einen Namen an!\nBeispiel: /deathnote Max' });
+    
+    const responses = [
+      `💀 ${name} wurde ins Death Note geschrieben...\n\n⏳ ${name} wird in 40 Sekunden sterben... RIP`,
+      `📖 Der Name ${name} glüht im Death Note...\n\n☠️ Das Schicksal ist besiegelt... ${name} wird nicht mehr aufwachen...`,
+      `✍️ *schreib* ${name} ins Death Note...\n\n⚰️ ${name}... dein Schicksal ist besiegelt.`
+    ];
+    const response = responses[Math.floor(Math.random() * responses.length)];
+    await sock.sendMessage(chatId, { text: response });
+  } catch (e) {
+    console.error('deathnote err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'shinigami': {
+  try {
+    const shinigamis = ['Ryuk 🍎', 'Rem 💀', 'Gelus ☠️', 'Armonia Justice ⚖️'];
+    const yourShinigami = shinigamis[Math.floor(Math.random() * shinigamis.length)];
+    await sock.sendMessage(chatId, { text: `👹 Dein Shinigami: ${yourShinigami}\n\nEr beobachtet dich... Immer... 👁️` });
+  } catch (e) {
+    console.error('shinigami err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'lifespan': {
+  try {
+    const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+    if (!mentioned || mentioned.length === 0) {
+      return await sock.sendMessage(chatId, { text: '❌ Bitte markiere jemanden! /lifespan @user' });
+    }
+    const target = mentioned[0].split('@')[0];
+    const lifespan = Math.floor(Math.random() * 80) + 20;
+    await sock.sendMessage(chatId, { 
+      text: `⏳ @${target}'s Lebenszeit: ${lifespan} Jahre\n\n👁️ Shinigami Eyes zeigen die Wahrheit...`,
+      contextInfo: { mentionedJid: [mentioned[0]] }
+    });
+  } catch (e) {
+    console.error('lifespan err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'eyes': {
+  try {
+    const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+    if (!mentioned || mentioned.length === 0) {
+      return await sock.sendMessage(chatId, { text: '❌ Bitte markiere jemanden! /eyes @user' });
+    }
+    const target = mentioned[0].split('@')[0];
+    const realName = 'John Doe';
+    const lifespan = Math.floor(Math.random() * 80) + 20;
+    await sock.sendMessage(chatId, { 
+      text: `👁️ *Shinigami Eyes aktiviert*\n\n@${target}\nRechter Name: ${realName}\nLebenszeit: ${lifespan} Jahre\n\n⚠️ Du hast das Geheimnis gesehen...`,
+      contextInfo: { mentionedJid: [mentioned[0]] }
+    });
+  } catch (e) {
+    console.error('eyes err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'investigate': {
+  try {
+    const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+    if (!mentioned || mentioned.length === 0) {
+      return await sock.sendMessage(chatId, { text: '❌ Bitte markiere jemanden! /investigate @user' });
+    }
+    const target = mentioned[0].split('@')[0];
+    const probability = Math.floor(Math.random() * 100) + 1;
+    const text = probability > 50 
+      ? `🕵️ @${target} ist Kira! Verdachtwahrscheinlichkeit: ${probability}%\n\n⚠️ VERDACHT!`
+      : `🕵️ @${target} ist NICHT Kira. Verdachtwahrscheinlichkeit: ${probability}%\n\n✅ Sauber`;
+    await sock.sendMessage(chatId, { text, contextInfo: { mentionedJid: [mentioned[0]] } });
+  } catch (e) {
+    console.error('investigate err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'suspectlist': {
+  try {
+    const suspects = ['Light Yagami', 'Misa Amane', 'Teru Mikami', 'Kiyomi Takada', 'Unknown User'];
+    let list = '📋 *Verdächtige Liste*\n\n';
+    suspects.forEach((s, i) => {
+      list += `${i + 1}. ${s} ⚠️\n`;
+    });
+    await sock.sendMessage(chatId, { text: list });
+  } catch (e) {
+    console.error('suspectlist err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'case': {
+  try {
+    const cases = [
+      '🎲 *Kriminalfall*: 10 Menschen verschwunden in einer Nacht. Zeichen: Schwarzes Notizbuch gefunden.\n\n💀 Todesursache: Herzinfarkt',
+      '🎲 *Kriminalfall*: Kriminelle sterben mysteriös. Aufzeichnungen: "Nur ein Name wird geschrieben"\n\n⚠️ Kira aktiv?',
+      '🎲 *Kriminalfall*: Massensterben ohne Spuren. Inspektor: "Das ist übernatürlich!"\n\n👁️ Death Note?'
+    ];
+    const randomCase = cases[Math.floor(Math.random() * cases.length)];
+    await sock.sendMessage(chatId, { text: randomCase });
+  } catch (e) {
+    console.error('case err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'solve': {
+  try {
+    const riddles = [
+      { riddle: '🧩 Ich bin ein Notizbuch, das tötet. Wer bin ich?', answer: 'Death Note' },
+      { riddle: '🧩 Ich beobachte alles. Wer bin ich?', answer: 'Shinigami' },
+      { riddle: '🧩 Ich bin der Gott einer neuen Welt. Wer bin ich?', answer: 'Kira / Light' }
+    ];
+    const r = riddles[Math.floor(Math.random() * riddles.length)];
+    await sock.sendMessage(chatId, { text: `${r.riddle}\n\n💡 Antwort: ||${r.answer}||\n\n✅ +1 Punkt!` });
+  } catch (e) {
+    console.error('solve err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'kira': {
+  try {
+    const chance = Math.random() > 0.5;
+    const text = chance 
+      ? '👤 *Bist du Kira?* JA! 💀\n\nDu schreibst Namen ins Death Note. Du bist der Gott der neuen Welt!'
+      : '👤 *Bist du Kira?* NEIN ✅\n\nDu bist nur ein normaler Sterblicher.';
+    await sock.sendMessage(chatId, { text });
+  } catch (e) {
+    console.error('kira err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'judgement': {
+  try {
+    const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+    if (!mentioned || mentioned.length === 0) {
+      return await sock.sendMessage(chatId, { text: '❌ Bitte markiere jemanden! /judgement @user' });
+    }
+    const target = mentioned[0].split('@')[0];
+    const causes = ['Herzinfarkt', 'Verkehrsunfall', 'Explosion', 'Selbstmord', 'Ertrinken'];
+    const cause = causes[Math.floor(Math.random() * causes.length)];
+    await sock.sendMessage(chatId, { 
+      text: `⚖️ *Kiras Urteil*\n\n@${target}\nTodesart: ${cause}\n\n⏳ 40 Sekunden...\n\n☠️ Dein Schicksal ist besiegelt.`,
+      contextInfo: { mentionedJid: [mentioned[0]] }
+    });
+  } catch (e) {
+    console.error('judgement err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'newworld': {
+  try {
+    const monolog = `
+👑 *ICH WERDE DER GOTT DER NEUEN WELT!* 👑
+
+"Die alte Welt war korrupt und voll von Verbrechen.
+Aber mit diesem Death Note werde ich eine neue Welt erschaffen!
+
+Eine Welt, in der es keine Bösen mehr gibt.
+Eine Welt, in der nur die Guten herrschen.
+MEINE Welt!
+
+Ich bin Kira! ICH bin der Gott dieser neuen Welt!"
+
+⚡ Das Genie des Light Yagami erwacht... ⚡
+    `;
+    await sock.sendMessage(chatId, { text: monolog });
+  } catch (e) {
+    console.error('newworld err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'apple': {
+  try {
+    const responses = [
+      '🍎 Du gibst Ryuk einen Apfel!\n\n👹 RYUK: \"Yagami Light style... sehr interessant! Hehehehe!\" 🍎',
+      '🍎 Ryuk nimmt den Apfel...\n\n👹 RYUK: \"Ein sterbliches Apfel? Gut. Gut!\" 😈',
+      '🍎 *gib Apfel*\n\n👹 RYUK: \"Der menschliche Welt ist langweilig... aber dieser Apfel macht es interessant!\" 👁️'
+    ];
+    const response = responses[Math.floor(Math.random() * responses.length)];
+    await sock.sendMessage(chatId, { text: response });
+  } catch (e) {
+    console.error('apple err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'shinigamilist': {
+  try {
+    const list = `
+👻 *Shinigami Liste* 👻
+
+1. 🍎 **Ryuk** - Der Original Shinigami. Liebt Äpfel. Chaotisch.
+2. 💀 **Rem** - Beschützer von Misa. Loyal und mächtig.
+3. ☠️ **Gelus** - Stille aber tödlich.
+4. ⚖️ **Armonia Justice** - Der Richter.
+
+*Die Götter des Todes beobachten dich...* 👁️
+    `;
+    await sock.sendMessage(chatId, { text: list });
+  } catch (e) {
+    console.error('shinigamilist err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'summonryuk': {
+  try {
+    const text = `
+👹 *RYUK WIRD HERBEIGERUFEN...* 👹
+
+████████████████████ 100%
+
+🌪️ Eine schwarze Aura erscheint...
+👁️ Rote Augen leuchten auf...
+😈 Ein dämonisches Lachen erklingt...
+
+👹 RYUK: "Hehehehe! Wer hat mich gerufen? 
+Ein sterbliches, das mein Death Note möchte? 
+Interessant... SEHR interessant!"
+
+🍎 Ryuk lässt einen Apfel fallen...
+    `;
+    await sock.sendMessage(chatId, { text });
+  } catch (e) {
+    console.error('summonryuk err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'kiraevent': {
+  try {
+    const users = ['@User1', '@User2', '@User3', '@User4'];
+    const chosenUser = users[Math.floor(Math.random() * users.length)];
+    await sock.sendMessage(chatId, { text: `🎯 *KIRA EVENT GESTARTET!*\n\n⚠️ Zufälliger User: ${chosenUser} wurde Kira!\n\n📖 ${chosenUser} hat das Death Note! ☠️\n\n🕵️ Findet heraus wer Kira ist!` });
+  } catch (e) {
+    console.error('kiraevent err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'deathnote-game': {
+  try {
+    const text = `
+🕹️ *DEATH NOTE SPIEL* 🕹️
+
+**Wer ist Kira?**
+
+Spieler werden zufällig gewählt:
+- 1 Spieler ist Kira (Death Note Besitzer)
+- Andere müssen Kira finden
+- Kira schreibt Namen ins Death Note
+- Spieler müssen Fragen stellen
+
+BEREIT? Spiel startet in 10 Sekunden...
+
+🎮 Los geht's! 🎮
+    `;
+    await sock.sendMessage(chatId, { text });
+  } catch (e) {
+    console.error('deathnote-game err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'rank': {
+  try {
+    const ranks_list = ['Rekrut 🟩', 'Ermittler 🟨', 'Senior Ermittler 🟧', 'Oberermittler 🟥', 'Meister 👑'];
+    const yourRank = ranks_list[Math.floor(Math.random() * ranks_list.length)];
+    await sock.sendMessage(chatId, { text: `📈 Dein Ermittler-Rang: ${yourRank}\n\n💪 Weiter so!` });
+  } catch (e) {
+    console.error('rank err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'topdetectives': {
+  try {
+    const text = `
+🏆 *Top Detectives* 🏆
+
+1. 🥇 L - 9999 Punkte (Legende)
+2. 🥈 Near - 5432 Punkte
+3. 🥉 Mello - 4123 Punkte
+4. 4️⃣ Naomi - 3456 Punkte
+5. 5️⃣ Aizawa - 2345 Punkte
+
+💪 Steige auf und werde Nummer 1!
+    `;
+    await sock.sendMessage(chatId, { text });
+  } catch (e) {
+    console.error('topdetectives err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'write': {
+  try {
+    const parts = q.split(' ');
+    if (parts.length < 2) return await sock.sendMessage(chatId, { text: '❌ Usage: /write <Name> <Todesart>\nBeispiel: /write Max Herzinfarkt' });
+    
+    const name = parts[0];
+    const cause = parts.slice(1).join(' ');
+    
+    await sock.sendMessage(chatId, { text: `✍️ *${name}* wird ins Death Note geschrieben...\n\n⏳ Todesart: ${cause}\n\n💀 40 Sekunden bis ${name} stirbt...` });
+  } catch (e) {
+    console.error('write err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'rule': {
+  try {
+    const rules = [
+      '📜 Death Note Regel #1: "Der Name, der in dieses Notizbuch geschrieben wird, wird sterben."',
+      '📜 Death Note Regel #2: "Solange der Name geschrieben ist, kann die Todeszeit und die Art kontrolliert werden."',
+      '📜 Death Note Regel #3: "Das Death Note ist nicht Eigentum eines Shinigami."',
+      '📜 Death Note Regel #4: "Ein Shinigami kann einem Menschen helfen, sein Death Note zu benutzen."',
+      '📜 Death Note Regel #5: "Das Death Note kann keinen unmenschlichen Namen enthalten."'
+    ];
+    const rule = rules[Math.floor(Math.random() * rules.length)];
+    await sock.sendMessage(chatId, { text: rule });
+  } catch (e) {
+    console.error('rule err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
+  }
+  break;
+}
+
+case 'episode': {
+  try {
+    const episodes = [
+      '🎬 *Episode: Renaissence*\n\nLight findet das Death Note. Sein Plan beginnt... RIP Lind L. Tailor.',
+      '🎬 *Episode: Confrontation*\n\nL trifft Light zum ersten Mal. Das Spiel der Götter beginnt...',
+      '🎬 *Episode: Executioner*\n\nMisa trifft Kira. Der Plan wird komplizierter...',
+      '🎬 *Episode: New World*\n\nLight wird zum Gott der neuen Welt. Aber L ist noch da... 🎯'
+    ];
+    const episode = episodes[Math.floor(Math.random() * episodes.length)];
+    await sock.sendMessage(chatId, { text: episode });
+  } catch (e) {
+    console.error('episode err', e);
+    await sock.sendMessage(chatId, { text: '❌ Fehler.' });
   }
   break;
 }
@@ -8635,15 +9569,15 @@ case 'slot': {
 
 case 'komm': {
     try {
-        const senderRank = ranks.getRank(sender); // Hole Rank des Senders
-        const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber','Moderator']
+        const senderRank = ranks.getRank(sender);
+        const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
 
         if (!allowedRanks.includes(senderRank)) {
-            return await sock.sendMessage(from, { text: '🚫 Du darfst diesen Befehl nicht nutzen.' });
+            return await sock.sendMessage(chatId, { text: '🚫 Du darfst diesen Befehl nicht nutzen.' });
         }
 
         if (!args[0]) {
-            return await sock.sendMessage(from, { text: '🔗 Bitte gib einen Gruppen-Invite-Link an.' });
+            return await sock.sendMessage(chatId, { text: '🔗 Bitte gib einen Gruppen-Invite-Link an.' });
         }
 
         const input = args[0];
@@ -8654,19 +9588,19 @@ case 'komm': {
         if (linkMatch) {
             inviteCode = linkMatch[1];
         } else {
-            return await sock.sendMessage(from, { text: '❌ Ungültiger Gruppenlink.' });
+            return await sock.sendMessage(chatId, { text: '❌ Ungültiger Gruppenlink.' });
         }
 
         try {
             await sock.groupAcceptInvite(inviteCode);
-            await sock.sendMessage(from, { text: '✅ Der Bot ist der Gruppe erfolgreich beigetreten.' });
+            await sock.sendMessage(chatId, { text: '✅ Der Bot ist der Gruppe erfolgreich beigetreten.' });
         } catch (err) {
-            await sock.sendMessage(from, { text: '⚠️ Fehler beim Beitritt: ' + err.message });
+            await sock.sendMessage(chatId, { text: '⚠️ Fehler beim Beitritt: ' + err.message });
         }
 
     } catch (err) {
-        console.error('Fehler bei join:', err);
-        await sock.sendMessage(from, { text: '❌ Ein Fehler ist aufgetreten.' });
+        console.error('Fehler bei komm:', err);
+        await sock.sendMessage(chatId, { text: '❌ Ein Fehler ist aufgetreten.' });
     }
 
     break;
@@ -8706,6 +9640,14 @@ case 'register': {
   }
 
   ensureUser(jid, name);
+  // Initialize Economy
+  const econ = { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+  setEconomy(jid, econ);
+  
+  // Initialize Premium
+  const prem = { jid, isPremium: 0, premiumUntil: 0, premiumLevel: 0, title: '', color: '#FFFFFF', emoji: '👤', autowork: 0, autofish: 0, multidaily: 0, lastSpawnmoney: 0, spawnmoneyToday: 0 };
+  setPremium(jid, prem);
+  
   // persist a registration timestamp (small JSON store)
   try {
     const regs = loadRegistrations();
@@ -8714,7 +9656,7 @@ case 'register': {
   } catch (e) { console.error('Failed to save registration timestamp', e); }
 
   await sock.sendMessage(chatId, { 
-    text: `🎉 ${name}, du wurdest erfolgreich registriert!\nStart-Guthaben: 100 💸, Level 1, 0 XP\n> ${botName}\n\n💡 *Tipp:* Nutze */config* um dein Profil anzupassen!` 
+    text: `🎉 ${name}, du wurdest erfolgreich registriert!\n\n💵 Start-Bargeld: 100\n📈 Level 1, 0 XP\n🏦 Bank: 0\n💎 Gems: 0\n\n> ${botName}\n\n💡 *Tipp:* Nutze */balance* um dein Vermögen zu sehen oder */menu* für alle Commands! Mit /config kans du dein profil bearbeiten` 
   }, { quoted: msg });
   break;
 }
@@ -8723,6 +9665,8 @@ case 'profile': {
   const userJid = msg.key.participant || msg.key.remoteJid || msg.sender || chatId;
   const u = getUser(userJid);
   if (!u) break;
+
+  const econ = getEconomy(userJid);
 
   let profilePicUrl = null;
   try {
@@ -8755,22 +9699,30 @@ case 'profile': {
   
   // Get inventory count
   const inv = getDB().prepare("SELECT SUM(count) as total FROM inventory WHERE jid = ?").get(userJid) || { total: 0 };
+  
+  // Get premium status
+  const prem = getPremium(userJid);
+  const premiumStatus = isPremium(userJid) ? `✅ Premium ${prem.premiumLevel}` : '❌ Normal';
+  const premiumTag = isPremium(userJid) ? '👑 ' : '';
 
   const text = `╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ┃ 💬 ✨ **DEIN PROFIL** ✨ 💬
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 **Name:** ${u.name || '...'}
+${prem.emoji} **Name:** ${premiumTag}${u.name || '...'}
+${prem.title ? `📝 **Titel:** ${prem.title}` : ''}
 🪪 **ID:** ${contact}
 📅 **Beigetreten:** ${regDate}
 🏆 **Rang:** ${userRank}
+👑 **Premium:** ${premiumStatus}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 **WÄHRUNG & VERMÖGEN**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💵 **Coins:** ${u.balance || 0} 💸
-   └ Balance: ${u.balance || 0} EUR
+💵 **Bargeld:** ${formatMoney(econ.cash || 100)}
+🏦 **Bank:** ${formatMoney(econ.bank || 0)}
+💎 **Gems:** ${econ.gems || 0}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⭐ **PROGRESSION**
@@ -8788,24 +9740,25 @@ case 'profile': {
    └─ 🏅 Ranks: ${userRank}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 **TIPPS FÜR FORTSCHRITT**
+💡 **ECONOMY TIPPS**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✅ Nutze /pethunt um Pets zu fangen
-✅ Handel mit anderen Usern
-✅ Sammle Items im Inventory
-✅ Steige im Rang auf
-✅ Farme XP durch Commands
+✅ /daily → Täglich Geld verdienen
+✅ /work → Arbeiten und Geld verdienen
+✅ /slots → Zocken und Geld gewinnen
+${isPremium(userJid) ? `✅ /premium → Premium Features nutzen` : `👑 /getpremium → Premium aktivieren`}
+✅ /mine → Ressourcen abbauen
+✅ /farm → Landwirtschaft betreiben
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 **SCHNELLE BEFEHLE**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-• /me → Profil aktualisieren
-• /pets → Deine Pets anschauen
-• /pethunt hunt → Wildes Pet fangen
-• /topcoins → Coin Leaderboard
+• /balance → Vermögen anschauen
+• /bank → Bank-Verwaltung
+• /topbalance → Coin Leaderboard
 • /topxp → XP Leaderboard
+• /pets → Deine Pets anschauen
 
 ╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 │  ✨ Keep grinding! ✨
@@ -9978,6 +10931,52 @@ case 'kill': {
   break;
 }
 
+case 'gn': {
+  const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentioned || mentioned.length === 0) {
+    await sock.sendMessage(from, { text: `❌ Bitte markiere jemanden.` });
+    break;
+  }
+  const target = mentioned[0].split('@')[0];
+  const sender = (msg.key.participant || msg.key.remoteJid).split('@')[0];
+
+  const messages = [
+    `🌙 @${sender} wünscht @${target} eine Gute Nacht! 😴💤`,
+    `😴 @${sender} sagt: Gute Nacht @${target}! Schlaf gut! 🌙✨`,
+    `🛌 @${sender} wünscht @${target} süße Träume! Gute Nacht! 🌟💫`,
+    `✨ @${sender} sagt: Schlaf schön @${target}! 🌙😴`,
+    `🌠 @${sender} wünscht @${target} eine erholsame Nacht! Gute Nacht! 💤🌙`
+  ];
+
+  const randomText = messages[Math.floor(Math.random() * messages.length)];
+
+  await sock.sendMessage(from, { text: randomText, contextInfo: { mentionedJid: [msg.key.participant, mentioned[0]] } });
+  break;
+}
+
+case 'gm': {
+  const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentioned || mentioned.length === 0) {
+    await sock.sendMessage(from, { text: `❌ Bitte markiere jemanden.` });
+    break;
+  }
+  const target = mentioned[0].split('@')[0];
+  const sender = (msg.key.participant || msg.key.remoteJid).split('@')[0];
+
+  const messages = [
+    `☀️ @${sender} wünscht @${target} einen Guten Morgen! 🌅✨`,
+    `🌞 @${sender} sagt: Guten Morgen @${target}! Viel Energie heute! 💪☀️`,
+    `🌄 @${sender} wünscht @${target} einen wunderschönen Morgen! Guten Morgen! 🌅💫`,
+    `✨ @${sender} sagt: Guten Morgen @${target}! Ein großartiger Tag wartet! 🌞😊`,
+    `🌅 @${sender} wünscht @${target} einen energiereichen Morgen! Guten Morgen! ☀️💪`
+  ];
+
+  const randomText = messages[Math.floor(Math.random() * messages.length)];
+
+  await sock.sendMessage(from, { text: randomText, contextInfo: { mentionedJid: [msg.key.participant, mentioned[0]] } });
+  break;
+}
+
 case 'goon': {
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (!mentioned || mentioned.length === 0) {
@@ -9995,6 +10994,72 @@ case 'goon': {
   const randomText = messages[Math.floor(Math.random() * messages.length)];
 
   await sock.sendMessage(from, { text: randomText, contextInfo: { mentionedJid: [msg.key.participant, mentioned[0]] } });
+  break;
+}
+
+// === BACKSHOT ===
+case 'backshot': {
+  const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentioned || mentioned.length === 0) {
+    await sock.sendMessage(from, { text: `❌ Bitte markiere jemanden.` });
+    break;
+  }
+  const target = mentioned[0].split('@')[0];
+  const sender = (msg.key.participant || msg.key.remoteJid).split('@')[0];
+
+  const messages = [
+    `@${sender} macht einen Backshot mit @${target}! 🍑`,
+    `🍑 @${sender} und @${target} machen Backshots! 💥🥃`,
+    `🔥 @${sender} und @${target} shots!!!!! 🍑`,
+    `💀 @${sender} zwingt @${target} zu einem Backshot! 💦`,
+    ` @${sender} machen @${target}  Backshots auf ex! 🔥🍑`
+  ];
+
+  const randomText = messages[Math.floor(Math.random() * messages.length)];
+
+  await sock.sendMessage(from, { text: randomText, contextInfo: { mentionedJid: [msg.key.participant, mentioned[0]] } });
+  break;
+}
+
+// === TIMEOUT ===
+case 'timeout': {
+  // Nur Team darf Befehle verwenden
+  const senderRank = ranks.getRank(sender);
+  if (!['Inhaber', 'Stellvertreter Inhaber', 'Moderator'].includes(senderRank)) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Team-Mitglieder dürfen diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+  
+  const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentioned || mentioned.length === 0) {
+    await sock.sendMessage(chatId, { text: `❌ Nutzung: */timeout @user <Zeit in Minuten>*\n\nBeispiel: */timeout @Max 30*` }, { quoted: msg });
+    break;
+  }
+  
+  const targetUser = mentioned[0];
+  const targetNum = targetUser.split('@')[0];
+  const timeStr = args[1];
+  
+  if (!timeStr || isNaN(timeStr)) {
+    await sock.sendMessage(chatId, { text: `❌ Nutzung: */timeout @user <Zeit in Minuten>*\n\nBeispiel: */timeout @Max 30*` }, { quoted: msg });
+    break;
+  }
+  
+  const minutes = parseInt(timeStr);
+  const expiresAt = new Date(Date.now() + minutes * 60 * 1000);
+  
+  timeoutUsers[targetUser] = {
+    chatId: chatId,
+    expiresAt: expiresAt,
+    reason: `Timeout durch ${senderRank}`
+  };
+  
+  await sock.sendMessage(chatId, { 
+    text: `⏳ *TIMEOUT AKTIVIERT*\n\n@${targetNum} hat einen *${minutes}-Minuten Timeout*!\n\n❌ Keine Befehle\n❌ Keine Nachrichten\n❌ Keine Sticker\n\n⚠️ Nur Team darf Befehle nutzen!`,
+    mentions: [targetUser]
+  });
+  
+  console.log(`[TIMEOUT] ${targetNum} hat ${minutes} Minuten Timeout (bis ${expiresAt})`);
   break;
 }
 
@@ -10988,6 +12053,94 @@ case 'unban': {
   break;
 }
 
+case 'pban': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { 
+      text: "⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
+    }, { quoted: msg });
+    break;
+  }
+
+  // Versuche Mentions zu finden
+  let targetJid = null;
+  const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  
+  if (mentions && mentions.length > 0) {
+    targetJid = mentions[0];
+  }
+
+  if (!targetJid) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte markiere einen User mit @mention.\n\nVerwendung: */pban @user*' 
+    }, { quoted: msg });
+    break;
+  }
+
+  const senderJidFull = msg.key.participant || msg.key.remoteJid;
+  const senderName = senderJidFull.split('@')[0];
+  prankBanUser(targetJid, senderName);
+
+  const prankMessages = [
+    `🚫 *BENUTZER GEBANNT* 🚫\n\n@${targetJid.split('@')[0]} wurde von @${senderName} gebannt!\n\n⏱️ Grund: Verhalten der Gruppe abträglich\n📋 Duration: Permanent`,
+    `🔒 *ACCOUNT GESPERRT* 🔒\n\n@${targetJid.split('@')[0]} hat zu viel Unsinn gemacht!\n\n❌ Zutritt verweigert\n⏰ Gebannt seit: jetzt`,
+    `⛔ *GLOBAL BAN* ⛔\n\nDer Benutzer @${targetJid.split('@')[0]} wurde permanent von @${senderName} entfernt!\n\n📍 Status: GEBANNT\n🕐 Zeit: JETZT`,
+    `🚨 *BAN NOTIFICATION* 🚨\n\n@${targetJid.split('@')[0]} wurde aus der Gruppe entfernt!\n\nGrund: Verstoß gegen Gruppenregeln\nBandauer: Permanent`,
+    `💥 *INSTANT BAN* 💥\n\n@${targetJid.split('@')[0]} - Du bist raus!\n\n🎯 Aktion: BAN\n⚡ Effekt: SOFORT`
+  ];
+
+  const randomPrank = prankMessages[Math.floor(Math.random() * prankMessages.length)];
+
+  await sock.sendMessage(chatId, { 
+    text: randomPrank,
+    contextInfo: { mentionedJid: [senderJidFull, targetJid] }
+  }, { quoted: msg });
+
+  console.log(`[PRANK BAN] User: ${targetJid} | By: ${senderName}`);
+  break;
+}
+
+case 'unpban': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+  if (!allowed.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    await sock.sendMessage(from, { 
+      text: "⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber"
+    }, { quoted: msg });
+    break;
+  }
+
+  // Versuche Mentions zu finden
+  let targetJid = null;
+  const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  
+  if (mentions && mentions.length > 0) {
+    targetJid = mentions[0];
+  }
+
+  if (!targetJid) {
+    await sock.sendMessage(chatId, { 
+      text: '❌ Bitte markiere einen User mit @mention.\n\nVerwendung: */unpban @user*' 
+    }, { quoted: msg });
+    break;
+  }
+
+  unprankBanUser(targetJid);
+
+  await sock.sendMessage(chatId, { 
+    text: `✅ *BAN AUFGEHOBEN* ✅\n\n@${targetJid.split('@')[0]} kann wieder die Gruppe betreten!\n\nWillkommen zurück - es war nur ein Prank! 😄`,
+    contextInfo: { mentionedJid: [targetJid] }
+  }, { quoted: msg });
+
+  console.log(`[UNPRANK BAN] User: ${targetJid}`);
+  break;
+}
+
 case 'approveunban': {
   const senderRank = ranks.getRank(sender);
   const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator', 'Supporter'];
@@ -11267,9 +12420,864 @@ case 'antidelete': {
 
 
 
+//=============AFK SYSTEM============================//
+case 'afk': {
+  const reason = q || 'Keine Begründung angegeben';
+  const afkStatus = getAFKStatus(senderJid);
 
+  if (afkStatus) {
+    // User ist bereits AFK - entfernen
+    removeAFK(senderJid);
+    
+    // Berechne die Dauer der AFK-Zeit
+    const afkDuration = Date.now() - afkStatus.timestamp;
+    const hours = Math.floor(afkDuration / (1000 * 60 * 60));
+    const minutes = Math.floor((afkDuration % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((afkDuration % (1000 * 60)) / 1000);
+    
+    let durationText = '';
+    if (hours > 0) {
+      durationText = `${hours}h ${minutes}m ${seconds}s`;
+    } else if (minutes > 0) {
+      durationText = `${minutes}m ${seconds}s`;
+    } else {
+      durationText = `${seconds}s`;
+    }
+    
+    await sock.sendMessage(chatId, {
+      text: `👋 @${senderJid.split('@')[0]} ist nun wieder online! 🟢\n\n⏱️ AFK-Zeit: ${durationText}`,
+      contextInfo: { mentionedJid: [senderJid] }
+    }, { quoted: msg });
+    console.log(`[AFK] User ${senderJid} ist jetzt wieder online (Dauer: ${durationText})`);
+  } else {
+    // User geht AFK
+    setAFK(senderJid, reason);
+    await sock.sendMessage(chatId, {
+      text: `⏸️ @${senderJid.split('@')[0]} ist jetzt AFK!\n\n📝 Grund: ${reason}`,
+      contextInfo: { mentionedJid: [senderJid] }
+    }, { quoted: msg });
+    console.log(`[AFK] User ${senderJid} ist jetzt AFK: ${reason}`);
+  }
+  break;
+}
 
 //=============PING============================//          
+   case 'nayvy': {
+     await sock.sendMessage(chatId, { text: '🙏 Danke an 717𝓝𝓪𝔂𝓿𝔂, der das Stormbot v1 Modell für Beast Bot bereitgestellt hat!' });
+     break;
+   }
+
+//=============DEVICE INFO============================//
+case 'device': {
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+
+  if (!contextInfo || !contextInfo.stanzaId) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte antworte auf eine Nachricht, um das Gerät anzuzeigen.' }, { quoted: msg });
+    break;
+  }
+
+  const quotedParticipant = contextInfo.participant;
+  const quotedId = contextInfo.stanzaId;
+  const idUpper = quotedId.toUpperCase();
+  let device = 'Unbekannt';
+
+  if (idUpper.startsWith('3E')) {
+    device = '📱 WhatsApp Web Client';
+  } else if (idUpper.includes('NEELE')) {
+    device = '🍎 Neelegirl/Wa-Api Process via iOS';
+  } else if (idUpper.includes('STORM')) {
+    device = '🤖 Official StormBot (717Developments/Baileys)';
+  } else if (idUpper.startsWith('2A')) {
+    device = '🍎 Apple iOS (Business Account)';
+  } else if (idUpper.startsWith('3A')) {
+    device = '🍎 Apple iOS';
+  } else if (idUpper.startsWith('3C')) {
+    device = '🍎 Apple iOS';
+  } else if (quotedId.length >= 30) {
+    device = '🤖 Android';
+  }
+
+  const mentionJid = quotedParticipant ? [quotedParticipant] : [];
+
+  const text = `━━ ❮ 📄 DEVICE INFO ❯ ━━\n\n${quotedParticipant ? `👤 Nutzer: @${quotedParticipant.split('@')[0]}` : '👤 Nutzer: Unbekannt'}\n\n📱 Gerät: ${device}\n\n🔧 MSG-ID: ${quotedId}`;
+
+  await sock.sendMessage(chatId, { text, mentions: mentionJid }, { quoted: msg });
+  break;
+}
+
+//=============ECONOMY: BALANCE============================//
+   case 'balance':
+   case 'bal': {
+     const econ = getEconomy(senderJid);
+     const msg_text = `💰 *Dein Vermögen:*\n\n💵 Cash: ${formatMoney(econ.cash || 100)}\n🏦 Bank: ${formatMoney(econ.bank || 0)}\n💎 Gems: ${econ.gems || 0}`;
+     await sock.sendMessage(chatId, { text: msg_text }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: DAILY============================//
+   case 'daily': {
+     const econ = getEconomy(senderJid);
+     const prem = getPremium(senderJid);
+     const now = Date.now();
+     const cooldown = 24 * 60 * 60 * 1000;
+     
+     if (econ.lastDaily && (now - econ.lastDaily) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastDaily));
+       await sock.sendMessage(chatId, { text: `⏱️ Du kannst deine tägliche Belohnung erst in *${remaining}* abholen!` }, { quoted: msg });
+       break;
+     }
+     
+     let reward = Math.floor(Math.random() * 50) + 100;
+     // Premium Boost: 3x mehr Geld
+     if (isPremium(senderJid)) {
+       reward *= 3;
+     }
+     econ.cash = (econ.cash || 100) + reward;
+     econ.lastDaily = now;
+     setEconomy(senderJid, econ);
+     
+     const premiumTag = isPremium(senderJid) ? ' 👑' : '';
+     await sock.sendMessage(chatId, { text: `✅ *Tägliche Belohnung!*${premiumTag}\n\n💵 +${formatMoney(reward)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: WEEKLY============================//
+   case 'weekly': {
+     const econ = getEconomy(senderJid);
+     const now = Date.now();
+     const cooldown = 7 * 24 * 60 * 60 * 1000;
+     
+     if (econ.lastWeekly && (now - econ.lastWeekly) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastWeekly));
+       await sock.sendMessage(chatId, { text: `⏱️ Du kannst deine wöchentliche Belohnung erst in *${remaining}* abholen!` }, { quoted: msg });
+       break;
+     }
+     
+     let reward = Math.floor(Math.random() * 200) + 500;
+     // Premium Boost: 2x mehr Geld
+     if (isPremium(senderJid)) {
+       reward *= 2;
+     }
+     econ.cash = (econ.cash || 100) + reward;
+     econ.lastWeekly = now;
+     setEconomy(senderJid, econ);
+     
+     const premiumTag = isPremium(senderJid) ? ' 👑' : '';
+     await sock.sendMessage(chatId, { text: `✅ *Wöchentliche Belohnung!*${premiumTag}\n\n💵 +${formatMoney(reward)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: WORK============================//
+   case 'work': {
+     const econ = getEconomy(senderJid);
+     const prem = getPremium(senderJid);
+     const now = Date.now();
+     const baseCooldown = 10 * 60 * 1000;
+     const cooldown = isPremium(senderJid) ? baseCooldown / 2 : baseCooldown;
+     
+     if (econ.lastWork && (now - econ.lastWork) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastWork));
+       await sock.sendMessage(chatId, { text: `⏱️ Du musst noch *${remaining}* warten, bevor du wieder arbeiten kannst!` }, { quoted: msg });
+       break;
+     }
+     
+     const jobs = [
+       { name: 'Kaffee verkauft', pay: 50 },
+       { name: 'Programm geschrieben', pay: 100 },
+       { name: 'Grasgemäht', pay: 30 },
+       { name: 'Babysitter', pay: 75 },
+       { name: 'Taxi gefahren', pay: 60 }
+     ];
+     
+     const job = jobs[Math.floor(Math.random() * jobs.length)];
+     const bonus = Math.random() > 0.5 ? Math.floor(job.pay * 0.2) : 0;
+     let total = job.pay + bonus;
+     // Premium Boost: 2x mehr Geld
+     if (isPremium(senderJid)) {
+       total *= 2;
+     }
+     
+     econ.cash = (econ.cash || 100) + total;
+     econ.lastWork = now;
+     setEconomy(senderJid, econ);
+     
+     const bonusText = bonus ? `\n✨ +${bonus} Bonus!` : '';
+     const premiumTag = isPremium(senderJid) ? ' 👑' : '';
+     await sock.sendMessage(chatId, { text: `👷 *Du hast ${job.name}*${premiumTag}\n\n💵 +${formatMoney(total)} Cash${bonusText}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: BEG============================//
+   case 'beg': {
+     const econ = getEconomy(senderJid);
+     const now = Date.now();
+     const cooldown = 30 * 1000;
+     
+     if (econ.lastBeg && (now - econ.lastBeg) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastBeg));
+       await sock.sendMessage(chatId, { text: `⏱️ Bitte noch *${remaining}* warten, bevor du wieder betteln kannst!` }, { quoted: msg });
+       break;
+     }
+     
+     const chance = Math.random();
+     let text = '🤲 *Du bettelst...*\n\n';
+     
+     if (chance < 0.5) {
+       const money = Math.floor(Math.random() * 30) + 10;
+       econ.cash = (econ.cash || 100) + money;
+       text += `✅ Jemand gab dir ${formatMoney(money)} Cash!\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}`;
+     } else {
+       text += `❌ Niemand gab dir Geld... Versuche es später nochmal!`;
+     }
+     
+     econ.lastBeg = now;
+     setEconomy(senderJid, econ);
+     
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: SLOTS============================//
+   case 'slots': {
+     if (!q) {
+       await sock.sendMessage(chatId, { text: '🎰 Benutzung: */slots <Betrag>*\n\nBeispiel: */slots 100*' }, { quoted: msg });
+       break;
+     }
+     
+     const bet = parseInt(q);
+     if (isNaN(bet) || bet <= 0) {
+       await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+       break;
+     }
+     
+     const econ = getEconomy(senderJid);
+     if (econ.cash < bet) {
+       await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash! (Benötigt: ${bet}, Hast: ${econ.cash})` }, { quoted: msg });
+       break;
+     }
+     
+     const symbols = ['🍎', '🍊', '🍋', '🍒', '💎'];
+     const result = [symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)]];
+     
+     const won = result[0] === result[1] && result[1] === result[2];
+     const winAmount = bet * 3;
+     
+     if (won) {
+       econ.cash += winAmount;
+       await sock.sendMessage(chatId, { text: `🎰 *SLOTS*\n\n${result.join(' ')}\n\n🎉 JACKPOT! +${formatMoney(winAmount)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     } else {
+       econ.cash -= bet;
+       await sock.sendMessage(chatId, { text: `🎰 *SLOTS*\n\n${result.join(' ')}\n\n❌ Verloren! -${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     }
+     
+     setEconomy(senderJid, econ);
+     break;
+   }
+
+//=============ECONOMY: ROULETTE============================//
+   case 'roulette': {
+     if (!q) {
+       await sock.sendMessage(chatId, { text: '🎰 Benutzung: */roulette <Betrag>*\n\nBeispiel: */roulette 100*' }, { quoted: msg });
+       break;
+     }
+     
+     const bet = parseInt(q);
+     if (isNaN(bet) || bet <= 0) {
+       await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+       break;
+     }
+     
+     const econ = getEconomy(senderJid);
+     if (econ.cash < bet) {
+       await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!` }, { quoted: msg });
+       break;
+     }
+     
+     const result = Math.random() < 0.5;
+     if (result) {
+       econ.cash += bet;
+       await sock.sendMessage(chatId, { text: `🎰 *ROULETTE*\n\n🟢 ROT!\n\n🎉 Gewonnen! +${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     } else {
+       econ.cash -= bet;
+       await sock.sendMessage(chatId, { text: `🎰 *ROULETTE*\n\n⚫ SCHWARZ!\n\n❌ Verloren! -${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     }
+     
+     setEconomy(senderJid, econ);
+     break;
+   }
+
+//=============ECONOMY: DICE============================//
+   case 'dice': {
+     if (!q) {
+       await sock.sendMessage(chatId, { text: '🎲 Benutzung: */dice <Betrag>*\n\nBeispiel: */dice 100*' }, { quoted: msg });
+       break;
+     }
+     
+     const bet = parseInt(q);
+     if (isNaN(bet) || bet <= 0) {
+       await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+       break;
+     }
+     
+     const econ = getEconomy(senderJid);
+     if (econ.cash < bet) {
+       await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!` }, { quoted: msg });
+       break;
+     }
+     
+     const yourRoll = Math.floor(Math.random() * 6) + 1;
+     const botRoll = Math.floor(Math.random() * 6) + 1;
+     const winAmount = bet * 2;
+     
+     let result_text = `🎲 *WÜRFEL*\n\n👤 Dein Wurf: ${yourRoll}\n🤖 Bot Wurf: ${botRoll}\n\n`;
+     
+     if (yourRoll > botRoll) {
+       econ.cash += winAmount;
+       result_text += `🎉 Gewonnen! +${formatMoney(winAmount)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}`;
+     } else if (yourRoll < botRoll) {
+       econ.cash -= bet;
+       result_text += `❌ Verloren! -${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}`;
+     } else {
+       result_text += `🤝 Unentschieden! Kein Geld verloren.`;
+     }
+     
+     await sock.sendMessage(chatId, { text: result_text }, { quoted: msg });
+     setEconomy(senderJid, econ);
+     break;
+   }
+
+//=============ECONOMY: MINE============================//
+   case 'mine': {
+     const econ = getEconomy(senderJid);
+     const now = Date.now();
+     const cooldown = 20 * 1000;
+     
+     if (econ.lastWork && (now - econ.lastWork) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastWork));
+       await sock.sendMessage(chatId, { text: `⏱️ Du musst noch *${remaining}* warten, bevor du wieder Bergbau betreiben kannst!` }, { quoted: msg });
+       break;
+     }
+     
+     const ores = [
+       { name: 'Kohle', reward: 30 },
+       { name: 'Eisen', reward: 50 },
+       { name: 'Gold', reward: 100 },
+       { name: 'Diamant', reward: 200 }
+     ];
+     
+     const ore = ores[Math.floor(Math.random() * ores.length)];
+     econ.cash = (econ.cash || 100) + ore.reward;
+     econ.lastWork = now;
+     setEconomy(senderJid, econ);
+     
+     await sock.sendMessage(chatId, { text: `⛏️ *Du hast ${ore.name} abgebaut!*\n\n💵 +${formatMoney(ore.reward)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: HUNT============================//
+   case 'hunt': {
+     const econ = getEconomy(senderJid);
+     const now = Date.now();
+     const cooldown = 15 * 1000;
+     
+     if (econ.lastWork && (now - econ.lastWork) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastWork));
+       await sock.sendMessage(chatId, { text: `⏱️ Du musst noch *${remaining}* warten, bevor du wieder jagen kannst!` }, { quoted: msg });
+       break;
+     }
+     
+     const animals = [
+       { name: 'Kaninchen', reward: 40 },
+       { name: 'Hirsch', reward: 80 },
+       { name: 'Bär', reward: 150 }
+     ];
+     
+     const animal = animals[Math.floor(Math.random() * animals.length)];
+     econ.cash = (econ.cash || 100) + animal.reward;
+     econ.lastWork = now;
+     setEconomy(senderJid, econ);
+     
+     await sock.sendMessage(chatId, { text: `🏹 *Du hast einen ${animal.name} gejagt!*\n\n💵 +${formatMoney(animal.reward)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: FARM============================//
+   case 'farm': {
+     const econ = getEconomy(senderJid);
+     const now = Date.now();
+     const cooldown = 25 * 1000;
+     
+     if (econ.lastWork && (now - econ.lastWork) < cooldown) {
+       const remaining = formatTime(cooldown - (now - econ.lastWork));
+       await sock.sendMessage(chatId, { text: `⏱️ Du musst noch *${remaining}* warten, bevor du wieder anbauen kannst!` }, { quoted: msg });
+       break;
+     }
+     
+     const crops = [
+       { name: 'Weizen', reward: 35 },
+       { name: 'Maize', reward: 45 },
+       { name: 'Tomaten', reward: 55 }
+     ];
+     
+     const crop = crops[Math.floor(Math.random() * crops.length)];
+     econ.cash = (econ.cash || 100) + crop.reward;
+     econ.lastWork = now;
+     setEconomy(senderJid, econ);
+     
+     await sock.sendMessage(chatId, { text: `🌾 *Du hast ${crop.name} angebaut!*\n\n💵 +${formatMoney(crop.reward)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: ROB============================//
+   case 'rob': {
+     if (!args.length || !msg.mentions || !msg.mentions.length) {
+       await sock.sendMessage(chatId, { text: '💸 Benutzung: */rob @user*\n\nBeispiel: */rob @jemand*' }, { quoted: msg });
+       break;
+     }
+     
+     const targetJid = msg.mentions[0] || args[0];
+     const robberEcon = getEconomy(senderJid);
+     const victimEcon = getEconomy(targetJid);
+     
+     if (robberEcon.cash < 10) {
+       await sock.sendMessage(chatId, { text: '❌ Du brauchst mindestens 10 Cash für einen Raub!' }, { quoted: msg });
+       break;
+     }
+     
+     const success = Math.random() < 0.6;
+     if (success) {
+       const stealAmount = Math.floor(Math.random() * victimEcon.cash * 0.5) + 1;
+       robberEcon.cash += stealAmount;
+       victimEcon.cash = Math.max(0, victimEcon.cash - stealAmount);
+       
+       await sock.sendMessage(chatId, { text: `💸 *ÜBERFALL*\n\n✅ Erfolgreicher Raub!\n🎉 +${formatMoney(stealAmount)}\n💰 Neuer Kontostand: ${formatMoney(robberEcon.cash)}` }, { quoted: msg });
+     } else {
+       robberEcon.cash -= 10;
+       await sock.sendMessage(chatId, { text: `💸 *ÜBERFALL*\n\n❌ Erwischt! Polizei nimmt dir 10 Cash.\n💰 Neuer Kontostand: ${formatMoney(robberEcon.cash)}` }, { quoted: msg });
+     }
+     
+     setEconomy(senderJid, robberEcon);
+     setEconomy(targetJid, victimEcon);
+     break;
+   }
+
+//=============ECONOMY: CRIME============================//
+   case 'crime': {
+     const econ = getEconomy(senderJid);
+     
+     if (isJailed(senderJid)) {
+       const jailedEcon = getEconomy(senderJid);
+       const timeLeft = formatTime(jailedEcon.jailedUntil - Date.now());
+       await sock.sendMessage(chatId, { text: `⛓️ Du sitzt noch im Gefängnis! Entlassung in: ${timeLeft}` }, { quoted: msg });
+       break;
+     }
+     
+     const crimes = [
+       { name: 'Raub', reward: 100, risk: 0.7 },
+       { name: 'Trickbetrug', reward: 80, risk: 0.6 },
+       { name: 'Hacker-Anschlag', reward: 200, risk: 0.8 }
+     ];
+     
+     const crime = crimes[Math.floor(Math.random() * crimes.length)];
+     const success = Math.random() > crime.risk;
+     
+     if (success) {
+       econ.cash += crime.reward;
+       await sock.sendMessage(chatId, { text: `🔓 *${crime.name}*\n\n✅ Erfolg! +${formatMoney(crime.reward)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     } else {
+       sendToJail(senderJid, 60 * 1000);
+       await sock.sendMessage(chatId, { text: `🔓 *${crime.name}*\n\n❌ Verhaftet! 1 Minute Gefängnis.` }, { quoted: msg });
+     }
+     
+     setEconomy(senderJid, econ);
+     break;
+   }
+
+//=============ECONOMY: TOPBALANCE============================//
+   case 'topbalance': {
+     const topStmt = dbInstance.prepare('SELECT name, balance FROM users ORDER BY balance DESC LIMIT 10');
+     const tops = topStmt.all();
+     
+     let text = '🏆 *Top 10 Cash*\n\n';
+     tops.forEach((u, i) => {
+       text += `${i + 1}. ${u.name} - ${formatMoney(u.balance)}\n`;
+     });
+     
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: BANK============================//
+   case 'bank': {
+     const econ = getEconomy(senderJid);
+     const subCmd = args[0]?.toLowerCase();
+     
+     if (!subCmd) {
+       await sock.sendMessage(chatId, { text: '🏦 *Bank Commands:*\n\n*/bank deposit <Betrag>* - Cash zur Bank\n*/bank withdraw <Betrag>* - Cash abheben\n*/bank interest* - Zinsen abholen\n*/bank balance* - Kontostand' }, { quoted: msg });
+       break;
+     }
+     
+     if (subCmd === 'balance') {
+       await sock.sendMessage(chatId, { text: `🏦 *Bankkontostand:*\n\nCash: ${formatMoney(econ.cash || 100)}\nBank: ${formatMoney(econ.bank || 0)}\nZinsrate: 1%` }, { quoted: msg });
+     } else if (subCmd === 'deposit') {
+       const amount = parseInt(args[1]);
+       if (isNaN(amount) || amount <= 0) {
+         await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+         break;
+       }
+       if (econ.cash < amount) {
+         await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!` }, { quoted: msg });
+         break;
+       }
+       econ.cash -= amount;
+       econ.bank = (econ.bank || 0) + amount;
+       setEconomy(senderJid, econ);
+       await sock.sendMessage(chatId, { text: `✅ ${formatMoney(amount)} auf dein Bankkonto eingezahlt!\n\n💵 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+     } else if (subCmd === 'withdraw') {
+       const amount = parseInt(args[1]);
+       if (isNaN(amount) || amount <= 0) {
+         await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+         break;
+       }
+       if (econ.bank < amount) {
+         await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug auf der Bank!` }, { quoted: msg });
+         break;
+       }
+       econ.bank -= amount;
+       econ.cash = (econ.cash || 100) + amount;
+       setEconomy(senderJid, econ);
+       await sock.sendMessage(chatId, { text: `✅ ${formatMoney(amount)} von der Bank abgehoben!\n\n💵 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+     } else if (subCmd === 'interest') {
+       const interest = Math.floor((econ.bank || 0) * 0.01);
+       econ.cash = (econ.cash || 100) + interest;
+       econ.bank = Math.max(0, (econ.bank || 0) - 10); // Monthly fee
+       setEconomy(senderJid, econ);
+       await sock.sendMessage(chatId, { text: `💰 *Monatliche Zinsen*\n\n+${formatMoney(interest)} Zinsen\n-10 Gebühr\n\n💵 Neuer Cash: ${formatMoney(econ.cash)}\n🏦 Neue Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+     }
+     break;
+   }
+
+//=============ECONOMY: HEIST============================//
+   case 'heist': {
+     await sock.sendMessage(chatId, { text: '⚠️ *Heist-System* ist noch in Entwicklung!\n\nDieser Command wird bald verfügbar sein.' }, { quoted: msg });
+     break;
+   }
+
+//=============ECONOMY: JAIL============================//
+   case 'jail': {
+     const econ = getEconomy(senderJid);
+     if (isJailed(senderJid)) {
+       const timeLeft = formatTime(econ.jailedUntil - Date.now());
+       await sock.sendMessage(chatId, { text: `⛓️ Du sitzt im Gefängnis! Entlassung in: ${timeLeft}` }, { quoted: msg });
+     } else {
+       await sock.sendMessage(chatId, { text: '✅ Du bist nicht im Gefängnis!' }, { quoted: msg });
+     }
+     break;
+   }
+
+//=============PREMIUM: SYSTEM============================//
+   case 'premium': {
+     const subcommand = args[0]?.toLowerCase();
+     
+     // /premium add - Owner/CoOwner/Premium können Premium vergeben
+     if (subcommand === 'add') {
+       // Check ob Sender Owner/CoOwner/Premium ist
+       const senderPrem = getPremium(senderJid);
+       const senderRank = ranks.getRank(senderJid);
+       const isOwner = senderRank === 'Inhaber';
+       const isCoOwner = senderRank === 'Stellvertreter Inhaber';
+       const canGivePremium = isOwner || isCoOwner || (senderPrem && senderPrem.isPremium && Date.now() < senderPrem.premiumUntil);
+       
+       if (!canGivePremium) {
+         await sock.sendMessage(chatId, { text: `❌ Nur Owner, CoOwner oder Premium-Nutzer können Premium vergeben!` }, { quoted: msg });
+         break;
+       }
+       
+       // Zielbenutzer auslesen - versuche Mentions oder args
+       let targetJid = null;
+       
+       if (msg.mentions && msg.mentions.length > 0) {
+         targetJid = msg.mentions[0];
+       } else if (args[1]) {
+         targetJid = args[1];
+       }
+       
+       if (!targetJid) {
+         await sock.sendMessage(chatId, { text: `👑 Benutzung: */premium add @user <tage>*\n\nBeispiel: */premium add @jemand 30*\n\n⚠️ Markiere einen Nutzer mit @ um Premium zu aktivieren!` }, { quoted: msg });
+         break;
+       }
+       
+       // Normalisiere JID Format - entferne @ wenn vorhanden und stelle sicher es hat @s.whatsapp.net
+       let cleanJid = targetJid.replace('@', '').trim();
+       if (!cleanJid.includes('@')) {
+         cleanJid = `${cleanJid}@s.whatsapp.net`;
+       }
+       
+       const days = parseInt(args[2]) || 30;
+       
+       addPremium(cleanJid, days);
+       
+       // Extrahiere Nummer aus JID
+       const jidNumber = cleanJid.split('@')[0];
+       
+       await sock.sendMessage(chatId, { text: `✅ 👑 Premium für +${jidNumber} für ${days} Tage aktiviert!`, mentions: [cleanJid] }, { quoted: msg });
+       break;
+     }
+     
+     // /premium - Zeige Premium Status
+     const prem = getPremium(senderJid);
+     const u = getUser(senderJid);
+     
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `👑 *PREMIUM SYSTEM*\n\nDu bist noch kein Premium Mitglied!\n\n✅ Vorteile:\n• 💵 3x mehr Geld bei /daily\n• ⚡ Halber Cooldown bei /work\n• 🎰 Neue Casino Games\n• 🛒 Premium Shop Items\n• 🤖 Auto Features\n\nFrag einen Owner, CoOwner oder Premium-Nutzer um dir Premium zu geben!` }, { quoted: msg });
+       break;
+     }
+     
+     const remaining = formatTime(prem.premiumUntil - Date.now());
+     const text = `👑 *DEIN PREMIUM STATUS*\n\n✅ Premium aktiv\n⏱️ Verfallen in: ${remaining}\n📊 Level: ${prem.premiumLevel}\n\n📝 Titel: ${prem.title || 'Keine'}\n🎨 Farbe: ${prem.color}\n😊 Emoji: ${prem.emoji}`;
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: SPAWNMONEY============================//
+   case 'spawnmoney': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command\n\nNutze */getpremium* um Premium zu aktivieren!` }, { quoted: msg });
+       break;
+     }
+     
+     const prem = getPremium(senderJid);
+     const econ = getEconomy(senderJid);
+     const now = Date.now();
+     const dailyCooldown = 24 * 60 * 60 * 1000;
+     
+     if (prem.lastSpawnmoney && (now - prem.lastSpawnmoney) < dailyCooldown) {
+       const remaining = formatTime(dailyCooldown - (now - prem.lastSpawnmoney));
+       await sock.sendMessage(chatId, { text: `⏱️ Du kannst dein Daily Spawnmoney erst in ${remaining} wieder nutzen!` }, { quoted: msg });
+       break;
+     }
+     
+     const amount = Math.floor(Math.random() * 500) + 500;
+     econ.cash = (econ.cash || 100) + amount;
+     prem.lastSpawnmoney = now;
+     
+     setEconomy(senderJid, econ);
+     setPremium(senderJid, prem);
+     
+     await sock.sendMessage(chatId, { text: `✨ *PREMIUM SPAWN MONEY*\n\n💵 +${formatMoney(amount)} Cash generiert!\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: SETTITLE============================//
+   case 'settitle': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     if (!q) {
+       await sock.sendMessage(chatId, { text: `⚙️ Benutzung: */settitle <Titel>*\n\nBeispiel: */settitle 🔥 Legendary Player*` }, { quoted: msg });
+       break;
+     }
+     
+     const prem = getPremium(senderJid);
+     prem.title = q.substring(0, 50);
+     setPremium(senderJid, prem);
+     
+     await sock.sendMessage(chatId, { text: `✅ Titel gesetzt auf: ${prem.title}` }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: SETCOLOR============================//
+   case 'setcolor': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     if (!q || !q.startsWith('#')) {
+       await sock.sendMessage(chatId, { text: `🎨 Benutzung: */setcolor <#HEX>*\n\nBeispiele:\n#FF0000 (Rot)\n#00FF00 (Grün)\n#0000FF (Blau)` }, { quoted: msg });
+       break;
+     }
+     
+     const prem = getPremium(senderJid);
+     prem.color = q;
+     setPremium(senderJid, prem);
+     
+     await sock.sendMessage(chatId, { text: `✅ Farbe gesetzt auf: ${prem.color}` }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: SETEMOJI============================//
+   case 'setemoji': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     if (!q) {
+       await sock.sendMessage(chatId, { text: `😊 Benutzung: */setemoji <Emoji>*\n\nBeispiel: */setemoji 👑*` }, { quoted: msg });
+       break;
+     }
+     
+     const prem = getPremium(senderJid);
+     prem.emoji = q.substring(0, 2);
+     setPremium(senderJid, prem);
+     
+     await sock.sendMessage(chatId, { text: `✅ Emoji gesetzt auf: ${prem.emoji}` }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: HIGHROLLER============================//
+   case 'highroller': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     if (!q) {
+       await sock.sendMessage(chatId, { text: `🎰 Benutzung: */highroller <Betrag>*\n\n💎 Premium Casino - 5x Gewinn!` }, { quoted: msg });
+       break;
+     }
+     
+     const bet = parseInt(q);
+     if (isNaN(bet) || bet <= 0) {
+       await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+       break;
+     }
+     
+     const econ = getEconomy(senderJid);
+     if (econ.cash < bet) {
+       await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!` }, { quoted: msg });
+       break;
+     }
+     
+     const symbols = ['💎', '💍', '👑', '🏆', '⭐'];
+     const result = [symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)]];
+     
+     const won = result[0] === result[1] && result[1] === result[2];
+     const winAmount = bet * 5;
+     
+     if (won) {
+       econ.cash += winAmount;
+       await sock.sendMessage(chatId, { text: `💎 *HIGH ROLLER JACKPOT!*\n\n${result.join(' ')}\n\n🎉 GEWONNEN! +${formatMoney(winAmount)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     } else {
+       econ.cash -= bet;
+       await sock.sendMessage(chatId, { text: `💎 *HIGH ROLLER*\n\n${result.join(' ')}\n\n❌ Verloren! -${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     }
+     
+     setEconomy(senderJid, econ);
+     break;
+   }
+
+//=============PREMIUM: JACKPOT============================//
+   case 'jackpot': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     const econ = getEconomy(senderJid);
+     const jackpotChance = Math.random();
+     
+     if (jackpotChance < 0.01) {
+       const jackpotAmount = 50000;
+       econ.cash += jackpotAmount;
+       setEconomy(senderJid, econ);
+       await sock.sendMessage(chatId, { text: `🎉 *MEGA JACKPOT!*\n\n🎰🎰🎰\n\n💥 +${formatMoney(jackpotAmount)} GEWONNEN!\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     } else {
+       await sock.sendMessage(chatId, { text: `❌ Kein Jackpot diese Mal... Versuch dein Glück später!` }, { quoted: msg });
+     }
+     break;
+   }
+
+//=============PREMIUM: DOUBLE============================//
+   case 'double': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     if (!q) {
+       await sock.sendMessage(chatId, { text: `🎲 Benutzung: */double <Betrag>*\n\n50% Chance dein Geld zu verdoppeln!` }, { quoted: msg });
+       break;
+     }
+     
+     const bet = parseInt(q);
+     if (isNaN(bet) || bet <= 0) {
+       await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
+       break;
+     }
+     
+     const econ = getEconomy(senderJid);
+     if (econ.cash < bet) {
+       await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!` }, { quoted: msg });
+       break;
+     }
+     
+     const won = Math.random() < 0.5;
+     
+     if (won) {
+       econ.cash += bet;
+       await sock.sendMessage(chatId, { text: `🎲 *DOUBLE OR NOTHING*\n\n✅ GEWONNEN!\n+${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     } else {
+       econ.cash -= bet;
+       await sock.sendMessage(chatId, { text: `🎲 *DOUBLE OR NOTHING*\n\n❌ VERLOREN!\n-${formatMoney(bet)}\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     }
+     
+     setEconomy(senderJid, econ);
+     break;
+   }
+
+//=============PREMIUM: CRYPTO============================//
+   case 'crypto':
+   case 'market': {
+     const cryptoData = {
+       BTC: 45000 + Math.floor(Math.random() * 5000),
+       ETH: 2500 + Math.floor(Math.random() * 500),
+       DOGE: 0.25 + (Math.random() * 0.05)
+     };
+     
+     let text = `📈 *CRYPTO MARKT*\n\n`;
+     for (const [symbol, price] of Object.entries(cryptoData)) {
+       const change = (Math.random() * 20) - 10;
+       text += `${symbol}: $${price.toFixed(2)} ${change > 0 ? '📈' : '📉'}\n`;
+     }
+     text += `\nNutze */buycrypto BTC 0.1* zum Kaufen\nNutze */sellcrypto BTC 0.1* zum Verkaufen`;
+     
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: BUYCRYPTO============================//
+   case 'buycrypto':
+   case 'buybtc': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+     
+     const parts = q.split(' ');
+     const symbol = parts[0]?.toUpperCase() || 'BTC';
+     const amount = parseFloat(parts[1]) || 0.1;
+     
+     const prices = { BTC: 45000, ETH: 2500, DOGE: 0.25 };
+     const price = prices[symbol] || 0;
+     const totalCost = Math.floor(price * amount);
+     
+     const econ = getEconomy(senderJid);
+     if (econ.cash < totalCost) {
+       await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!\nBenötigt: ${formatMoney(totalCost)}\nHast: ${formatMoney(econ.cash)}` }, { quoted: msg });
+       break;
+     }
+     
+     econ.cash -= totalCost;
+     setEconomy(senderJid, econ);
+     
+     await sock.sendMessage(chatId, { text: `💰 *${symbol} gekauft!*\n\n📊 ${amount} ${symbol}\n💵 -${formatMoney(totalCost)} Cash\n💰 Verbleibend: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
    case 'ping': {
     let sender;
     if (msg.key.fromMe) {
@@ -11469,6 +13477,56 @@ case 'grpinfo': {
   }
 }
 break;
+case 'device':{
+    const chatId = msg.key.remoteJid;
+
+    const contextInfo = msg.message.extendedTextMessage?.contextInfo;
+
+    if (!contextInfo || !contextInfo.stanzaId) {
+        await StormBot.sendMessage(chatId, {
+            text: '❌ Bitte antworte auf eine Nachricht, um saubere Meta anzuzeigen.'
+        });
+        break;
+    }
+
+    const quotedParticipant = contextInfo.participant;
+    const quotedId = contextInfo.stanzaId;
+    const idUpper = quotedId.toUpperCase();
+    let device = 'Unbekannt';
+  
+
+    if (idUpper.startsWith('3E')) {
+        device = 'Whatsapp Web Client';
+    } else if (idUpper.includes('NEELE')) {
+        device = 'Neelegirl/Wa-Api Process via iOS';
+    } else if (idUpper.includes('STORM')) {
+        device = 'Official StormBot (717Developments/Baileys)';
+    } else if (idUpper.startsWith('2A')) {
+      device = 'Apple iOS (Business Account)';
+    } else if (idUpper.startsWith('3A')) {
+        device = 'Apple iOS';
+    } else if (idUpper.startsWith('3C')) {
+        device = 'Apple iOS';
+    } else if (quotedId.length >= 30) {
+        device = 'Android';
+    }
+
+    const mentionJid = quotedParticipant ? [quotedParticipant] : [];
+
+    const text = `━━ ❮ STORMBOT ❯ ━━
+
+${quotedParticipant ? `@${quotedParticipant.split('@')[0]}` : 'Unbekannt'} verwendet
+
+「 ${device} 」
+
+> MSG-ID: ${quotedId}`;
+
+    await StormBot.sendMessage(chatId, {
+        text,
+        mentions: mentionJid
+    });
+}
+break;
 case 'baninfo': {
     const senderRank = ranks.getRank(sender);
     const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
@@ -11515,7 +13573,7 @@ case 'baninfo': {
       `│ ▶ Status : ${isBanned ? '❌ PERMABANNED/NOT REGISTERED' : '✅ ACTIVE'}\n` +
       '├─────────────────────\n' +
       '│  System : SB-Network\n' +
-      '│  Probe  : 𝓞𝓷𝓮𝓓𝓮𝓿𝓲𝓵🩸\n' +
+      '│  Probe  : Beastmeds \n' +
       '╰─────────────────────';
 
     // Hinweis: Kein contextInfo gesetzt, somit wird die Nachricht nicht als "weitergeleitet" markiert.
@@ -12521,42 +14579,607 @@ case 'broadcast': {
 
 
 case 'hidetag': {
-  if (!isGroup) {
-    await sock.sendMessage(from, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' });
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
     break;
   }
 
-  const groupMetadata = await sock.groupMetadata(from);
+  const groupMetadata = await sock.groupMetadata(chatId);
   const participants = groupMetadata.participants;
-  const senderId = msg.key.participant || from;
+  const senderId = msg.key.participant || chatId;
 
   // Check ob Admin
   const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
   if (!isAdmin) {
-    await sock.sendMessage(from, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
     break;
   }
 
-  // Nachricht extrahieren
-  const messageContent = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
-  const args = messageContent.split(' ').slice(1).join(' ').trim();
-
-  if (!args) {
-    await sock.sendMessage(from, { text: '❌ Bitte gib einen Text ein: `hidetag <Text>`' }, { quoted: msg });
+  if (!q) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte gib einen Text ein: `/hidetag <Text>`' }, { quoted: msg });
     break;
   }
-
-  // Kopf- und Fußzeile hinzufügen
-  const header = `╭───❍ *Hidetag* ❍───╮\n│ 📝 Nachricht an alle Mitglieder:`;
-  const footer = `╰────────────────────────────╯`;
 
   const mentions = participants.map((p) => p.id);
 
-  await sock.sendMessage(from, {
-    text: `${header}\n\n${args}\n\n${footer}`,
-    mentions: mentions
-  });
+  await sock.sendMessage(chatId, {
+    text: `╭───❍ *Hidetag* ❍───╮\n│\n│ ${q}\n│\n╰────────────────────╯`,
+    mentions: mentions,
+    contextInfo: { mentionedJid: mentions }
+  }, { quoted: msg });
+  
+  console.log(`[HIDETAG] From: ${senderId} | Text: ${q}`);
+  break;
 }
+
+case 'mutegc': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    await sock.groupSettingUpdate(chatId, 'announcement');
+    await sock.sendMessage(chatId, { text: '🔇 *Gruppe stummgeschaltet!*\n\nNur Admins können Nachrichten posten.' }, { quoted: msg });
+    console.log(`[MUTEGC ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    await sock.groupSettingUpdate(chatId, 'not_announcement');
+    await sock.sendMessage(chatId, { text: '🔊 *Gruppe nicht mehr stummgeschaltet!*\n\nAlle können wieder Nachrichten posten.' }, { quoted: msg });
+    console.log(`[MUTEGC OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/mutegc on` oder `/mutegc off`' }, { quoted: msg });
+  }
+  break;
+}
+
+case 'tagall': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const mentions = participants.map((p) => p.id);
+  
+  const text = q ? `@all\n\n${q}` : '@all';
+
+  await sock.sendMessage(chatId, {
+    text: text,
+    mentions: mentions,
+    contextInfo: { mentionedJid: mentions }
+  }, { quoted: msg });
+  
+  console.log(`[TAGALL] Group: ${chatId}`);
+  break;
+}
+
+case 'promotemember': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  // Versuche Mention zu finden
+  const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentions || mentions.length === 0) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte markiere einen Benutzer zum Promovieren.' }, { quoted: msg });
+    break;
+  }
+
+  const targetJid = mentions[0];
+  await sock.groupParticipantsUpdate(chatId, [targetJid], 'promote');
+  
+  await sock.sendMessage(chatId, { 
+    text: `✅ @${targetJid.split('@')[0]} wurde zum Admin promoviert!`,
+    mentions: [targetJid]
+  }, { quoted: msg });
+  
+  console.log(`[PROMOTE] Group: ${chatId} | User: ${targetJid}`);
+  break;
+}
+
+case 'demote': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  // Versuche Mention zu finden
+  const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (!mentions || mentions.length === 0) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte markiere einen Admin zum Degradieren.' }, { quoted: msg });
+    break;
+  }
+
+  const targetJid = mentions[0];
+  await sock.groupParticipantsUpdate(chatId, [targetJid], 'demote');
+  
+  await sock.sendMessage(chatId, { 
+    text: `✅ @${targetJid.split('@')[0]} wurde degradiert!`,
+    mentions: [targetJid]
+  }, { quoted: msg });
+  
+  console.log(`[DEMOTE] Group: ${chatId} | User: ${targetJid}`);
+  break;
+}
+
+// === ANTILINK ===
+case 'antilink': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.antilink = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🔗 *Antilink aktiviert!*\n\nLinks werden automatisch gelöscht.' }, { quoted: msg });
+    console.log(`[ANTILINK ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.antilink = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🔗 *Antilink deaktiviert!*\n\nLinks sind wieder erlaubt.' }, { quoted: msg });
+    console.log(`[ANTILINK OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/antilink on` oder `/antilink off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === ANTINSFW ===
+case 'antinsfw': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.antinsfw = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🔞 *Anti-NSFW aktiviert!*\n\nNSFW-Inhalte werden automatisch gelöscht.' }, { quoted: msg });
+    console.log(`[ANTINSFW ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.antinsfw = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🔞 *Anti-NSFW deaktiviert!*' }, { quoted: msg });
+    console.log(`[ANTINSFW OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/antinsfw on` oder `/antinsfw off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === AUTOSTICKER ===
+case 'autosticker': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.autosticker = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🎨 *Autosticker aktiviert!*\n\nSticker werden automatisch gelöscht.' }, { quoted: msg });
+    console.log(`[AUTOSTICKER ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.autosticker = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🎨 *Autosticker deaktiviert!*\n\nSticker sind wieder erlaubt.' }, { quoted: msg });
+    console.log(`[AUTOSTICKER OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/autosticker on` oder `/autosticker off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === ANTISPAM ===
+case 'antispam': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.antispam = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🚫 *Antispam aktiviert!*\n\nMehrfachnachrichten werden automatisch gelöscht.' }, { quoted: msg });
+    console.log(`[ANTISPAM ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.antispam = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🚫 *Antispam deaktiviert!*' }, { quoted: msg });
+    console.log(`[ANTISPAM OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/antispam on` oder `/antispam off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === LEVELING ===
+case 'leveling': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.leveling = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '⬆️ *Leveling-System aktiviert!*\n\nBenutzer erhalten XP für jede Nachricht.' }, { quoted: msg });
+    console.log(`[LEVELING ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.leveling = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '⬆️ *Leveling-System deaktiviert!*' }, { quoted: msg });
+    console.log(`[LEVELING OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/leveling on` oder `/leveling off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === WELCOME ===
+case 'welcome': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.welcome = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '👋 *Willkommensnachrichten aktiviert!*\n\nNeue Mitglieder erhalten eine Willkommensnachricht.' }, { quoted: msg });
+    console.log(`[WELCOME ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.welcome = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '👋 *Willkommensnachrichten deaktiviert!*' }, { quoted: msg });
+    console.log(`[WELCOME OFF] Group: ${chatId}`);
+  } else if (subcommand === 'set') {
+    const customText = args.slice(1).join(' ').trim();
+    if (!customText) {
+      await sock.sendMessage(chatId, { text: '❌ Nutzung:\n\n/welcome set Willkommen @user 🎉\n\nFür Zeilenumbrüche verwende \\n\nBeispiel:\n/welcome set Willkommen @user 🎉\\nViel Spaß in der Gruppe!' }, { quoted: msg });
+      break;
+    }
+    const features = loadGroupFeatures(chatId);
+    // Konvertiere \\n in echte Zeilenumbrüche
+    features.welcomeText = customText.replace(/\\n/g, '\n');
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: `✅ *Willkommensnachricht gesetzt!*\n\n${features.welcomeText}` }, { quoted: msg });
+    console.log(`[WELCOME SET] Group: ${chatId} | Text: ${customText}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung:\n\n/welcome on\n/welcome off\n/welcome set <Text mit @user>' }, { quoted: msg });
+  }
+  break;
+}
+
+// === GOODBYE ===
+case 'goodbye': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.goodbye = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '👋 *Abschiedsnachrichten aktiviert!*\n\nAbgehende Mitglieder erhalten eine Abschiedsnachricht.' }, { quoted: msg });
+    console.log(`[GOODBYE ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.goodbye = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '👋 *Abschiedsnachrichten deaktiviert!*' }, { quoted: msg });
+    console.log(`[GOODBYE OFF] Group: ${chatId}`);
+  } else if (subcommand === 'set') {
+    const customText = args.slice(1).join(' ').trim();
+    if (!customText) {
+      await sock.sendMessage(chatId, { text: '❌ Nutzung:\n\n/goodbye set Tschüss @user 👋\n\nFür Zeilenumbrüche verwende \\n\nBeispiel:\n/goodbye set Tschüss @user 👋\\nWir sehen uns bald!' }, { quoted: msg });
+      break;
+    }
+    const features = loadGroupFeatures(chatId);
+    // Konvertiere \\n in echte Zeilenumbrüche
+    features.goodbyeText = customText.replace(/\\n/g, '\n');
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: `✅ *Abschiedsnachricht gesetzt!*\n\n${features.goodbyeText}` }, { quoted: msg });
+    console.log(`[GOODBYE SET] Group: ${chatId} | Text: ${customText}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung:\n\n/goodbye on\n/goodbye off\n/goodbye set <Text mit @user>' }, { quoted: msg });
+  }
+  break;
+}
+
+// === AUTOREACT ===
+case 'autoreact': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.autoreact = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '😊 *Automatische Reaktionen aktiviert!*\n\nDer Bot reagiert automatisch auf Nachrichten.' }, { quoted: msg });
+    console.log(`[AUTOREACT ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.autoreact = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '😊 *Automatische Reaktionen deaktiviert!*' }, { quoted: msg });
+    console.log(`[AUTOREACT OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/autoreact on` oder `/autoreact off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === ANTIBOT ===
+case 'antibot': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.antibot = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🤖 *Anti-Bot aktiviert!*\n\nBots werden automatisch entfernt.' }, { quoted: msg });
+    console.log(`[ANTIBOT ON] Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.antibot = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🤖 *Anti-Bot deaktiviert!*' }, { quoted: msg });
+    console.log(`[ANTIBOT OFF] Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/antibot on` oder `/antibot off`' }, { quoted: msg });
+  }
+  break;
+}
+
+// === BADWORDS ===
+case 'badwords': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    const badwordsList = args.slice(1).join(' ').split(',').map(w => w.trim()).filter(w => w);
+    
+    if (badwordsList.length === 0) {
+      await sock.sendMessage(chatId, { text: '❌ Nutzung: `/badwords on Wort1,Wort2,Wort3`' }, { quoted: msg });
+      break;
+    }
+    
+    features.badwords = badwordsList;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: `🚫 *Schimpfwörter aktiviert!*\n\nFolgende Wörter sind verboten:\n\n${badwordsList.map(w => `• ${w}`).join('\n')}` }, { quoted: msg });
+    console.log(`[BADWORDS ON] Group: ${chatId} | Words: ${badwordsList.join(', ')}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.badwords = [];
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🚫 *Schimpfwörter deaktiviert!*\n\nKeine Wörter mehr verboten.' }, { quoted: msg });
+    console.log(`[BADWORDS OFF] Group: ${chatId}`);
+  } else if (subcommand === 'add') {
+    const features = loadGroupFeatures(chatId);
+    const newWords = args.slice(1).join(' ').split(',').map(w => w.trim()).filter(w => w);
+    
+    if (newWords.length === 0) {
+      await sock.sendMessage(chatId, { text: '❌ Nutzung: `/badwords add Wort1,Wort2`' }, { quoted: msg });
+      break;
+    }
+    
+    features.badwords = [...new Set([...features.badwords, ...newWords])];
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: `✅ *Wörter hinzugefügt!*\n\nAktuelle Liste:\n\n${features.badwords.map(w => `• ${w}`).join('\n')}` }, { quoted: msg });
+    console.log(`[BADWORDS ADD] Group: ${chatId} | Words: ${newWords.join(', ')}`);
+  } else if (subcommand === 'remove') {
+    const features = loadGroupFeatures(chatId);
+    const removeWords = args.slice(1).join(' ').split(',').map(w => w.trim()).filter(w => w);
+    
+    if (removeWords.length === 0) {
+      await sock.sendMessage(chatId, { text: '❌ Nutzung: `/badwords remove Wort1,Wort2`' }, { quoted: msg });
+      break;
+    }
+    
+    features.badwords = features.badwords.filter(w => !removeWords.includes(w));
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: `✅ *Wörter entfernt!*\n\nAktuelle Liste:\n\n${features.badwords.length > 0 ? features.badwords.map(w => `• ${w}`).join('\n') : 'Keine Wörter definiert'}` }, { quoted: msg });
+    console.log(`[BADWORDS REMOVE] Group: ${chatId} | Words: ${removeWords.join(', ')}`);
+  } else if (subcommand === 'list') {
+    const features = loadGroupFeatures(chatId);
+    const badwordsList = features.badwords.length > 0 ? features.badwords.map(w => `• ${w}`).join('\n') : 'Keine Wörter definiert';
+    await sock.sendMessage(chatId, { text: `📋 *Verbotene Wörter:*\n\n${badwordsList}` }, { quoted: msg });
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung:\n\n`/badwords on Wort1,Wort2`\n`/badwords off`\n`/badwords add Wort1,Wort2`\n`/badwords remove Wort1,Wort2`\n`/badwords list`' }, { quoted: msg });
+  }
+  break;
+}
+
 break;
 
 case 'nl': {
@@ -12573,12 +15196,7 @@ case 'nl': {
     }
 
     // Nachrichtentext erfassen
-    const body = m.message?.conversation 
-              || m.message?.extendedTextMessage?.text 
-              || m.text 
-              || '';
-
-    const msgText = body.slice(command.length + 1).trim();
+    const msgText = args.join(' ').trim();
 
     // Wenn keine Nachricht angegeben ist
     if (!msgText)
@@ -12586,12 +15204,21 @@ case 'nl': {
             text: '💡 *Beispiel:*\n.nl Hallo zusammen!\nHeute gibt’s ein Update ⚙️\n\n(Zeilenumbrüche werden automatisch erkannt)'
         }, { quoted: msg });
 
-    // Ziel – dein Newsletter (du bist Admin)
-    const newsletterJid = '120363424157710313@newsletter';
+    // Ziel – dein Newsletter aus settings.js
+    const settings = require('./settings');
+    const newsletterJid = settings.forwardedNewsletter.jid;
+    const newsletterName = settings.forwardedNewsletter.name;
+
+    // Prüfe ob Newsletter-ID konfiguriert ist
+    if (!newsletterJid) {
+      return await sock.sendMessage(from, {
+        text: '❌ *Newsletter nicht konfiguriert!*\n\nBitte trage die Newsletter-JID in settings.js ein.'
+      }, { quoted: msg });
+    }
 
     // 🧱 Schöner BeastBot-Kasten
     const fullMessage =
-`╔═══ ⚡️ *BeastBot Broadcast* ⚡️ ═══╗
+`╔═══ ⚡️ *${newsletterName}* ⚡️ ═══╗
 ║
 ║  📰 *Newsletter Update*
 ║────────────────────────────
@@ -12608,25 +15235,194 @@ ${msgText.split('\n').map(line => `║  ${line}`).join('\n')}
             { 
                 text: fullMessage,
                 linkPreview: false
-            },
-            { 
-                // Wichtig: Newsletter-spezifische Metadaten
-                messageId: `beastbot-news-${Date.now()}`,
-                status: 'server_ack'
             }
         );
 
         await sendReaction(from, msg, '✅');
-        await sock.sendMessage(from, { text: '✅ *Newsletter erfolgreich an den BeastBot-Kanal gesendet!*' }, { quoted: msg });
-        console.log(`[BeastBot] Newsletter gesendet an ${newsletterJid}\n${fullMessage}`);
+        await sock.sendMessage(from, { text: `✅ *Newsletter erfolgreich gesendet!*\n\nZiel: ${newsletterName}` }, { quoted: msg });
+        console.log(`[NEWSLETTER] Nachricht gesendet an ${newsletterJid}\n${fullMessage}`);
     } catch (err) {
-        console.error('[BeastBot] Fehler beim Senden des Newsletters:', err);
+        console.error('[NEWSLETTER] Error:', err.message || err);
         await sendReaction(from, msg, '❌');
-        await sock.sendMessage(from, { text: '❌ *Fehler beim Senden des Newsletters!*' }, { quoted: msg });
+        await sock.sendMessage(from, { text: `❌ *Fehler beim Senden!*\n\n${err.message || 'Unbekannter Fehler'}` }, { quoted: msg });
     }
     break;
 }
 
+// === EILMELDUNG (EMERGENCY MESSAGE) ===
+case 'el': {
+    // 🚨 BeastBot Eilmeldungs-System
+    const senderRank = ranks.getRank(sender);
+    const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+    // 🔒 Zugriff verweigert
+    if (!allowed.includes(senderRank)) {
+        await sendReaction(from, msg, '🔒');
+        return await sock.sendMessage(from, {
+            text: `⛔ *Zugriff verweigert!*\n\nNur die folgenden Rollen dürfen diesen Befehl nutzen:\n\n• 👑 *Inhaber*\n• 🛡️ *Stellvertreter Inhaber*`
+        }, { quoted: msg });
+    }
+
+    // Nachrichtentext erfassen
+    const msgText = args.join(' ').trim();
+
+    // Wenn keine Nachricht angegeben ist
+    if (!msgText) {
+        return await sock.sendMessage(from, {
+            text: '💡 *Beispiel:*\n/el ⚠️ WICHTIG: Wartung um 20:00 Uhr!'
+        }, { quoted: msg });
+    }
+
+    try {
+        // 🧱 Schöner BeastBot Eilmeldungs-Kasten mit Alarm-Emojis
+        const fullMessage = 
+`╔═══════════════════════════════════════╗
+║  🚨 *EILMELDUNG ALERT* 🚨
+║═══════════════════════════════════════║
+║
+║  ⚠️  *WICHTIG!*  ⚠️
+║
+║────────────────────────────────────────
+${msgText.split('\n').map(line => `║  ${line}`).join('\n')}
+║────────────────────────────────────────
+║
+║  ⏰ ${new Date().toLocaleString('de-DE')}
+║
+║  🔴 SOFORT BEACHTEN! 🔴
+║
+╚═══════════════════════════════════════╝`;
+
+        // Alle Gruppen durchsuchen und Eilmeldung versenden (wenn aktiviert)
+        let sentCount = 0;
+        
+        // Alle bekannten Gruppen durchsuchen und Eilmeldung versenden
+        const settings = require('./settings');
+        const groupFeaturesFile = './data/groupFeatures.json';
+        let groupFeaturesData = {};
+        
+        try {
+          if (fs.existsSync(groupFeaturesFile)) {
+            groupFeaturesData = JSON.parse(fs.readFileSync(groupFeaturesFile, 'utf8'));
+          }
+        } catch (e) {
+          console.error('[EILMELDUNG] Fehler beim Laden von groupFeatures:', e.message);
+        }
+
+        // Sammle alle Group-IDs von verschiedenen Quellen
+        const allGroupIds = new Set();
+        
+        // 1. Aus global._allChatIds (aktive Chats)
+        if (global._allChatIds && global._allChatIds.size > 0) {
+          for (const id of global._allChatIds) {
+            if (id.includes('@g.us')) allGroupIds.add(id);
+          }
+        }
+        
+        // 2. Aus groupFeaturesData (alle bisher konfigurierten Gruppen)
+        for (const groupId of Object.keys(groupFeaturesData)) {
+          if (groupId.includes('@g.us')) allGroupIds.add(groupId);
+        }
+
+        // 3. Versuche alle Chats vom Bot zu laden (Baileys API)
+        try {
+          const allChats = await sock.getAllChats?.() || [];
+          for (const chat of allChats) {
+            if (chat.id && chat.id.includes('@g.us')) {
+              allGroupIds.add(chat.id);
+            }
+          }
+        } catch (e) {
+          console.log('[EILMELDUNG] Hinweis: getAllChats nicht verfügbar');
+        }
+
+        console.log(`[EILMELDUNG] Versende an ${allGroupIds.size} Gruppen...`);
+
+        // Versende an alle Gruppen
+        for (const groupId of allGroupIds) {
+          // Prüfe ob Eilmeldungen in dieser Gruppe aktiviert sind
+          const groupFeatures = groupFeaturesData[groupId];
+          const eilmeldungenEnabled = groupFeatures?.eilmeldungen !== false; // Standard: aktiviert
+
+          if (eilmeldungenEnabled) {
+            try {
+              await sock.sendMessage(groupId, { 
+                  text: fullMessage,
+                  linkPreview: false
+              });
+              sentCount++;
+              console.log(`[EILMELDUNG] ✅ Gesendet an ${groupId}`);
+            } catch (e) {
+              console.error(`[EILMELDUNG] ❌ Fehler an ${groupId}:`, e.message);
+            }
+          } else {
+            console.log(`[EILMELDUNG] ⏭️ ${groupId} hat Eilmeldungen deaktiviert`);
+          }
+        }
+
+        // Eilmeldung auch an den Newsletter/Broadcast-Kanal
+        const broadcastJid = settings.forwardedNewsletter?.jid;
+        if (broadcastJid) {
+            try {
+                await sock.sendMessage(broadcastJid, { 
+                    text: fullMessage,
+                    linkPreview: false
+                });
+                sentCount++;
+            } catch (e) {
+                console.error('[EILMELDUNG] Fehler beim Versenden an Newsletter:', e.message);
+            }
+        }
+
+        await sendReaction(from, msg, '🚨');
+        await sock.sendMessage(from, { 
+            text: `🚨 *EILMELDUNG VERSANDT!*\n\nEmpfänger: ${sentCount} Gruppen/Kanäle` 
+        }, { quoted: msg });
+        console.log(`[EILMELDUNG] Nachricht an ${sentCount} Gruppen/Kanäle versendet`);
+    } catch (err) {
+        console.error('[EILMELDUNG] Error:', err.message || err);
+        await sendReaction(from, msg, '❌');
+        await sock.sendMessage(from, { text: `❌ *Fehler beim Versenden!*\n\n${err.message || 'Unbekannter Fehler'}` }, { quoted: msg });
+    }
+    break;
+}
+
+// === EILMELDUNG DEAKTIVIEREN (pro Gruppe) ===
+case 'eld': {
+  if (!isGroupChat) {
+    await sock.sendMessage(chatId, { text: '❌ Dieser Befehl funktioniert nur in Gruppen.' }, { quoted: msg });
+    break;
+  }
+
+  const groupMetadata = await sock.groupMetadata(chatId);
+  const participants = groupMetadata.participants;
+  const senderId = msg.key.participant || chatId;
+
+  // Check ob Admin
+  const isAdmin = participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+  if (!isAdmin) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Gruppen-Admins können diesen Befehl nutzen.' }, { quoted: msg });
+    break;
+  }
+
+  const subcommand = args[0]?.toLowerCase();
+  
+  if (subcommand === 'on') {
+    const features = loadGroupFeatures(chatId);
+    features.eilmeldungen = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🚨 *Eilmeldungen aktiviert!*\n\nDie Gruppe erhält jetzt Eilmeldungen.' }, { quoted: msg });
+    console.log(`[EILMELDUNG] ON - Group: ${chatId}`);
+  } else if (subcommand === 'off') {
+    const features = loadGroupFeatures(chatId);
+    features.eilmeldungen = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '🚫 *Eilmeldungen deaktiviert!*\n\nDie Gruppe erhält keine Eilmeldungen mehr.' }, { quoted: msg });
+    console.log(`[EILMELDUNG] OFF - Group: ${chatId}`);
+  } else {
+    await sock.sendMessage(chatId, { text: '❌ Nutzung: `/eld on` oder `/eld off`' }, { quoted: msg });
+  }
+  break;
+}
 
 case 'antilinkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk': {
   if (!isGroup) return sock.sendMessage(from, { text: '⚠️ Dieser Befehl funktioniert nur in Gruppen.' });
@@ -12809,38 +15605,39 @@ break;
 
 case 'leavegrp': {
     try {
-        const sender = msg.key.participant || msg.key.remoteJid;
-        const senderRank = ranks.getRank(sender); // Hole Rank des Senders
+        const senderRank = ranks.getRank(sender);
 
         // Nur bestimmte Ränge dürfen den Bot die Gruppe verlassen lassen
-        const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Admin']; // z.B. hier anpassen
+        const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber'];
 
         if (!allowedRanks.includes(senderRank)) {
-            await sock.sendMessage(from, { 
+            await sock.sendMessage(chatId, { 
                 text: "❌ Du bist nicht berechtigt, diesen Befehl zu nutzen." 
-            }, { quoted: msg });
+            });
             break;
         }
 
-        // prüfen ob es eine Gruppe ist
-        if (!isGroup) {
-            await sock.sendMessage(from, { 
+        // Prüfen ob es eine Gruppe ist
+        if (!isGroupChat) {
+            await sock.sendMessage(chatId, { 
                 text: "❌ Dieser Befehl kann nur in Gruppen verwendet werden." 
-            }, { quoted: msg });
+            });
             break;
         }
 
-        await sock.sendMessage(from, { 
+        await sock.sendMessage(chatId, { 
             text: "👋 BeastBot verlässt nun die Gruppe..." 
-        }, { quoted: msg });
+        });
 
-        await sock.groupLeave(from);
+        setTimeout(() => {
+            sock.groupLeave(chatId);
+        }, 1000);
 
     } catch (err) {
         console.error("Fehler bei leavegrp:", err);
-        await sock.sendMessage(from, { 
+        await sock.sendMessage(chatId, { 
             text: "❌ Fehler beim Verlassen der Gruppe." 
-        }, { quoted: msg });
+        });
     }
 }
 break;
