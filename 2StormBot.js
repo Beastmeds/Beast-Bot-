@@ -195,6 +195,31 @@ function saveGroupFeatures(groupId, features) {
   }
 }
 
+// === CODES MANAGEMENT (Creator + Redeem) ===
+const codesFile = './data/codes.json';
+if (!fs.existsSync(path.dirname(codesFile))) fs.mkdirSync(path.dirname(codesFile), { recursive: true });
+
+function loadCodes() {
+  try {
+    const data = JSON.parse(fs.readFileSync(codesFile, 'utf8')) || {};
+    return {
+      creators: data.creators || [],
+      redeemCodes: data.redeemCodes || [],
+      usedCodes: data.usedCodes || {}
+    };
+  } catch (e) {
+    return { creators: [], redeemCodes: [], usedCodes: {} };
+  }
+}
+
+function saveCodes(data) {
+  try {
+    fs.writeFileSync(codesFile, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error saving codes:', e);
+  }
+}
+
 // Global disabled commands storage
 const disabledCommandsFile = './data/disabledCommands.json';
 if (!fs.existsSync(path.dirname(disabledCommandsFile))) fs.mkdirSync(path.dirname(disabledCommandsFile), { recursive: true });
@@ -608,6 +633,7 @@ let botStats = {
 // Globale Variablen für DB Statements
 let getUserStmt, ensureUserStmt, deleteUserStmt, updateUserStmt;
 let getFishStmt, addFishStmt, getAllFishStmt, topCoinsStmt, topXpStmt;
+let getEconomyStmt, setEconomyStmt;
 
 // === HELPER-FUNKTIONEN ===
 
@@ -635,10 +661,7 @@ function updateUser(jid, balance, xp, level, name) {
   const result = updateUserStmt.run(balance, xp, level, name, jid);
   // Auch zu JSON synchen
   syncUserToJSON(jid, { name, balance, xp, level });
-  // Balance mit Economy-Cash synchronisieren (coins = bargeld)
-  const econ = getEconomy(jid);
-  econ.cash = balance;
-  setEconomy(jid, econ);
+  // NICHT die Economy-Coins mit balance synchronisieren - economy ist unabhängig!
   return result;
 }
 
@@ -675,13 +698,44 @@ function getInventory(jid) {
 
 // === ECONOMY HELPERS ===
 function getEconomy(jid) {
-  const stmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
-  return stmt.get(jid) || { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+  try {
+    const result = getEconomyStmt.get(jid);
+    if (result) {
+      // Stelle sicher, dass alle Felder definiert sind
+      return {
+        jid: result.jid || jid,
+        cash: (result.cash !== null && result.cash !== undefined) ? result.cash : 100,
+        bank: (result.bank !== null && result.bank !== undefined) ? result.bank : 0,
+        gems: (result.gems !== null && result.gems !== undefined) ? result.gems : 0,
+        lastDaily: result.lastDaily || 0,
+        lastWeekly: result.lastWeekly || 0,
+        lastWork: result.lastWork || 0,
+        lastBeg: result.lastBeg || 0,
+        jailedUntil: result.jailedUntil || 0
+      };
+    }
+    return { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+  } catch (err) {
+    console.error('Fehler in getEconomy:', err);
+    return { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+  }
 }
 
 function setEconomy(jid, econ) {
-  const stmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  stmt.run(jid, econ.cash || 100, econ.bank || 0, econ.gems || 0, econ.lastDaily || 0, econ.lastWeekly || 0, econ.lastWork || 0, econ.lastBeg || 0, econ.jailedUntil || 0);
+  try {
+    const cash = (econ.cash !== null && econ.cash !== undefined) ? Math.max(0, econ.cash) : 100;
+    const bank = (econ.bank !== null && econ.bank !== undefined) ? Math.max(0, econ.bank) : 0;
+    const gems = (econ.gems !== null && econ.gems !== undefined) ? Math.max(0, econ.gems) : 0;
+    const lastDaily = econ.lastDaily || 0;
+    const lastWeekly = econ.lastWeekly || 0;
+    const lastWork = econ.lastWork || 0;
+    const lastBeg = econ.lastBeg || 0;
+    const jailedUntil = econ.jailedUntil || 0;
+    
+    setEconomyStmt.run(jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil);
+  } catch (err) {
+    console.error('Fehler in setEconomy:', err);
+  }
 }
 
 function isJailed(jid) {
@@ -1074,8 +1128,8 @@ CREATE TABLE IF NOT EXISTS inventory (
   topXpStmt = dbInstance.prepare('SELECT name, xp, level FROM users ORDER BY xp DESC LIMIT ?');
 
   // Economy Statements
-  const getEconomyStmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
-  const setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  getEconomyStmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
+  setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
   // Datenbank-Migrationen: Füge lastHuntTime hinzu falls nicht vorhanden
   try {
@@ -10500,6 +10554,104 @@ case 'resetwarn': {
 
   break;
 }
+case 'mp4': {
+  const q = args.join(' ');
+  const botName = '💻 BeastBot';
+  const startTime = Date.now();
+
+  if (!q) {
+    await sock.sendMessage(chatId, {
+      text: `⚠️ Bitte gib einen Videonamen oder Link ein!\n\n` +
+            `💿 Beispiel: /mp4 Hoffnung Schillah\n\n` +
+            `> ${botName}`
+    }, { quoted: msg });
+    break;
+  }
+
+  try {
+    await sock.sendPresenceUpdate('composing', chatId);
+    await sleep(500);
+    await sock.readMessages([msg.key]);
+
+    const search = await yts.search(q);
+    if (!search.videos.length) {
+      await sock.sendMessage(chatId, { text: `😕 Ich habe kein Video gefunden.\n> ${botName}`, quoted: msg });
+      break;
+    }
+
+    const v = search.videos[0];
+    const { title, url, timestamp, views, author, ago, thumbnail } = v;
+
+    function durationToSeconds(str) {
+      if (!str) return 0;
+      return str.split(':').reverse().reduce((acc, val, i) => acc + (parseInt(val) || 0) * Math.pow(60, i), 0);
+    }
+
+    const durationSec = durationToSeconds(timestamp);
+    if (durationSec > 25200) { // max 7 Stunden
+      await sock.sendMessage(chatId, {
+        text: `⏰ Das Video ist zu lang (*${timestamp}*). Maximal 7 Stunden.\n> ${botName}`
+      }, { quoted: msg });
+      break;
+    }
+
+    const infoText =
+      `🎬 *BeastBot YouTube Video*\n\n` +
+      `❏ 📌 Titel: ${title}\n` +
+      `❏ ⏱ Dauer: ${timestamp}\n` +
+      `❏ 👀 Aufrufe: ${views.toLocaleString()}\n` +
+      `❏ 📅 Hochgeladen: ${ago}\n` +
+      `❏ 👤 Uploader: ${author?.name || 'Unbekannt'}\n` +
+      `❏ 🔗 Link: ${url}\n\n` +
+      `⏳ Ich lade das Video für dich… bitte einen Moment!`;
+
+    await sock.sendMessage(chatId, {
+      image: { url: thumbnail },
+      caption: infoText,
+    }, { quoted: msg });
+
+    await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+
+    // === yt-dlp + ffmpeg für mp4 ===
+    const ytDlpPath = path.join(__dirname, 'yt-dlp');
+    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
+    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
+
+    const ffmpegLocation = '/opt/homebrew/bin/ffmpeg';
+
+    await new Promise((resolve, reject) => {
+      exec(
+        `"${ytDlpPath}" -f mp4 -o "${filePath}" "${url}"`,
+        (error, stdout, stderr) => {
+          if (error) return reject(stderr || error.message);
+          resolve(stdout);
+        }
+      );
+    });
+
+    const videoBuffer = fs.readFileSync(filePath);
+    const endTime = Date.now();
+    const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+
+    await sock.sendMessage(chatId, {
+      video: videoBuffer,
+      mimetype: 'video/mp4',
+      fileName: `${cleanTitle}.mp4`,
+      caption: `✅ Fertig! Das Video wurde in ${timeTaken}s heruntergeladen.\n> ${botName}`
+    }, { quoted: msg });
+
+    await sendReaction(from, msg, '✅');
+    fs.unlinkSync(filePath);
+
+  } catch (err) {
+    console.error('Fehler bei !mp4:', err);
+    await sock.sendMessage(chatId, {
+      text: `❌ Es ist ein Fehler aufgetreten:\n${err?.message || 'Unbekannter Fehler'}\n> ${botName}`
+    }, { quoted: msg });
+  }
+
+  break;
+}
 case 'leave': {
   const senderRank = ranks.getRank(sender); // Rang des Command-Senders
   const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
@@ -11088,58 +11240,96 @@ case 'penis': {
   break;
 }
 case 'pay': {
-  // Geld von einem Nutzer zum anderen überweisen
-  // Nutzung: /pay @User <Betrag> oder /pay <LID> <Betrag>
+  // Geld von einem Nutzer zum anderen überweisen mit Economy System
   if (args.length < 2) {
-    await sock.sendMessage(chatId, { text: '❌ Nutzung: /pay <@User|LID> <Betrag>' }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: '💸 Nutzung: */pay @User <Betrag>*\n\nBeispiel: */pay @jemand 100*\n\n⚠️ Markiere den User mit @!' }, { quoted: msg });
     break;
   }
 
-  // Empfänger ermitteln
-  let targetId;
-  if (msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0]) {
-    targetId = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
-  } else {
-    targetId = args[0];
+  // Empfänger MUSS erwähnt sein
+  if (!msg.mentions || msg.mentions.length === 0) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte markiere den Empfänger mit @!\n\nBeispiel: */pay @jemand 100*' }, { quoted: msg });
+    break;
   }
 
+  const targetJid = msg.mentions[0];
   const amount = parseInt(args[1]);
+  
   if (isNaN(amount) || amount <= 0) {
     await sock.sendMessage(chatId, { text: '❌ Bitte gib einen gültigen Betrag an.' }, { quoted: msg });
     break;
   }
 
-  const senderId = jid; // definiert weiter oben als teilnehmender JID
-  if (senderId === targetId) {
+  if (senderJid === targetJid) {
     await sock.sendMessage(chatId, { text: '❌ Du kannst dir selbst kein Geld senden.' }, { quoted: msg });
     break;
   }
 
-  // lade oder erstelle Sender und Empfänger in DB
-  let senderUser = getUser(senderId);
+  // Stelle sicher dass beide registriert sind
+  let senderUser = getUser(senderJid);
   if (!senderUser) {
-    ensureUser(senderId, senderId.split('@')[0]);
-    senderUser = getUser(senderId);
-  }
-  let targetUser = getUser(targetId);
-  if (!targetUser) {
-    ensureUser(targetId, targetId.split('@')[0]);
-    targetUser = getUser(targetId);
+    ensureUser(senderJid, msg.pushName || 'Spieler');
+    senderUser = getUser(senderJid);
   }
 
-  if ((senderUser.balance || 0) < amount) {
-    await sock.sendMessage(chatId, { text: '❌ Du hast nicht genug Coins für diese Überweisung.' }, { quoted: msg });
+  let targetUser = getUser(targetJid);
+  let targetName = '';
+  
+  // Versuche den Namen des erwähnten Users zu bekommen
+  try {
+    // Extrahiere Namen aus der Erwähnung wenn möglich
+    const chatData = await sock.fetchChatFromServer(chatId).catch(() => null);
+    if (chatData?.participants) {
+      const targetParticipant = chatData.participants.find(p => p.id === targetJid);
+      if (targetParticipant?.name) {
+        targetName = targetParticipant.name;
+      }
+    }
+  } catch (e) {}
+
+  // Falls kein Name gefunden, versuche aus DB
+  if (!targetName && targetUser?.name) {
+    targetName = targetUser.name;
+  }
+
+  // Falls noch kein Name, versuche fetchStatus
+  if (!targetName) {
+    try {
+      const status = await sock.fetchStatus(targetJid).catch(() => null);
+      if (status?.status) {
+        const nameMatch = status.status.match(/^([^\\n]+)/);
+        if (nameMatch) targetName = nameMatch[1].substring(0, 30);
+      }
+    } catch (e) {}
+  }
+
+  // Falls wirklich kein Name, nutze Nummer
+  if (!targetName) {
+    targetName = targetJid.split('@')[0];
+  }
+
+  if (!targetUser) {
+    ensureUser(targetJid, targetName);
+    targetUser = getUser(targetJid);
+  }
+
+  const senderEcon = getEconomy(senderJid);
+  if (senderEcon.cash < amount) {
+    await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash! (Benötigt: ${formatMoney(amount)}, Hast: ${formatMoney(senderEcon.cash)})` }, { quoted: msg });
     break;
   }
 
+  const targetEcon = getEconomy(targetJid);
+  
   // Transfer
-  const newSenderBal = senderUser.balance - amount;
-  const newTargetBal = (targetUser.balance || 0) + amount;
-  updateUser(senderId, newSenderBal, senderUser.xp, senderUser.level, senderUser.name);
-  updateUser(targetId, newTargetBal, targetUser.xp, targetUser.level, targetUser.name);
-
+  senderEcon.cash -= amount;
+  targetEcon.cash += amount;
+  
+  setEconomy(senderJid, senderEcon);
+  setEconomy(targetJid, targetEcon);
+  
   await sock.sendMessage(chatId, {
-    text: `✅ Überweisung erfolgreich!\n${amount} 💸 von ${senderUser.name || senderId} an ${targetUser.name || targetId} gesendet.`
+    text: `✅ *Geldtransfer erfolgreich!*\n\n💸 Du hast ${formatMoney(amount)} an ${targetName} gesendet\n💰 Dein neuer Kontostand: ${formatMoney(senderEcon.cash)}`
   }, { quoted: msg });
   break;
 }
@@ -12895,13 +13085,18 @@ case 'device': {
 
 //=============ECONOMY: TOPBALANCE============================//
    case 'topbalance': {
-     const topStmt = dbInstance.prepare('SELECT name, balance FROM users ORDER BY balance DESC LIMIT 10');
+     const topStmt = dbInstance.prepare('SELECT e.jid, e.cash, u.name FROM economy e LEFT JOIN users u ON e.jid = u.jid ORDER BY e.cash DESC LIMIT 10');
      const tops = topStmt.all();
      
-     let text = '🏆 *Top 10 Cash*\n\n';
-     tops.forEach((u, i) => {
-       text += `${i + 1}. ${u.name} - ${formatMoney(u.balance)}\n`;
-     });
+     let text = '🏆 *Top 10 Reichste Spieler (Cash)*\n\n';
+     if (tops.length === 0) {
+       text += 'Noch keine Daten vorhanden!';
+     } else {
+       tops.forEach((u, i) => {
+         const name = u.name || u.jid.split('@')[0];
+         text += `${i + 1}. ${name} - 💵 ${formatMoney(u.cash || 0)}\n`;
+       });
+     }
      
      await sock.sendMessage(chatId, { text }, { quoted: msg });
      break;
@@ -12918,41 +13113,56 @@ case 'device': {
      }
      
      if (subCmd === 'balance') {
-       await sock.sendMessage(chatId, { text: `🏦 *Bankkontostand:*\n\nCash: ${formatMoney(econ.cash || 100)}\nBank: ${formatMoney(econ.bank || 0)}\nZinsrate: 1%` }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: `🏦 *Bankkontostand:*\n\n💵 Cash: ${formatMoney(econ.cash || 100)}\n🏦 Bank: ${formatMoney(econ.bank || 0)}\n📊 Zinsrate: 1%` }, { quoted: msg });
+       break;
      } else if (subCmd === 'deposit') {
+       if (!args[1]) {
+         await sock.sendMessage(chatId, { text: '❌ Bitte gib einen Betrag an! */bank deposit <Betrag>*' }, { quoted: msg });
+         break;
+       }
        const amount = parseInt(args[1]);
        if (isNaN(amount) || amount <= 0) {
          await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
          break;
        }
        if (econ.cash < amount) {
-         await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash!` }, { quoted: msg });
+         await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash! (Hast: ${formatMoney(econ.cash)}, Benötigt: ${formatMoney(amount)})` }, { quoted: msg });
          break;
        }
        econ.cash -= amount;
        econ.bank = (econ.bank || 0) + amount;
        setEconomy(senderJid, econ);
-       await sock.sendMessage(chatId, { text: `✅ ${formatMoney(amount)} auf dein Bankkonto eingezahlt!\n\n💵 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: `✅ *Einzahlung erfolgreich!*\n\n💵 +${formatMoney(amount)} eingezahlt\n\n💸 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+       break;
      } else if (subCmd === 'withdraw') {
+       if (!args[1]) {
+         await sock.sendMessage(chatId, { text: '❌ Bitte gib einen Betrag an! */bank withdraw <Betrag>*' }, { quoted: msg });
+         break;
+       }
        const amount = parseInt(args[1]);
        if (isNaN(amount) || amount <= 0) {
          await sock.sendMessage(chatId, { text: '❌ Ungültiger Betrag!' }, { quoted: msg });
          break;
        }
        if (econ.bank < amount) {
-         await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug auf der Bank!` }, { quoted: msg });
+         await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug auf der Bank! (Hast: ${formatMoney(econ.bank)}, Benötigt: ${formatMoney(amount)})` }, { quoted: msg });
          break;
        }
        econ.bank -= amount;
        econ.cash = (econ.cash || 100) + amount;
        setEconomy(senderJid, econ);
-       await sock.sendMessage(chatId, { text: `✅ ${formatMoney(amount)} von der Bank abgehoben!\n\n💵 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: `✅ *Abhebung erfolgreich!*\n\n💸 +${formatMoney(amount)} abgehoben\n\n💵 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+       break;
      } else if (subCmd === 'interest') {
        const interest = Math.floor((econ.bank || 0) * 0.01);
        econ.cash = (econ.cash || 100) + interest;
-       econ.bank = Math.max(0, (econ.bank || 0) - 10); // Monthly fee
+       econ.bank = Math.max(0, (econ.bank || 0) - 10);
        setEconomy(senderJid, econ);
-       await sock.sendMessage(chatId, { text: `💰 *Monatliche Zinsen*\n\n+${formatMoney(interest)} Zinsen\n-10 Gebühr\n\n💵 Neuer Cash: ${formatMoney(econ.cash)}\n🏦 Neue Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: `💰 *Monatliche Zinsen*\n\n✅ +${formatMoney(interest)} Zinsen erhalten\n❌ -10 Kontoführungsgebühr\n\n💵 Neuer Cash: ${formatMoney(econ.cash)}\n🏦 Neue Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+       break;
+     } else {
+       await sock.sendMessage(chatId, { text: '❌ Unbekannter Bank-Befehl!\n\n*/bank balance* - Kontostand\n*/bank deposit <Betrag>* - Einzahlen\n*/bank withdraw <Betrag>* - Abheben\n*/bank interest* - Zinsen' }, { quoted: msg });
+       break;
      }
      break;
    }
@@ -13315,6 +13525,51 @@ case 'device': {
     break;
 }
 
+case 'rules':
+case 'regeln': {
+  const rulesMessage = `📜 *Beast Bot – Regeln*
+
+1️⃣ *Kein Spam*
+Bitte sende Commands nicht 10× hintereinander.
+
+2️⃣ *Kein Bot-Missbrauch*
+Versuche nicht den Bot zu crashen oder Bugs auszunutzen.
+
+3️⃣ *Respektvoll bleiben*
+Beleidigungen, Hass oder toxisches Verhalten sind verboten.
+
+4️⃣ *Keine illegalen Inhalte*
+Der Bot darf nicht für illegale Sachen genutzt werden.
+
+5️⃣ *Keine Werbung ohne Erlaubnis*
+Spam-Werbung oder Links sind verboten.
+
+6️⃣ *Owner & Admin respektieren*
+Entscheidungen von Admins und dem Bot Owner werden akzeptiert. Dazu gilt auch das Teammitglieder nicht aus Gruppen entfernt werden dürfen oder das der Bot seinen Admin Status verliert.
+
+7️⃣ *Keine NSFW Inhalte*
+Der Bot ist nicht für 18+ Inhalte gedacht.
+
+8️⃣ *Commands richtig nutzen*
+Nutze nur echte Commands und keine Fake-Befehle.
+
+9️⃣ *Keine Bot-Attacken*
+Versuche nicht den Bot zu überlasten oder zu spammen.
+
+🔟 *Regeln können sich ändern*
+Der Owner kann Regeln jederzeit ändern.
+
+⚠️ *Strafen bei Regelbruch:*
+• Warnung
+• Temporärer Bot-Ban
+• Permanenter Ban
+
+👑 *Bot Owner:* Beastmeds`;
+
+  await sock.sendMessage(chatId, { text: rulesMessage }, { quoted: msg });
+  break;
+}
+
 case 'spam': {
   if (!args[0]) {
     await sock.sendMessage(chatId, { 
@@ -13368,6 +13623,196 @@ case 'message': {
   const reply = `📊 Spam-Test Ergebnis:\n\n⏱️ **Antwortzeit:** ${responseTime}ms\n⏳ **Eingestellter Intervall:** ${spamInterval}ms\n📝 **Nachricht:** "${testMessage}"\n\n${responseTime <= spamInterval ? '✅ Schneller als erwartet!' : '⚠️ Langsamer als erwartet'}`;
   
   await sock.sendMessage(chatId, { text: reply }, { quoted: msg });
+  break;
+}
+
+// === CREATOR CODE MANAGEMENT ===
+case 'creator': {
+  const subcommand = args[0]?.toLowerCase();
+  const senderRank = ranks.getRank(sender);
+  const isOwner = ['Inhaber', 'Stellvertreter Inhaber'].includes(senderRank);
+
+  if (!isOwner) {
+    await sock.sendMessage(chatId, { text: '❌ Nur Owner/Stellvertreter dürfen Creator verwalten.' }, { quoted: msg });
+    break;
+  }
+
+  const codes = loadCodes();
+
+  if (subcommand === 'add') {
+    const creatorName = args.slice(1).join(' ').trim();
+    if (!creatorName) {
+      await sock.sendMessage(chatId, { text: `❌ Nutzung: /creator add <Name>\n\nBeispiel: /creator add MaxChannel` }, { quoted: msg });
+      break;
+    }
+
+    // Generiere eindeutigen Code
+    const creatorCode = `CREATOR_${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    
+    codes.creators.push({
+      name: creatorName,
+      code: creatorCode,
+      createdAt: new Date().toISOString(),
+      redeems: 0
+    });
+
+    saveCodes(codes);
+    await sock.sendMessage(chatId, { text: `✅ *Creator hinzugefügt!*\n\n👤 Name: ${creatorName}\n🔑 Code: \`${creatorCode}\`\n\n💰 Einlösebonus: 100.000 Coins` }, { quoted: msg });
+    console.log(`[CREATOR] ${creatorName} - ${creatorCode}`);
+  } else if (subcommand === 'list') {
+    if (codes.creators.length === 0) {
+      await sock.sendMessage(chatId, { text: '❌ Keine Creator vorhanden.' }, { quoted: msg });
+      break;
+    }
+
+    let creatorList = `📋 *Creator Liste:*\n\n`;
+    codes.creators.forEach((c, i) => {
+      creatorList += `${i + 1}. ${c.name}\n🔑 ${c.code}\n📊 Einlösungen: ${c.redeems}\n\n`;
+    });
+
+    await sock.sendMessage(chatId, { text: creatorList }, { quoted: msg });
+  } else {
+    await sock.sendMessage(chatId, { text: `❌ Nutzung:\n/creator add <Name>\n/creator list` }, { quoted: msg });
+  }
+  break;
+}
+
+// === CODE EINLÖSEN (Creator Code) ===
+case 'code': {
+  if (!args[0]) {
+    await sock.sendMessage(chatId, { text: `❌ Nutzung: /code <CreatorCode>\n\nBeispiel: /code CREATOR_ABC123` }, { quoted: msg });
+    break;
+  }
+
+  const inputCode = args[0].toUpperCase();
+  const codes = loadCodes();
+
+  // Prüfe ob Creator-Code existiert
+  const creator = codes.creators.find(c => c.code === inputCode);
+  if (!creator) {
+    await sock.sendMessage(chatId, { text: '❌ Ungültiger Creator Code!' }, { quoted: msg });
+    break;
+  }
+
+  // Prüfe ob Code bereits eingelöst wurde
+  if (!codes.usedCodes[senderJid]) codes.usedCodes[senderJid] = [];
+  if (codes.usedCodes[senderJid].includes(inputCode)) {
+    await sock.sendMessage(chatId, { text: `❌ Du hast diesen Code bereits eingelöst!` }, { quoted: msg });
+    break;
+  }
+
+  // Gib 100.000 Coins
+  const econ = getEconomy(senderJid);
+  econ.cash = (econ.cash || 0) + 100000;
+  setEconomy(senderJid, econ);
+
+  // Markiere Code als verwendet
+  codes.usedCodes[senderJid].push(inputCode);
+  creator.redeems = (creator.redeems || 0) + 1;
+  saveCodes(codes);
+
+  await sock.sendMessage(chatId, { text: `✅ *Creator Code eingelöst!*\n\n👤 Creator: ${creator.name}\n💰 +100.000 Cash\n\n💵 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+  console.log(`[CODE] ${sender} redeemed ${inputCode} from ${creator.name}`);
+  break;
+}
+
+// === REDEEM CODE MANAGEMENT ===
+case 'redeem': {
+  const subcommand = args[0]?.toLowerCase();
+  const senderRank = ranks.getRank(sender);
+  const isTeam = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'].includes(senderRank);
+
+  if (subcommand === 'add') {
+    // Nur Owner/Team darf neue Codes erstellen
+    if (!['Inhaber', 'Stellvertreter Inhaber'].includes(senderRank)) {
+      await sock.sendMessage(chatId, { text: '❌ Nur Owner/Stellvertreter dürfen Redeem-Codes erstellen.' }, { quoted: msg });
+      break;
+    }
+
+    const rewardStr = args[1];
+    if (!rewardStr || isNaN(rewardStr)) {
+      await sock.sendMessage(chatId, { text: `❌ Nutzung: /redeem add <Belohnung in Coins>\n\nBeispiel: /redeem add 50000` }, { quoted: msg });
+      break;
+    }
+
+    const reward = parseInt(rewardStr);
+    if (reward <= 0) {
+      await sock.sendMessage(chatId, { text: '❌ Belohnung muss größer als 0 sein!' }, { quoted: msg });
+      break;
+    }
+
+    // Generiere eindeutigen Code
+    const redeemCode = `REDEEM_${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    
+    const codes = loadCodes();
+    codes.redeemCodes.push({
+      code: redeemCode,
+      reward: reward,
+      type: 'cash',
+      createdBy: senderRank,
+      createdAt: new Date().toISOString(),
+      redeems: 0,
+      active: true
+    });
+
+    saveCodes(codes);
+    await sock.sendMessage(chatId, { text: `✅ *Redeem-Code erstellt!*\n\n🔑 Code: \`${redeemCode}\`\n💰 Belohnung: ${formatMoney(reward)}\n\nNutzer können den Code mit /redeem <code> einlösen.` }, { quoted: msg });
+    console.log(`[REDEEM ADD] ${redeemCode} - ${reward} Coins`);
+  } else if (subcommand === 'list') {
+    if (!isTeam) {
+      await sock.sendMessage(chatId, { text: '❌ Nur Team-Mitglieder dürfen Codes sehen.' }, { quoted: msg });
+      break;
+    }
+
+    const codes = loadCodes();
+    if (codes.redeemCodes.length === 0) {
+      await sock.sendMessage(chatId, { text: '❌ Keine Redeem-Codes vorhanden.' }, { quoted: msg });
+      break;
+    }
+
+    let codeList = `📋 *Redeem-Code Liste:*\n\n`;
+    codes.redeemCodes.forEach((c, i) => {
+      const status = c.active ? '✅' : '❌';
+      codeList += `${i + 1}. ${c.code} ${status}\n💰 ${formatMoney(c.reward)}\n📊 Einlösungen: ${c.redeems}\n\n`;
+    });
+
+    await sock.sendMessage(chatId, { text: codeList }, { quoted: msg });
+  } else {
+    // Einlösen eines Redeem-Codes
+    const inputCode = args[0]?.toUpperCase();
+    if (!inputCode) {
+      await sock.sendMessage(chatId, { text: `❌ Nutzung: /redeem <Code>\n\nBeispiel: /redeem REDEEM_ABC123` }, { quoted: msg });
+      break;
+    }
+
+    const codes = loadCodes();
+    const redeem = codes.redeemCodes.find(c => c.code === inputCode && c.active);
+    
+    if (!redeem) {
+      await sock.sendMessage(chatId, { text: '❌ Ungültiger oder inaktiver Redeem-Code!' }, { quoted: msg });
+      break;
+    }
+
+    // Prüfe ob Code bereits eingelöst wurde
+    if (!codes.usedCodes[senderJid]) codes.usedCodes[senderJid] = [];
+    if (codes.usedCodes[senderJid].includes(inputCode)) {
+      await sock.sendMessage(chatId, { text: `❌ Du hast diesen Code bereits eingelöst!` }, { quoted: msg });
+      break;
+    }
+
+    // Gib Belohnung
+    const econ = getEconomy(senderJid);
+    econ.cash = (econ.cash || 0) + redeem.reward;
+    setEconomy(senderJid, econ);
+
+    // Markiere Code als verwendet
+    codes.usedCodes[senderJid].push(inputCode);
+    redeem.redeems = (redeem.redeems || 0) + 1;
+    saveCodes(codes);
+
+    await sock.sendMessage(chatId, { text: `✅ *Gutschein eingelöst!*\n\n💰 +${formatMoney(redeem.reward)} Cash\n\n💵 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+    console.log(`[REDEEM] ${sender} redeemed ${inputCode} - ${redeem.reward} Coins`);
+  }
   break;
 }
 
@@ -15656,63 +16101,87 @@ global.bannedUsers = new Set()
 
 case 'viewonce': {
     try {
-        // Chat & Teilnehmer Infos
         const chatId = msg.key.remoteJid;
-        const participant = msg.key.participant || chatId;
 
-        // Quoted Message in Gruppen & Privat
-        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+        // Quoted Message aus contextInfo holen (alle Nachrichtentypen)
+        const contextInfo =
+            msg.message?.extendedTextMessage?.contextInfo ||
+            msg.message?.imageMessage?.contextInfo ||
+            msg.message?.videoMessage?.contextInfo ||
+            msg.message?.buttonsResponseMessage?.contextInfo ||
+            msg.message?.listResponseMessage?.contextInfo;
+
         const quoted = contextInfo?.quotedMessage;
 
-        // ViewOnce Inhalt auslesen (egal ob direkt oder quoted)
-        const viewOnce = quoted?.viewOnceMessageV2?.message 
-                      || quoted?.viewOnceMessage?.message
-                      || msg.message?.viewOnceMessageV2?.message
-                      || msg.message?.viewOnceMessage?.message;
-
-        if (!viewOnce) {
+        if (!quoted) {
+            console.log('[ViewOnce] Keine quoted message gefunden');
+            console.log('[ViewOnce] MSG:', JSON.stringify(msg.message, null, 2));
             await sock.sendMessage(chatId, {
-                text: '❌ Bitte antworte auf eine View-Once Nachricht (Bild oder Video).'
+                text: '❌ Bitte antworte auf eine View-Once Nachricht.'
+            }, { quoted: msg });
+            break;
+        }
+
+        console.log('[ViewOnce] QUOTED KEYS:', Object.keys(quoted));
+
+        // ViewOnce Inhalt - alle möglichen Pfade
+        const viewOnceMsg =
+            quoted?.viewOnceMessageV2?.message ||
+            quoted?.viewOnceMessage?.message ||
+            quoted?.viewOnceMessageV2Extension?.message ||
+            quoted?.ephemeralMessage?.message?.viewOnceMessageV2?.message ||
+            quoted?.ephemeralMessage?.message?.viewOnceMessage?.message;
+
+        // NEUER ANSATZ: Direkt imageMessage/videoMessage mit viewOnce-Flag prüfen
+        const directImage = quoted?.imageMessage;
+        const directVideo = quoted?.videoMessage;
+
+        const imageMsg = viewOnceMsg?.imageMessage || (directImage?.viewOnce ? directImage : null);
+        const videoMsg = viewOnceMsg?.videoMessage || (directVideo?.viewOnce ? directVideo : null);
+
+        if (!viewOnceMsg && !imageMsg && !videoMsg) {
+            console.log('[ViewOnce] Kein ViewOnce-Inhalt erkannt');
+            console.log('[ViewOnce] QUOTED FULL:', JSON.stringify(quoted, null, 2));
+            await sock.sendMessage(chatId, {
+                text: '❌ Kein View-Once Inhalt gefunden.\nStelle sicher, dass du direkt auf die View-Once Nachricht antwortest.'
             }, { quoted: msg });
             break;
         }
 
         // === Bild ===
-        if (viewOnce.imageMessage) {
-            const stream = await downloadContentFromMessage(viewOnce.imageMessage, 'image');
+        if (imageMsg) {
+            // viewOnce-Flag entfernen damit Baileys es downloaded
+            imageMsg.viewOnce = false;
+            const stream = await downloadContentFromMessage(imageMsg, 'image');
             let buffer = Buffer.from([]);
             for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
             await sock.sendMessage(chatId, {
                 image: buffer,
-                caption: viewOnce.imageMessage.caption || '',
-                fileName: 'viewonce.jpg'
+                caption: `🔓 *View-Once Bild*\n${imageMsg.caption || ''}`
             }, { quoted: msg });
-        }
 
         // === Video ===
-        else if (viewOnce.videoMessage) {
-            const stream = await downloadContentFromMessage(viewOnce.videoMessage, 'video');
+        } else if (videoMsg) {
+            // viewOnce-Flag entfernen
+            videoMsg.viewOnce = false;
+            const stream = await downloadContentFromMessage(videoMsg, 'video');
             let buffer = Buffer.from([]);
             for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
             await sock.sendMessage(chatId, {
                 video: buffer,
-                caption: viewOnce.videoMessage.caption || '',
-                fileName: 'viewonce.mp4'
+                caption: `🔓 *View-Once Video*\n${videoMsg.caption || ''}`
             }, { quoted: msg });
-        }
 
-        else {
+        } else {
             await sock.sendMessage(chatId, {
-                text: '❌ Konnte den View-Once Inhalt nicht extrahieren.'
+                text: '❌ Nur Bilder und Videos werden unterstützt.'
             }, { quoted: msg });
         }
 
     } catch (err) {
         console.error('❌ Fehler bei viewonce:', err);
         await sock.sendMessage(msg.key.remoteJid, {
-            text: '⚠️ Fehler beim Verarbeiten der View-Once Nachricht:\n' + (err.message || err)
+            text: `⚠️ Fehler: ${err.message || err}`
         }, { quoted: msg });
     }
     break;

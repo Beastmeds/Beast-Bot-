@@ -1,5 +1,5 @@
 {
-  "lastId": 11,
+  "lastId": 31,
   "tickets": [
     {
       "id": 1,
@@ -88,6 +88,166 @@
       "message": "wie ändert man das Prefix???",
       "status": "beantwortet",
       "timestamp": 1773297143884
+    },
+    {
+      "id": 12,
+      "user": "172357406736619@lid",
+      "chat": "120363404144905046@g.us",
+      "message": "@+49 1590 4899563 würde um 98k gescammed",
+      "status": "offen",
+      "timestamp": 1773433555576
+    },
+    {
+      "id": 13,
+      "user": "166125560135830@lid",
+      "chat": "166125560135830@lid",
+      "message": "wie bekomme ich dich auch",
+      "status": "beantwortet",
+      "timestamp": 1773435814178
+    },
+    {
+      "id": 14,
+      "user": "167594036297831@lid",
+      "chat": "120363407822258424@g.us",
+      "message": "/bank interest muss gefixed werden",
+      "status": "offen",
+      "timestamp": 1773492596129
+    },
+    {
+      "id": 15,
+      "user": "148816338624520@lid",
+      "chat": "120363406360911771@g.us",
+      "message": "nico bitte fix mal den den kill hast da Rechtschreibfehler drien ☺️",
+      "status": "offen",
+      "timestamp": 1773495299253
+    },
+    {
+      "id": 16,
+      "user": "148816338624520@lid",
+      "chat": "120363406360911771@g.us",
+      "message": "nico rob bitte auch fixen ist kaputt 😑",
+      "status": "beantwortet",
+      "timestamp": 1773495856826
+    },
+    {
+      "id": 17,
+      "user": "172357406736619@lid",
+      "chat": "120363406360911771@g.us",
+      "message": "⚠️ Fehler beim Beitritt: not-authorized",
+      "status": "beantwortet",
+      "timestamp": 1773501356331
+    },
+    {
+      "id": 18,
+      "user": "172357406736619@lid",
+      "chat": "120363404144905046@g.us",
+      "message": "das pay ist kaputt",
+      "status": "offen",
+      "timestamp": 1773516338169
+    },
+    {
+      "id": 19,
+      "user": "172357406736619@lid",
+      "chat": "120363407822258424@g.us",
+      "message": "Wie erhöht man seine Zinsrate?",
+      "status": "offen",
+      "timestamp": 1773576809063
+    },
+    {
+      "id": 20,
+      "user": "208267326259406@lid",
+      "chat": "208267326259406@lid",
+      "message": "ich will dich in Gruppe einfügen",
+      "status": "beantwortet",
+      "timestamp": 1773586762501
+    },
+    {
+      "id": 21,
+      "user": "208267326259406@lid",
+      "chat": "208267326259406@lid",
+      "message": "Hallo Lian, danke für die schnelle Antwort Kostet das irgendwas? Oder ist er einfach free to use?",
+      "status": "beantwortet",
+      "timestamp": 1773586842403
+    },
+    {
+      "id": 22,
+      "user": "172357406736619@lid",
+      "chat": "120363405047279053@g.us",
+      "message": "das pay ist kaputt",
+      "status": "beantwortet",
+      "timestamp": 1773586880654
+    },
+    {
+      "id": 23,
+      "user": "54928991076519@lid",
+      "chat": "120363426097251202@g.us",
+      "message": "bitte macht euer bot schöner das sieht zu sehr nach chatgpt aus",
+      "status": "beantwortet",
+      "timestamp": 1773610584657
+    },
+    {
+      "id": 24,
+      "user": "228531367858203@lid",
+      "chat": "120363424064427306@g.us",
+      "message": "wie geht leave message aus",
+      "status": "beantwortet",
+      "timestamp": 1773610673700
+    },
+    {
+      "id": 25,
+      "user": "228531367858203@lid",
+      "chat": "120363424064427306@g.us",
+      "message": "Ich meinte die nachricht wenn jemand verlässt",
+      "status": "beantwortet",
+      "timestamp": 1773610781897
+    },
+    {
+      "id": 26,
+      "user": "54928991076519@lid",
+      "chat": "54928991076519@lid",
+      "message": "kann ich das support dings von euch für mein bot nehmen? Änder es auch nochmal um bisschen",
+      "status": "offen",
+      "timestamp": 1773611691689
+    },
+    {
+      "id": 27,
+      "user": "225215284027490@lid",
+      "chat": "120363427599281145@g.us",
+      "message": "ist das richtig das /fish kein cooldown hat",
+      "status": "offen",
+      "timestamp": 1773615311898
+    },
+    {
+      "id": 28,
+      "user": "225215284027490@lid",
+      "chat": "120363427599281145@g.us",
+      "message": "/ttt hat auch keinen cooldown",
+      "status": "beantwortet",
+      "timestamp": 1773616756522
+    },
+    {
+      "id": 29,
+      "user": "148816338624520@lid",
+      "chat": "120363423198975634@g.us",
+      "message": "nico du hund die Hälfte der cmds versagen was das /sticker geht net",
+      "status": "offen",
+      "timestamp": 1773638720679
+    },
+    {
+      "id": 30,
+      "user": "225215284027490@lid",
+      "chat": "120363427599281145@g.us",
+      "message": "Fehler beim Geld",
+      "status": "offen",
+      "timestamp": 1773781335878
+    },
+    {
+      "id": 31,
+      "user": "245711438405835@lid",
+      "chat": "120363426097251202@g.us",
+      "message": "Sie hat englisch rasiert omg",
+      "status": "beantwortet",
+      "timestamp": 1773839175746
     }
   ]
 }

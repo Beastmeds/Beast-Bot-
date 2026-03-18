@@ -1,0 +1,59 @@
+{
+  "creators": [
+    {
+      "name": "Example Creator",
+      "code": "CREATOR_EXAMPLE",
+      "createdAt": "2026-03-12T00:00:00Z",
+      "redeems": 1
+    },
+    {
+      "name": "Beastmeds",
+      "code": "CREATOR_GYEAMBAM",
+      "createdAt": "2026-03-12T20:53:51.747Z",
+      "redeems": 1
+    }
+  ],
+  "redeemCodes": [
+    {
+      "code": "WELCOME100",
+      "reward": 50000,
+      "type": "cash",
+      "createdBy": "Owner",
+      "createdAt": "2026-03-12T00:00:00Z",
+      "redeems": 0,
+      "active": true
+    },
+    {
+      "code": "REDEEM_J0P4W3XN",
+      "reward": 100000,
+      "type": "cash",
+      "createdBy": "Inhaber",
+      "createdAt": "2026-03-12T20:59:32.717Z",
+      "redeems": 5,
+      "active": true
+    }
+  ],
+  "usedCodes": {
+    "1234567890@s.whatsapp.net": [
+      "CREATOR_EXAMPLE",
+      "WELCOME100"
+    ],
+    "157805923274884@lid": [
+      "REDEEM_J0P4W3XN",
+      "CREATOR_EXAMPLE",
+      "CREATOR_GYEAMBAM"
+    ],
+    "148816338624520@lid": [
+      "REDEEM_J0P4W3XN"
+    ],
+    "172357406736619@lid": [
+      "REDEEM_J0P4W3XN"
+    ],
+    "232156555116744@lid": [
+      "REDEEM_J0P4W3XN"
+    ],
+    "167594036297831@lid": [
+      "REDEEM_J0P4W3XN"
+    ]
+  }
+}

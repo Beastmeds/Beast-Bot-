@@ -1,5 +1,5 @@
 {
-  "nextId": 25,
+  "nextId": 28,
   "requests": [
     {
       "id": 1,
@@ -210,6 +210,34 @@
       "status": "accepted",
       "acceptedBy": "132822333415489@lid",
       "acceptedAt": 1773295464072
+    },
+    {
+      "id": 25,
+      "sender": "168178520998107@lid",
+      "senderName": "♡☆𝙺𝙱𝚃_Owner Cats☆♡",
+      "groupLink": "https://chat.whatsapp.com/C1AwohrvaWU8Ac3DC1F5Wm?mode=hq2tcli",
+      "timestamp": 1773408232717,
+      "status": "accepted",
+      "acceptedBy": "168178520998107@lid",
+      "acceptedAt": 1773408242707
+    },
+    {
+      "id": 26,
+      "sender": "17038655356929@lid",
+      "senderName": "jonas",
+      "groupLink": "https://chat.whatsapp.com/LB9TkspX20BIuI6QZH8qX2?mode=gi_t",
+      "timestamp": 1773509999187,
+      "status": "pending"
+    },
+    {
+      "id": 27,
+      "sender": "208267326259406@lid",
+      "senderName": "Alparslan",
+      "groupLink": "https://chat.whatsapp.com/Eouha25kWx86AmzVMqAhXe?mode=gi_t",
+      "timestamp": 1773587057646,
+      "status": "accepted",
+      "acceptedBy": "148816338624520@lid",
+      "acceptedAt": 1773587096288
     }
   ]
 }

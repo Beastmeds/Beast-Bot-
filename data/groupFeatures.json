@@ -177,14 +177,14 @@
     "autosticker": false,
     "mutegc": false,
     "autoreact": false,
-    "eilmeldungen": true,
+    "eilmeldungen": false,
     "badwords": [],
     "welcomeText": "Herzlich willkommen in der Familie❤️ @user",
     "goodbyeText": "Bye @user"
   },
   "120363424064427306@g.us": {
     "welcome": true,
-    "goodbye": true,
+    "goodbye": false,
     "leveling": false,
     "antilink": false,
     "antispam": false,
@@ -240,5 +240,48 @@
     "autoreact": false,
     "eilmeldungen": true,
     "badwords": []
+  },
+  "120363404144905046@g.us": {
+    "welcome": false,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": []
+  },
+  "120363385290302797@g.us": {
+    "welcome": false,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": true,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": []
+  },
+  "491724289331-1633522208@g.us": {
+    "welcome": true,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "Herzlich willkommen in der grp bitte einmal vorstellen:) @user"
   }
 }

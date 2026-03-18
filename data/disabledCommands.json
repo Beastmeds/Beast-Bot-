@@ -1,6 +1,9 @@
 {
   "disabled": [
     "users",
-    "user"
+    "user",
+    "pay",
+    "slot",
+    "sticker"
   ]
 }
