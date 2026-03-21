@@ -1,3 +1,12 @@
-node_modules
+.DS_Store
+logs/
+logs/log.txt
+deleted_messages.json
+yt-dlp
+*.exe
+node_modules/
+tmp/
+*.log
+sessions/node_modules
 musik/
 sessions
