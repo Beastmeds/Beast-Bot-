@@ -1,5 +1,5 @@
 {
-  "lastId": 31,
+  "lastId": 37,
   "tickets": [
     {
       "id": 1,
@@ -248,6 +248,54 @@
       "message": "Sie hat englisch rasiert omg",
       "status": "beantwortet",
       "timestamp": 1773839175746
+    },
+    {
+      "id": 32,
+      "user": "225215284027490@lid",
+      "chat": "120363407120987052@g.us",
+      "message": "why habe 3 unterschiedliche Konto stände bei drei unterschiedlichen Befehlen",
+      "status": "offen",
+      "timestamp": 1773867720353
+    },
+    {
+      "id": 33,
+      "user": "172357406736619@lid",
+      "chat": "120363404995000660@g.us",
+      "message": "/grpinfo geht nicht",
+      "status": "offen",
+      "timestamp": 1773987535889
+    },
+    {
+      "id": 34,
+      "user": "172357406736619@lid",
+      "chat": "120363423198975634@g.us",
+      "message": "der bot hängt ein bisschen",
+      "status": "offen",
+      "timestamp": 1773988827782
+    },
+    {
+      "id": 35,
+      "user": "172357406736619@lid",
+      "chat": "120363420096022527@g.us",
+      "message": "der bot macht faxen",
+      "status": "beantwortet",
+      "timestamp": 1773989080428
+    },
+    {
+      "id": 36,
+      "user": "168178520998107@lid",
+      "chat": "120363423649822867@g.us",
+      "message": "bot hängt bei warn (in ne Gruppe)",
+      "status": "beantwortet",
+      "timestamp": 1774014002327
+    },
+    {
+      "id": 37,
+      "user": "141416579788877@lid",
+      "chat": "141416579788877@lid",
+      "message": "wieso nicht nach Punkte bei /rank",
+      "status": "beantwortet",
+      "timestamp": 1774018798537
     }
   ]
 }

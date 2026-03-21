@@ -28,7 +28,7 @@
     "badwords": []
   },
   "120363407120987052@g.us": {
-    "welcome": false,
+    "welcome": true,
     "goodbye": false,
     "leveling": true,
     "antilink": false,
@@ -39,7 +39,9 @@
     "mutegc": false,
     "autoreact": false,
     "badwords": [],
-    "eilmeldungen": false
+    "eilmeldungen": false,
+    "welcomeText": "Hallo in dieser flotten Bot Test Gruppe @user",
+    "goodbyeText": "Der oder Die @user hat uns verlassen \n\n 😭"
   },
   "120363424624178238@g.us": {
     "welcome": false,
@@ -202,7 +204,7 @@
     "welcome": true,
     "goodbye": false,
     "leveling": false,
-    "antilink": true,
+    "antilink": false,
     "antispam": false,
     "antinsfw": false,
     "antibot": false,
@@ -283,5 +285,50 @@
     "eilmeldungen": true,
     "badwords": [],
     "welcomeText": "Herzlich willkommen in der grp bitte einmal vorstellen:) @user"
+  },
+  "120363407835476796@g.us": {
+    "welcome": false,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": true,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "willkommen @user BEI BEASTBOT NICHT MENU 3 ÖFFNEN WER DAS MACHT bekommt eine Verwarnung"
+  },
+  "120363409084905833@g.us": {
+    "welcome": true,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": true,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "willkommen @user hier sind Sticker und co. bitte nicht perverse oder rassistische Sticker und co. BEI BEASTBOT NICHT MENU 3 ÖFFNEN WER DAS MACHT EINE VERWAHNUNG"
+  },
+  "120363423751820854@g.us": {
+    "welcome": false,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "morgen und willkommen @user wenn du link hier rein schickst dann bitte alles außer sexuelles z.B. WhatsApp Kanal"
   }
 }

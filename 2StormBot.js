@@ -41,6 +41,34 @@ const loadHeavyDeps = () => {
 
 const BOTHUB_URL = "https://bothub.gamebot.me/api/bot/update-stats";
 const BOTHUB_TOKEN = "api_BotHub_13_1756984116657_ceb64da87bc3fe215bdb430041778b36";
+
+// Base44 Web Register Constants
+const API_BASE_URL = 'https://beastbot.base44.app'; // Deine Base44 App URL
+const BOT_WEBHOOK_SECRET = 'BeastBot'; // Gleich wie BOT_WEBHOOK_SECRET in Base44
+const BASE44_APP_ID = 'DEINE_APP_ID'; // z.B. "69ba56fe13f5ed1f6e3d3687"
+// Full Functions endpoint (Dashboard → Code → Functions → syncBotUser)
+const FUNCTION_URL = `https://api.base44.com/api/apps/${BASE44_APP_ID}/functions/syncBotUser`;
+
+// Top-level helper: Sync a single user to Base44 by calling your Function
+async function syncUserToBase44(userData) {
+  try {
+    await axios.post(FUNCTION_URL, {
+      secret: BOT_WEBHOOK_SECRET,
+      whatsapp_number: userData.whatsapp_number,
+      username: userData.username,
+      coins: userData.coins,
+      level: userData.level,
+      xp: userData.xp,
+      rank: userData.rank,
+      job: userData.job,
+      warnings: userData.warnings || 0
+    });
+    console.log('✅ User synced to Base44:', userData.whatsapp_number);
+  } catch (err) {
+    console.error('❌ Sync Error:', err.message);
+  }
+}
+
 const blockedFile = './data/blocked.json';
 if (!fs.existsSync(blockedFile)) fs.writeFileSync(blockedFile, JSON.stringify({ blocked: [] }, null, 2));
 
@@ -402,6 +430,21 @@ function syncUserToJSON(jid, userData) {
     lastUpdated: new Date().toISOString()
   };
   saveUsers(users);
+  // Fire-and-forget: sync to Base44 Function to keep web dashboard updated
+  try {
+    const rank = (typeof ranks !== 'undefined' && ranks.getRank) ? ranks.getRank(jid) : '';
+    syncUserToBase44({
+      whatsapp_number: jid,
+      username: users[jid].name,
+      coins: users[jid].balance,
+      level: users[jid].level,
+      xp: users[jid].xp,
+      rank: rank,
+      job: ''
+    }).catch(err => console.error('Base44 sync failed:', err && err.message ? err.message : err));
+  } catch (e) {
+    console.error('Error scheduling Base44 sync:', e.message);
+  }
 }
 
 function syncUserFromJSON(jid, userData) {
@@ -1009,6 +1052,75 @@ function saveFarewellData() {
 }
 //=================================================================//
 module.exports = async function (sock, sessionName) {
+  // Base44 Web Register Function - Hilfsfunktion
+  async function generateLoginCode(whatsapp_number, username) {
+    const res = await axios.post(`${API_BASE_URL}/api/functions/generateLoginCode`, {
+      whatsapp_number,
+      username,
+      secret: BOT_WEBHOOK_SECRET
+    });
+    return res.data;
+  }
+
+  // Base44 BotUser Sync Function
+  async function syncBotUser(userData) {
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/functions/syncBotUser`, {
+        secret: BOT_WEBHOOK_SECRET,
+        userData: userData
+      });
+      console.log('✅ Base44 sync:', res.data);
+      return res.data;
+    } catch (err) {
+      console.error('❌ Base44 sync error:', err.message);
+      throw err;
+    }
+  }
+
+  // Base44 Web Register Handler
+  async function handleWebRegister(msg, sender) {
+    const whatsappNumber = sender.replace('@s.whatsapp.net', '').replace('@lid', '').split('@')[0];
+    const username = msg.pushName || whatsappNumber;
+    const chatId = msg.key.remoteJid;
+
+    try {
+      await sock.sendMessage(chatId, { text: '⏳ Erstelle deinen Web-Account...' }, { quoted: msg });
+
+      const result = await generateLoginCode(whatsappNumber, username);
+
+      if (result.success) {
+        // Sync user data to Base44
+        const users = loadUsers();
+        const userData = users[sender] || {};
+        const syncData = {
+          whatsapp_number: whatsappNumber,
+          username: username,
+          coins: userData.balance || 0,
+          level: userData.level || 1,
+          xp: userData.xp || 0,
+          rank: ranks.getRank(sender) || '',
+          job: userData.job || '',
+          warnings: 0 // Placeholder, can be improved later
+        };
+        await syncBotUser(syncData);
+
+        await sock.sendMessage(chatId, {
+          text: `✅ *Web-Account erstellt!*\n\n` +
+                `Dein Login-Code:\n` +
+                `\`\`\`${result.code}\`\`\`\n\n` +
+                `🔗 Gehe zur Website und gib diesen Code ein.\n` +
+                '🫵 Der Link https://beastbot.base44.app'
+                `⚠️ Der Code ist *10 Minuten* gültig und nur einmal verwendbar.`
+        }, { quoted: msg });
+      } else {
+        await sock.sendMessage(chatId, { text: `❌ Fehler: ${result.error || 'Unbekannter Fehler'}` }, { quoted: msg });
+      }
+    } catch (error) {
+      await sock.sendMessage(chatId, { text: '❌ Serverfehler. Bitte versuche es später erneut.' }, { quoted: msg });
+      console.error('Web Register Error:', error.message);
+    }
+  }
+
   // Initialisiere Datenbank zuerst
   dbInstance = getDB();
   
@@ -1423,6 +1535,35 @@ sock.ev.on('messages.upsert', async (m) => {
 
   // === Jede Nachricht automatisch als gelesen markieren ===
   await sock.readMessages([msg.key]);
+
+  // --- AFK-Mention Check ---
+  if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
+    const mentionedJids = msg.message.extendedTextMessage.contextInfo?.mentionedJid || [];
+    const afkMentions = mentionedJids
+      .map(jid => ({ jid, status: getAFKStatus(jid) }))
+      .filter(item => item.status);
+
+    if (afkMentions.length) {
+      const mentions = afkMentions.map(m => m.jid);
+      const textLines = afkMentions.map(({ jid, status }) => {
+        const duration = Date.now() - status.timestamp;
+        const hours = Math.floor(duration / (1000 * 60 * 60));
+        const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((duration % (1000 * 60)) / 1000);
+
+        const durationText = hours > 0 ? `${hours}h ${minutes}m ${seconds}s`
+                          : minutes > 0 ? `${minutes}m ${seconds}s`
+                          : `${seconds}s`;
+
+        return `😴 @${jid.split('@')[0]} ist AFK!\n📝 Grund: ${status.reason}\n⏱️ Seit: ${durationText}`;
+      });
+
+      await sock.sendMessage(chatId, {
+        text: textLines.join('\n\n'),
+        mentions
+      }, { quoted: msg });
+    }
+  }
 
   // === Nur Commands: "schreibt…" simulieren ===
   if (body.startsWith(prefix)) {
@@ -2437,6 +2578,25 @@ case 'nyx': {
   break;
 }
 
+case 'reload': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+
+  if (!allowed.includes(senderRank)) {
+    await sock.sendMessage(from, { text: '⛔ Nur Inhaber oder Stellvertreter dürfen diesen Befehl ausführen.' }, { quoted: msg });
+    break;
+  }
+
+  await sock.sendMessage(from, { text: '🔄 Bot wird neu gestartet...' }, { quoted: msg });
+  console.log('[RELOAD] Bot wird durch /reload neu gestartet...');
+  
+  // Beende den Prozess, PM2 wird ihn automatisch neu starten
+  setTimeout(() => {
+    process.exit(0);
+  }, 1000);
+  break;
+}
+
 case 'fishlist': {
   let text = '🎣 **Liste aller Fische und ihr Wert:**\n\n';
   fishes.forEach(f => {
@@ -2446,6 +2606,41 @@ case 'fishlist': {
   });
 
   await sock.sendMessage(chatId, { text }, { quoted: msg });
+  break;
+}
+
+case 'webregister': {
+  await handleWebRegister(msg, sender);
+  break;
+}
+
+case 'web': {
+  const args = q.trim();
+  
+  if (!args) {
+    await sock.sendMessage(chatId, {
+      text: '❌ Format: `/web Username/Passwort`\n\nBeispiel: `/web meinname/meinpasswort123`'
+    }, { quoted: msg });
+    break;
+  }
+
+  const parts = args.split('/');
+  if (parts.length < 2) {
+    await sock.sendMessage(chatId, {
+      text: '❌ Format: `/web Username/Passwort`'
+    }, { quoted: msg });
+    break;
+  }
+
+  const username = parts[0].trim();
+  const password = parts.slice(1).join('/').trim();
+
+  await sock.sendMessage(chatId, {
+    text: `✅ *Credentials gesetzt!*\n\n` +
+          `👤 Username: *${username}*\n` +
+          `🔑 Passwort: gespeichert\n\n` +
+          `Du kannst dich jetzt mit Username & Passwort auf der Website anmelden.`
+  }, { quoted: msg });
   break;
 }
 
@@ -12612,44 +12807,44 @@ case 'antidelete': {
 
 //=============AFK SYSTEM============================//
 case 'afk': {
-  const reason = q || 'Keine Begründung angegeben';
-  const afkStatus = getAFKStatus(senderJid);
+    const reason = q || 'Keine Begründung angegeben';
+    const afkStatus = getAFKStatus(senderJid); // globaler Speicher
 
-  if (afkStatus) {
-    // User ist bereits AFK - entfernen
-    removeAFK(senderJid);
-    
-    // Berechne die Dauer der AFK-Zeit
-    const afkDuration = Date.now() - afkStatus.timestamp;
-    const hours = Math.floor(afkDuration / (1000 * 60 * 60));
-    const minutes = Math.floor((afkDuration % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((afkDuration % (1000 * 60)) / 1000);
-    
-    let durationText = '';
-    if (hours > 0) {
-      durationText = `${hours}h ${minutes}m ${seconds}s`;
-    } else if (minutes > 0) {
-      durationText = `${minutes}m ${seconds}s`;
+    if (afkStatus) {
+        // User war AFK → zurück online
+        removeAFK(senderJid);
+
+        const afkDuration = Date.now() - afkStatus.timestamp;
+        const hours = Math.floor(afkDuration / (1000 * 60 * 60));
+        const minutes = Math.floor((afkDuration % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((afkDuration % (1000 * 60)) / 1000);
+
+        let durationText = hours > 0 ? `${hours}h ${minutes}m ${seconds}s`
+                          : minutes > 0 ? `${minutes}m ${seconds}s`
+                          : `${seconds}s`;
+
+        await sock.sendMessage(chatId, {
+            text: `👋 @${senderJid.split('@')[0]} ist nun wieder online! 🟢\n⏱️ AFK-Zeit: ${durationText}`,
+            contextInfo: { mentionedJid: [senderJid] }
+        }, { quoted: msg });
+
+        console.log(`[AFK] User ${senderJid} ist jetzt wieder online (Dauer: ${durationText})`);
     } else {
-      durationText = `${seconds}s`;
+        // User geht AFK → global
+        setAFK(senderJid, reason);
+
+        await sock.sendMessage(chatId, {
+            text: `⏸️ @${senderJid.split('@')[0]} ist jetzt AFK!\n📝 Grund: ${reason}`,
+            contextInfo: { mentionedJid: [senderJid] }
+        }, { quoted: msg });
+
+        console.log(`[AFK] User ${senderJid} ist jetzt AFK: ${reason}`);
     }
-    
-    await sock.sendMessage(chatId, {
-      text: `👋 @${senderJid.split('@')[0]} ist nun wieder online! 🟢\n\n⏱️ AFK-Zeit: ${durationText}`,
-      contextInfo: { mentionedJid: [senderJid] }
-    }, { quoted: msg });
-    console.log(`[AFK] User ${senderJid} ist jetzt wieder online (Dauer: ${durationText})`);
-  } else {
-    // User geht AFK
-    setAFK(senderJid, reason);
-    await sock.sendMessage(chatId, {
-      text: `⏸️ @${senderJid.split('@')[0]} ist jetzt AFK!\n\n📝 Grund: ${reason}`,
-      contextInfo: { mentionedJid: [senderJid] }
-    }, { quoted: msg });
-    console.log(`[AFK] User ${senderJid} ist jetzt AFK: ${reason}`);
-  }
-  break;
+
+    break;
 }
+
+// (Der AFK-Mention-Check wird jetzt früher im Message-Handler durchgeführt)
 
 //=============PING============================//          
    case 'nayvy': {

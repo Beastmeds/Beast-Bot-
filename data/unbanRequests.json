@@ -1,5 +1,5 @@
 {
-  "lastId": 2,
+  "lastId": 3,
   "requests": [
     {
       "id": 1,
@@ -18,6 +18,16 @@
       "banReason": "Anrufen des Bottes, den Bot voll Spämen, Den Owner HS genannt.",
       "status": "genehmigt",
       "timestamp": 1772289434148
+    },
+    {
+      "id": 3,
+      "user": "111192475451585@lid",
+      "chat": "491724289331-1633522208@g.us",
+      "message": "Ich habe mich nicht regelkonform verhalten, entschuldige mich aber dafür.",
+      "banReason": "Nicht bot würdig",
+      "status": "abgelehnt",
+      "timestamp": 1774079141598,
+      "rejectReason": "Deine Anfrage wurde abgelehnt."
     }
   ]
 }
