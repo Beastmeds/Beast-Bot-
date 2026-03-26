@@ -21,7 +21,8 @@ const { spawn } = require('child_process');
 
 const fs = require('fs');
 const { downloadMediaMessage } = require('@717development/baileys');
-const chalk = require('chalk');
+const chalkModule = require('chalk');
+const chalk = chalkModule.default || chalkModule; // compat for ESM/CJS chalk builds
 const allowedRanks = require('./ranksConfig.json');
 const { proto, generateWAMessageFromContent, prepareWAMessageMedia, getContentType } = require('@717development/baileys');
 const { downloadContentFromMessage } = require('@717development/baileys')
