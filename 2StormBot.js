@@ -13160,7 +13160,7 @@ case 'main2': {
   const latency = Date.now() - start;
 
   const mediaImage = await prepareWAMessageMedia(
-    { image: fs.readFileSync('/Users/nicolloyd/Desktop/BeastBot/bot/bot.png') },
+    { image: fs.readFileSync('/root/Beast-Bot-/bot/bot.png') },
     { upload: sock.waUploadToServer }
   );
 
