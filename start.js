@@ -3,6 +3,7 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   Browsers,
+  DisconnectReason
 } = require('@717development/baileys');
 
 const qrcode = require('qrcode-terminal');
@@ -57,7 +58,7 @@ async function startSock(sessionName) {
   let _resolveReady;
   const ready = new Promise(r => _resolveReady = r);
 
-  sock.ev.on('connection.update', async ({ connection, qr }) => {
+  sock.ev.on('connection.update', async ({ connection, qr, lastDisconnect }) => {
     if (qr) {
       console.clear();
       printLogo();
@@ -66,8 +67,20 @@ async function startSock(sessionName) {
     }
 
     if (connection === 'close') {
-      console.log(`${colors.yellow}🔄 Session ${sessionName} getrennt, versuche erneut zu verbinden...${colors.reset}`);
-      startSock(sessionName);
+      const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+      if (shouldReconnect) {
+        console.log(`${colors.yellow}🔄 Session ${sessionName} getrennt, versuche in 5 Sekunden erneut zu verbinden...${colors.reset}`);
+        setTimeout(() => startSock(sessionName), 5000);
+      } else {
+        console.log(`${colors.red}❌ Session ${sessionName} ausgeloggt. Lösche Session und starte neu.${colors.reset}`);
+        // Lösche Session-Ordner
+        const sessionFolder = `./sessions/${sessionName}`;
+        if (fs.existsSync(sessionFolder)) {
+          fs.rmSync(sessionFolder, { recursive: true, force: true });
+        }
+        // Starte neu
+        setTimeout(() => startSock(sessionName), 1000);
+      }
     }
 
     if (connection === 'open') {

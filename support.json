@@ -1,5 +1,5 @@
 {
-  "lastId": 37,
+  "lastId": 50,
   "tickets": [
     {
       "id": 1,
@@ -296,6 +296,110 @@
       "message": "wieso nicht nach Punkte bei /rank",
       "status": "beantwortet",
       "timestamp": 1774018798537
+    },
+    {
+      "id": 38,
+      "user": "148816338624520@lid",
+      "chat": "491724289331-1633522208@g.us",
+      "message": "nico wann wird /slot geh fixt",
+      "status": "offen",
+      "timestamp": 1774100921845
+    },
+    {
+      "id": 39,
+      "user": "172357406736619@lid",
+      "chat": "172357406736619@lid",
+      "message": "wann wird der bot repariert?",
+      "status": "beantwortet",
+      "timestamp": 1774100975807
+    },
+    {
+      "id": 40,
+      "user": "172357406736619@lid",
+      "chat": "120363406985226920@g.us",
+      "message": "wie kann man Selbstpromote machen?",
+      "status": "beantwortet",
+      "timestamp": 1774119637957
+    },
+    {
+      "id": 41,
+      "user": "172357406736619@lid",
+      "chat": "120363406985226920@g.us",
+      "message": "resetwarn funktioniert nd",
+      "status": "offen",
+      "timestamp": 1774124254762
+    },
+    {
+      "id": 42,
+      "user": "172357406736619@lid",
+      "chat": "120363407822258424@g.us",
+      "message": "der bit reagiert nd bei mir",
+      "status": "offen",
+      "timestamp": 1774194402902
+    },
+    {
+      "id": 43,
+      "user": "172357406736619@lid",
+      "chat": "120363406985226920@g.us",
+      "message": "❌ Ein Fehler ist bei der Ausführung des Befehls aufgetreten: _isGroup is not defined_",
+      "status": "offen",
+      "timestamp": 1774269429621
+    },
+    {
+      "id": 44,
+      "user": "148816338624520@lid",
+      "chat": "120363424624178238@g.us",
+      "message": "test",
+      "status": "offen",
+      "timestamp": 1774278010644
+    },
+    {
+      "id": 45,
+      "user": "172357406736619@lid",
+      "chat": "120363425818828513@g.us",
+      "message": "Warum ist fast alles Global deaktiviert",
+      "status": "beantwortet",
+      "timestamp": 1774426916596
+    },
+    {
+      "id": 46,
+      "user": "172357406736619@lid",
+      "chat": "120363425818828513@g.us",
+      "message": "pay ist kaputt",
+      "status": "beantwortet",
+      "timestamp": 1774427224360
+    },
+    {
+      "id": 47,
+      "user": "172357406736619@lid",
+      "chat": "120363421041126449@g.us",
+      "message": "Nico Lian del spinnt",
+      "status": "offen",
+      "timestamp": 1774451383161
+    },
+    {
+      "id": 48,
+      "user": "148816338624520@lid",
+      "chat": "120363424624178238@g.us",
+      "message": "nico ich glaube bei der Website mit unseren team panel ist etwas kaputt mir wird gesagt das 0 user sind ist das normal?",
+      "status": "offen",
+      "timestamp": 1774517370136
+    },
+    {
+      "id": 49,
+      "user": "148816338624520@lid",
+      "chat": "120363424624178238@g.us",
+      "message": "nico du must warn überarbeitet ist kaput danke :)",
+      "status": "offen",
+      "timestamp": 1774517616985
+    },
+    {
+      "id": 50,
+      "user": "172357406736619@lid",
+      "chat": "120363407822258424@g.us",
+      "message": "Lian @232156555116744 fragt ob du ihn vom bot entbannen kannst",
+      "status": "offen",
+      "timestamp": 1774538399482
     }
   ]
 }

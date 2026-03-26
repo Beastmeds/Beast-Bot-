@@ -2,8 +2,11 @@
   "disabled": [
     "users",
     "user",
+    "reload",
     "pay",
-    "slot",
-    "sticker"
+    "play",
+    "warn",
+    "warns",
+    "resetwarn"
   ]
 }

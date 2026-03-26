@@ -3,6 +3,12 @@ const bjGames = {}; // { jid: { hand: [], dealer: [], status: 'playing'|'stand',
 let spamInterval = 0; // Intervall zwischen Nachrichten in ms für Spam-Funktion
 let dbInstance = null; // Global database reference for economy functions
 const timeoutUsers = {}; // { userId: { chatId: 'xxx', expiresAt: Date, reason: 'string' } }
+// Premium Auto-Features: speichere letzte Ausführung je User im RAM
+const autoPremiumState = {
+  autowork: new Map(),
+  autofish: new Map(),
+  boost: new Map()
+};
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -43,14 +49,20 @@ const BOTHUB_URL = "https://bothub.gamebot.me/api/bot/update-stats";
 const BOTHUB_TOKEN = "api_BotHub_13_1756984116657_ceb64da87bc3fe215bdb430041778b36";
 
 // Base44 Web Register Constants
-const API_BASE_URL = 'https://beastbot.base44.app'; // Deine Base44 App URL
-const BOT_WEBHOOK_SECRET = 'BeastBot'; // Gleich wie BOT_WEBHOOK_SECRET in Base44
-const BASE44_APP_ID = 'DEINE_APP_ID'; // z.B. "69ba56fe13f5ed1f6e3d3687"
+const API_BASE_URL = process.env.API_BASE_URL || 'https://beastbot.base44.app'; // Deine Base44 App URL
+const BASE44_APP_ID = process.env.BASE44_APP_ID || '69ba56fe13f5ed1f6e3d3687'; // ID deiner Base44 App
+// Dedizierter Bot-Endpoint für Bot-Kommandos
+const BOT_API_URL = process.env.BOT_API_URL || 'https://api.base44.com/api/apps/69ba56fe13f5ed1f6e3d3687/functions/botCommand';
+const BOT_SECRET = process.env.BOT_SECRET || 'BeastBot';
+const BOT_WEBHOOK_SECRET = BOT_SECRET; // Kompatibilität zu bestehendem Code
+let base44SyncEnabled = true;
+let base44LastErrorLog = 0;
 // Full Functions endpoint (Dashboard → Code → Functions → syncBotUser)
 const FUNCTION_URL = `https://api.base44.com/api/apps/${BASE44_APP_ID}/functions/syncBotUser`;
 
 // Top-level helper: Sync a single user to Base44 by calling your Function
 async function syncUserToBase44(userData) {
+  if (!base44SyncEnabled) return;
   try {
     await axios.post(FUNCTION_URL, {
       secret: BOT_WEBHOOK_SECRET,
@@ -65,7 +77,15 @@ async function syncUserToBase44(userData) {
     });
     console.log('✅ User synced to Base44:', userData.whatsapp_number);
   } catch (err) {
-    console.error('❌ Sync Error:', err.message);
+    const status = err?.response?.status;
+    const now = Date.now();
+    if (status === 404) {
+      base44SyncEnabled = false;
+      console.error('⚠️ Base44 Sync deaktiviert (404). Bitte API_BASE_URL/FUNCTION_URL prüfen.');
+    } else if (now - base44LastErrorLog > 60000) { // log max 1/min
+      base44LastErrorLog = now;
+      console.error('❌ Sync Error:', err.message);
+    }
   }
 }
 
@@ -86,6 +106,9 @@ try {
 // convenience variables for LLM keys from environment
 const NYX_API_KEY = process.env.NYX_API_KEY || '';
 const AXIOM_API_KEY = process.env.AXIOM_API_KEY || '';
+const VOLTRA_API_KEY = process.env.VOLTRA_API_KEY || '';
+const VOLTRA_API_URL = process.env.VOLTRA_API_URL || '';
+const DEFAULT_VOLTRA_URL = 'https://voltraai.onrender.com/api/chat';
 
 // create shared logger that writes to logs/log.txt
 if (!fs.existsSync(path.join(__dirname, 'logs'))) fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
@@ -324,6 +347,78 @@ function setUserConfig(jid, config) {
   saveUserConfigs(configs);
 }
 
+// Voltra AI lightweight session handling (keeps short context per chat)
+const voltraSessions = new Map();
+const VOLTRA_CONTEXT_TIMEOUT = 15 * 60 * 1000;
+let voltraCleanupStarted = false;
+
+function startVoltraCleanup() {
+  if (voltraCleanupStarted) return;
+  voltraCleanupStarted = true;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, ctx] of voltraSessions.entries()) {
+      if (now - ctx.lastActivity > VOLTRA_CONTEXT_TIMEOUT) {
+        voltraSessions.delete(id);
+      }
+    }
+  }, 5 * 60 * 1000);
+}
+
+function getVoltraSession(sessionId) {
+  startVoltraCleanup();
+  if (!voltraSessions.has(sessionId)) {
+    voltraSessions.set(sessionId, { messages: [], lastActivity: Date.now() });
+  }
+  const ctx = voltraSessions.get(sessionId);
+  ctx.lastActivity = Date.now();
+  return ctx;
+}
+
+function buildVoltraUrl(baseUrl, endpoint = '/api/chat') {
+  const target = (baseUrl || VOLTRA_API_URL || DEFAULT_VOLTRA_URL).trim();
+  if (/\/api\/chat($|\?)/i.test(target)) return target;
+  const normalizedBase = target.replace(/\/+$/, '');
+  const normalizedEndpoint = endpoint ? (endpoint.startsWith('/') ? endpoint : `/${endpoint}`) : '';
+  return `${normalizedBase}${normalizedEndpoint}`;
+}
+
+async function callVoltraChat(prompt, sessionId, config = {}) {
+  const ctx = getVoltraSession(sessionId);
+  ctx.messages.push({ role: 'user', content: prompt });
+  if (ctx.messages.length > 10) ctx.messages = ctx.messages.slice(-10);
+
+  const url = buildVoltraUrl(config.baseUrl, config.endpoint);
+  const apiKey = config.apiKey || VOLTRA_API_KEY;
+
+  const payload = {
+    message: prompt,
+    session_id: sessionId,
+    messages: ctx.messages.slice(0, -1),
+    api_key: apiKey
+  };
+  if (config.model) payload.model = config.model;
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+  try {
+    const response = await axios.post(url, payload, { timeout: 30000, headers });
+    const answer =
+      response.data?.response ||
+      response.data?.message ||
+      response.data?.reply ||
+      response.data?.answer ||
+      response.data?.content ||
+      response.data?.choices?.[0]?.message?.content ||
+      'Keine Antwort erhalten.';
+    ctx.messages.push({ role: 'assistant', content: answer });
+    return answer;
+  } catch (err) {
+    throw new Error(err.response?.data?.error || err.response?.data?.message || err.message || 'Voltra API Fehler');
+  }
+}
+
 
 const { decryptMedia } = require('@717development/baileys');
 
@@ -404,7 +499,22 @@ function loadUsers() {
     fs.writeFileSync(usersFile, JSON.stringify({}, null, 2), 'utf-8');
   }
   try {
-    return JSON.parse(fs.readFileSync(usersFile, 'utf-8')) || {};
+    const raw = JSON.parse(fs.readFileSync(usersFile, 'utf-8')) || {};
+    let changed = false;
+    for (const [jid, u] of Object.entries(raw)) {
+      if (!u) continue;
+      const cleanBalance = Number.isFinite(Number(u.balance)) ? Number(u.balance) : 0;
+      const cleanXP = Number.isFinite(Number(u.xp)) ? Number(u.xp) : 0;
+      const cleanLevel = Number.isFinite(Number(u.level)) ? Number(u.level) : 1;
+      if (cleanBalance !== u.balance || cleanXP !== u.xp || cleanLevel !== u.level) {
+        changed = true;
+        u.balance = cleanBalance;
+        u.xp = cleanXP;
+        u.level = cleanLevel;
+      }
+    }
+    if (changed) saveUsers(raw);
+    return raw;
   } catch (e) {
     return {};
   }
@@ -421,12 +531,15 @@ function saveUsers(data) {
 function syncUserToJSON(jid, userData) {
   // Sync user data to JSON file whenever updated in DB
   const users = loadUsers();
+  const cleanBalance = Number.isFinite(Number(userData.balance)) ? Number(userData.balance) : 0;
+  const cleanXP = Number.isFinite(Number(userData.xp)) ? Number(userData.xp) : 0;
+  const cleanLevel = Number.isFinite(Number(userData.level)) ? Number(userData.level) : 1;
   users[jid] = {
     jid,
     name: userData.name || jid.split('@')[0],
-    balance: userData.balance || 0,
-    xp: userData.xp || 0,
-    level: userData.level || 1,
+    balance: cleanBalance,
+    xp: cleanXP,
+    level: cleanLevel,
     lastUpdated: new Date().toISOString()
   };
   saveUsers(users);
@@ -451,7 +564,10 @@ function syncUserFromJSON(jid, userData) {
   // Sync user data from JSON file back to DB
   try {
     if (userData.jid && userData.name !== undefined && userData.balance !== undefined) {
-      updateUserStmt.run(userData.balance, userData.xp || 0, userData.level || 1, userData.name, jid);
+      const cleanBalance = Number.isFinite(Number(userData.balance)) ? Number(userData.balance) : 0;
+      const cleanXP = Number.isFinite(Number(userData.xp)) ? Number(userData.xp) : 0;
+      const cleanLevel = Number.isFinite(Number(userData.level)) ? Number(userData.level) : 1;
+      updateUserStmt.run(cleanBalance, cleanXP, cleanLevel, userData.name, jid);
       console.log(`✅ User ${userData.name} synced from JSON to DB`);
     }
   } catch (err) {
@@ -682,7 +798,8 @@ let getEconomyStmt, setEconomyStmt;
 
 // USER HELPERS
 function getUser(jid) {
-  return getUserStmt.get(jid) || null;
+  const u = getUserStmt.get(jid) || null;
+  return normalizeProgress(u);
 }
 
 function ensureUser(jid, name = null) {
@@ -701,14 +818,23 @@ function deleteUser(jid) {
 }
 
 function updateUser(jid, balance, xp, level, name) {
-  const result = updateUserStmt.run(balance, xp, level, name, jid);
+  const cleanXP = Number.isFinite(Number(xp)) ? Number(xp) : 0;
+  const cleanLvl = Number.isFinite(Number(level)) ? Number(level) : 1;
+  const result = updateUserStmt.run(balance, cleanXP, cleanLvl, name, jid);
   // Auch zu JSON synchen
-  syncUserToJSON(jid, { name, balance, xp, level });
+  syncUserToJSON(jid, { name, balance, xp: cleanXP, level: cleanLvl });
   // NICHT die Economy-Coins mit balance synchronisieren - economy ist unabhängig!
   return result;
 }
 
 // XP & LEVEL
+function normalizeProgress(user) {
+  if (!user) return user;
+  user.xp = Number.isFinite(Number(user.xp)) ? Number(user.xp) : 0;
+  user.level = Number.isFinite(Number(user.level)) ? Number(user.level) : 1;
+  return user;
+}
+
 function addXP(jid, xpToAdd) {
   const user = getUser(jid);
   if (!user) return null;
@@ -811,6 +937,75 @@ function formatTime(ms) {
   return `${seconds}s`;
 }
 
+// Führt Auto-Premium-Features aus, sobald der User eine Nachricht sendet
+async function handlePremiumAutoActions(sock, chatId, jid) {
+  if (!isPremium(jid)) return;
+
+  const prem = getPremium(jid);
+  const econ = getEconomy(jid);
+  const now = Date.now();
+
+  // AutoWork: führt "work" automatisch aus (halber Cooldown für Premium)
+  if (prem.autowork) {
+    const baseCooldown = 10 * 60 * 1000;
+    const cooldown = baseCooldown / 2;
+    const last = Math.max(econ.lastWork || 0, autoPremiumState.autowork.get(jid) || 0);
+
+    if (!last || (now - last) >= cooldown) {
+      const jobs = [
+        { name: 'Kaffee verkauft', pay: 50 },
+        { name: 'Programm geschrieben', pay: 100 },
+        { name: 'Gras gemäht', pay: 30 },
+        { name: 'Babysitter', pay: 75 },
+        { name: 'Taxi gefahren', pay: 60 }
+      ];
+
+      const job = jobs[Math.floor(Math.random() * jobs.length)];
+      econ.cash = (econ.cash || 100) + job.pay;
+      econ.lastWork = now;
+      setEconomy(jid, econ);
+      autoPremiumState.autowork.set(jid, now);
+
+      await sock.sendMessage(chatId, {
+        text: `🤖 *AutoWork aktiv*
+👷 ${job.name}
+💵 +${formatMoney(job.pay)} Cash
+💰 Kontostand: ${formatMoney(econ.cash)}`
+      });
+    }
+  }
+
+  // AutoFish: fängt automatisch einen Fisch in Intervallen
+  if (prem.autofish) {
+    const fishCooldown = 15 * 60 * 1000; // 15 Minuten
+    const last = autoPremiumState.autofish.get(jid) || 0;
+
+    if (!last || (now - last) >= fishCooldown) {
+      const user = getUser(jid);
+      if (user) {
+        const r = Math.random();
+        let selectedFish, acc = 0;
+        for (const f of fishes) { acc += f.chance; if (r <= acc) { selectedFish = f; break; } }
+        if (!selectedFish) selectedFish = fishes[0];
+
+        const amount = Math.floor(Math.random() * (selectedFish.max - selectedFish.min + 1)) + selectedFish.min;
+
+        updateUser(jid, user.balance + amount, user.xp, user.level, user.name);
+        addXP(jid, Math.floor(amount / 2));
+        addFish(jid, selectedFish.name);
+
+        autoPremiumState.autofish.set(jid, now);
+
+        await sock.sendMessage(chatId, {
+          text: `🤖 *AutoFish aktiv*
+🎣 Gefangen: ${selectedFish.name}
+💸 +${amount} Coins | ⭐ +${Math.floor(amount / 2)} XP`
+        });
+      }
+    }
+  }
+}
+
 // === PREMIUM SYSTEM ===
 function getPremium(jid) {
   const stmt = dbInstance.prepare('SELECT * FROM premium WHERE jid = ?');
@@ -836,7 +1031,12 @@ function isPremium(jid) {
 function addPremium(jid, days = 30) {
   const prem = getPremium(jid);
   prem.isPremium = 1;
-  prem.premiumUntil = Math.max(prem.premiumUntil || 0, Date.now()) + (days * 24 * 60 * 60 * 1000);
+  if (!days || days <= 0) {
+    // 0/null/undefined → dauerhaft
+    prem.premiumUntil = 0;
+  } else {
+    prem.premiumUntil = Math.max(prem.premiumUntil || 0, Date.now()) + (days * 24 * 60 * 60 * 1000);
+  }
   prem.premiumLevel = Math.max(prem.premiumLevel, 1);
   setPremium(jid, prem);
 }
@@ -1052,69 +1252,102 @@ function saveFarewellData() {
 }
 //=================================================================//
 module.exports = async function (sock, sessionName) {
-  // Base44 Web Register Function - Hilfsfunktion
-  async function generateLoginCode(whatsapp_number, username) {
-    const res = await axios.post(`${API_BASE_URL}/api/functions/generateLoginCode`, {
-      whatsapp_number,
-      username,
-      secret: BOT_WEBHOOK_SECRET
-    });
-    return res.data;
+  // Legacy Fallback: Direkter Login-Code ohne botCommand
+  async function generateLoginCodeLegacy(whatsapp_number, username) {
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/functions/generateLoginCode`, {
+        whatsapp_number,
+        username: username || whatsapp_number,
+        secret: BOT_WEBHOOK_SECRET
+      });
+      if (res.data?.code) {
+        return `Dein Login-Code:\n\`\`\`${res.data.code}\`\`\`\n⚠️ Der Code ist 10 Minuten gültig und nur einmal verwendbar.`;
+      }
+      return res.data?.message || res.data?.error || '❌ Fehler beim Erstellen des Codes.';
+    } catch (err) {
+      console.error('❌ Legacy generateLoginCode error:', err.message);
+      return '❌ Serverfehler. Bitte versuche es später erneut.';
+    }
   }
 
-  // Base44 BotUser Sync Function
-  async function syncBotUser(userData) {
-    try {
-      const res = await axios.post(`${API_BASE_URL}/api/functions/syncBotUser`, {
-        secret: BOT_WEBHOOK_SECRET,
-        userData: userData
-      });
-      console.log('✅ Base44 sync:', res.data);
-      return res.data;
-    } catch (err) {
-      console.error('❌ Base44 sync error:', err.message);
-      throw err;
+  // Generic helper: send arbitrary proto JSON content
+  sock.sendjsonv3 = async function (jid, json, options = {}) {
+    const message = generateWAMessageFromContent(
+      jid,
+      proto.Message.fromObject(json),
+      {
+        logger: sock.logger,
+        userJid: sock.user.id,
+        ...options
+      }
+    );
+    await sock.relayMessage(jid, message.message, { messageId: message.key.id });
+    return message;
+  };
+
+  // Base44 BotCommand Helper
+  async function handleBotCommand(command, whatsapp_number, extra = {}) {
+    const urlsToTry = [];
+    const slugLower = BOT_API_URL.replace(/botCommand$/, 'botcommand');
+    const hostAlt = BOT_API_URL.replace('https://api.base44.com', API_BASE_URL);
+    const hostAltLower = slugLower.replace('https://api.base44.com', API_BASE_URL);
+
+    [BOT_API_URL, slugLower, hostAlt, hostAltLower]
+      .filter((u, idx, arr) => u && arr.indexOf(u) === idx) // unique
+      .forEach(u => urlsToTry.push(u));
+
+    for (const url of urlsToTry) {
+      try {
+        const res = await axios.post(
+          url,
+          { command, whatsapp_number, ...extra },
+          { headers: { 'x-bot-secret': BOT_SECRET } }
+        );
+        return res.data.message || res.data.error || '❌ Unbekannte Server-Antwort.';
+      } catch (err) {
+        const status = err.response?.status;
+        const serverMsg = err.response?.data?.message || err.response?.data?.error;
+        console.error(`❌ BotCommand error (${url}):`, status ? `${status} ${err.response?.statusText}` : err.message, serverMsg ? `| ${serverMsg}` : '');
+        // bei anderen URLs weiterprobieren
+        if (status && status !== 404) break; // nur 404 → andere URL testen, sonst abbrechen
+      }
     }
+
+    // Legacy-Fallback nur für logincode
+    if (command === 'logincode') {
+      return await generateLoginCodeLegacy(whatsapp_number, extra.username);
+    }
+
+    return '❌ BotCommand-Endpoint nicht erreichbar (404). Prüfe BOT_API_URL/Funktions-Slug im Base44 Dashboard.';
   }
 
   // Base44 Web Register Handler
   async function handleWebRegister(msg, sender) {
     const whatsappNumber = sender.replace('@s.whatsapp.net', '').replace('@lid', '').split('@')[0];
-    const username = msg.pushName || whatsappNumber;
     const chatId = msg.key.remoteJid;
+    const userData = getUser(sender) || {};
+    const displayName = userData.name || msg.pushName || whatsappNumber;
 
     try {
       await sock.sendMessage(chatId, { text: '⏳ Erstelle deinen Web-Account...' }, { quoted: msg });
+      const regReply = await handleBotCommand('webregister', whatsappNumber, { display_name: displayName });
 
-      const result = await generateLoginCode(whatsappNumber, username);
+      const alreadyRegistered = typeof regReply === 'string' && regReply.toLowerCase().includes('bereits registriert');
+      const success = typeof regReply === 'string' && regReply.includes('✅');
 
-      if (result.success) {
-        // Sync user data to Base44
-        const users = loadUsers();
-        const userData = users[sender] || {};
-        const syncData = {
-          whatsapp_number: whatsappNumber,
-          username: username,
-          coins: userData.balance || 0,
-          level: userData.level || 1,
-          xp: userData.xp || 0,
-          rank: ranks.getRank(sender) || '',
-          job: userData.job || '',
-          warnings: 0 // Placeholder, can be improved later
-        };
-        await syncBotUser(syncData);
-
-        await sock.sendMessage(chatId, {
-          text: `✅ *Web-Account erstellt!*\n\n` +
-                `Dein Login-Code:\n` +
-                `\`\`\`${result.code}\`\`\`\n\n` +
-                `🔗 Gehe zur Website und gib diesen Code ein.\n` +
-                '🫵 Der Link https://beastbot.base44.app'
-                `⚠️ Der Code ist *10 Minuten* gültig und nur einmal verwendbar.`
-        }, { quoted: msg });
-      } else {
-        await sock.sendMessage(chatId, { text: `❌ Fehler: ${result.error || 'Unbekannter Fehler'}` }, { quoted: msg });
+      if (!alreadyRegistered && !success) {
+        await sock.sendMessage(chatId, { text: regReply || '❌ Fehler bei der Registrierung.' }, { quoted: msg });
+        return;
       }
+
+      const codeReply = await handleBotCommand('logincode', whatsappNumber);
+
+      await sock.sendMessage(chatId, {
+        text: `✅ *Web-Account erstellt!*\n\n` +
+              `${codeReply}\n\n` +
+              `🔗 https://beastbot.base44.app\n` +
+              `⚠️ Der Code ist 10 Minuten gültig und nur einmal verwendbar.`
+      }, { quoted: msg });
     } catch (error) {
       await sock.sendMessage(chatId, { text: '❌ Serverfehler. Bitte versuche es später erneut.' }, { quoted: msg });
       console.error('Web Register Error:', error.message);
@@ -1534,7 +1767,11 @@ sock.ev.on('messages.upsert', async (m) => {
   }
 
   // === Jede Nachricht automatisch als gelesen markieren ===
-  await sock.readMessages([msg.key]);
+  try {
+    await sock.readMessages([msg.key]);
+  } catch (readError) {
+    console.log('Fehler beim Lesen der Nachricht:', readError.message);
+  }
 
   // --- AFK-Mention Check ---
   if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
@@ -1702,12 +1939,12 @@ try {
       messagePayload.caption = caption;
     }
     await sock.sendMessage(chatId, messagePayload);
-    console.log(`✅ Wiederhergestellt (${mediaType}) im Chat: ${remoteJid}`);
+    console.log(`✅ Wiederhergestellt (${mediaType}) im Chat: ${chatId}`);
   } else {
     await sock.sendMessage(chatId, {
       text: `${caption}\n> 🔓 *Nachricht:* ${originalText}`
     });
-    console.log(`✅ Wiederhergestellte Textnachricht im Chat: ${remoteJid}`);
+    console.log(`✅ Wiederhergestellte Textnachricht im Chat: ${chatId}`);
   }
 } catch (err) {
   console.error(`❌ Fehler beim Wiederherstellen:`, err);
@@ -2196,7 +2433,33 @@ if (afkStatusCheck) {
   console.log(`[AFK] User ${senderJid} ist durch eine Nachricht wieder online (Dauer: ${durationText})`);
 }
 
+// Premium-Autoaktionen (laufen auch ohne Befehl, sobald der User schreibt)
+await handlePremiumAutoActions(sock, chatId, senderJid);
+
 const pfx = getPrefixForChat(chatId);
+// Sonderfall: INFO ohne Prefix → Gruppeninfos & Prefix anzeigen
+if (messageBody && messageBody.trim().toUpperCase() === 'INFO') {
+  try {
+    const prefix = getPrefixForChat(chatId);
+    const meta = isGroupChat ? await sock.groupMetadata(chatId) : null;
+    const subject = meta?.subject || groupName || 'Unbekannte Gruppe';
+    const desc = meta?.desc || 'Keine Beschreibung gesetzt.';
+    const memberCount = meta?.participants?.length || (isGroupChat ? 'Unbekannt' : '—');
+
+    const infoText = `ℹ️ *Gruppen-Info*\n`
+      + `• Name: ${subject}\n`
+      + `• ID: ${chatId}\n`
+      + `• Mitglieder: ${memberCount}\n`
+      + `• Prefix: ${prefix}\n`
+      + `• Beschreibung:\n${desc}`;
+
+    await sock.sendMessage(chatId, { text: infoText }, { quoted: msg });
+  } catch (e) {
+    await sock.sendMessage(chatId, { text: '❌ Konnte Gruppeninfos nicht abrufen.' }, { quoted: msg });
+  }
+  return;
+}
+
 if (!messageBody.startsWith(pfx)) return;
 
 const commandBody = messageBody.slice(pfx.length).trim();
@@ -2285,31 +2548,12 @@ const jid = msg.key.participant || msg.key.remoteJid || msg.sender || chatId;
 
 
 if (user) {
-
   user.xp += 6;
-
-
   while (user.xp >= 100) {
     user.level += 1;
     user.xp -= 100;
   }
-
-
-  updateUserStmt.run(user.balance, user.xp, user.level, user.name, user.jid || jid);
-}
-
-
-if (user) {
-  user.xp += 6;
-
-  
-  while (user.xp >= 100) {
-    user.level += 1;
-    user.xp -= 100;
-  }
-
- 
-  updateUserStmt.run(user.balance, user.xp, user.level, user.name, jid);
+  updateUser(jid, user.balance, user.xp, user.level, user.name);
 }
 
 
@@ -2325,6 +2569,7 @@ const commandsList = [
   'warn', 'resetwarn', 'warns', 'mute', 'unmute', 'mutedlist',
   'kick', 'promote', 'demote', 'add', 'del', 'tagall', 'hidetag',
   'grpinfo', 'grouplink', 'revoke', 'broadcast', 'farewell',
+  '1', 'sock', '2',
 
   
   'reload', 'leaveall', 'leavegrp', 'grouplist', 'grouplist2',
@@ -2338,6 +2583,7 @@ const commandsList = [
   'pay',
   'user',
   'addcoins', 'delcoins', 'topcoins', 'topxp', 'pets', 'pethunt', 'sellpet', 'fish', 'fishlist',
+  'webregister', 'web', 'logincode',
 
   'hug', 'kiss', 'slap', 'pat', 'poke', 'cuddle', 'fuck', 'horny', 'kill', 'goon', 'penis', 'tok', 'tok2',
 
@@ -2349,7 +2595,7 @@ const commandsList = [
   // Stranger Things fun
   'strangerfact', 'upside', 'eleven', 'mindflip', 'demogorgon', 'redrun', 'darkweb', 'strangergame', 'moviequote', 'hawkins', 'dna', 'friends', 'gate',
   // AI Commands
-  'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define', 'nyxion', 'nayvy',
+  'ai', 'vol', 'ask', 'summarize', 'translate', 'joke', 'rhyme', 'poem', 'story', 'riddle', 'codehelp', 'math', 'define', 'nyxion', 'nayvy',
   // User Config
   'config',
   // Audio Effects
@@ -2551,6 +2797,7 @@ if (userTimeout && userTimeout.expiresAt > Date.now()) {
   delete timeoutUsers[userKey];
 }
 
+try {
 switch (command) {
 case 'nyx': {
   if (!q) {
@@ -2634,13 +2881,17 @@ case 'web': {
 
   const username = parts[0].trim();
   const password = parts.slice(1).join('/').trim();
+  const whatsappNumber = (sender || '').replace('@s.whatsapp.net', '').replace('@lid', '').split('@')[0];
 
-  await sock.sendMessage(chatId, {
-    text: `✅ *Credentials gesetzt!*\n\n` +
-          `👤 Username: *${username}*\n` +
-          `🔑 Passwort: gespeichert\n\n` +
-          `Du kannst dich jetzt mit Username & Passwort auf der Website anmelden.`
-  }, { quoted: msg });
+  const reply = await handleBotCommand('setpassword', whatsappNumber, { username, password });
+  await sock.sendMessage(chatId, { text: reply }, { quoted: msg });
+  break;
+}
+
+case 'logincode': {
+  const whatsappNumber = (sender || '').replace('@s.whatsapp.net', '').replace('@lid', '').split('@')[0];
+  const reply = await handleBotCommand('logincode', whatsappNumber);
+  await sock.sendMessage(chatId, { text: reply }, { quoted: msg });
   break;
 }
 
@@ -2847,9 +3098,9 @@ case 'web': {
     try {
       const from = chatId;
       const basePath = path.join(__dirname, 'cards');
-      const WEBSITE_URL = '';
-      const CHANNEL_URL = '';
-      const MINI_WEB = '';
+      const WEBSITE_URL = 'https://beastbot.base44.app';
+      const CHANNEL_URL = 'https://chat.whatsapp.com/Hu2gjCneSvQLj9q2RHw1E0';
+      const MINI_WEB = 'https://beastmeds.github.io/Beast-Bot-Info/';
       const statusQuoted = {
         key: {
           fromMe: false,
@@ -2893,9 +3144,9 @@ case 'web': {
             footer: { text: `©️ Beastmeds X ⁷¹⁷𝓝𝓪𝔂𝓥𝔂 (Seite ${page + 1}/${pages})` },
             nativeFlowMessage: {
               buttons: [
-                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📎 WhatsApp Channel', url: CHANNEL_URL }) },
+                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📎 WhatsApp Community', url: CHANNEL_URL }) },
                 { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🌐 Website', url: WEBSITE_URL }) },
-                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: 'Infos über den Owner minimalisiert', url: MINI_WEB }) }
+                { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🔗 Alle Infos zu BeastBot', url: MINI_WEB }) }
               ]
             }
           });
@@ -3752,7 +4003,11 @@ case 'ig': {
   try {
     await sock.sendPresenceUpdate('composing', chatId);
     await sleep(400);
-    await sock.readMessages([msg.key]);
+    try {
+      await sock.readMessages([msg.key]);
+    } catch (readError) {
+      console.log('Fehler beim Lesen der Nachricht:', readError.message);
+    }
 
     const isInstaReel = q.match(/instagram\.com\/(reel|reels|p)\/([A-Za-z0-9_-]+)/i);
     if (!isInstaReel) {
@@ -4371,7 +4626,6 @@ case 'sticker': {
     try {
         let imageMessage;
 
-
         if (msg.message.imageMessage) {
             imageMessage = msg.message.imageMessage;
         } else if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
@@ -4381,29 +4635,32 @@ case 'sticker': {
             break;
         }
 
-        
         const stream = await downloadContentFromMessage(imageMessage, 'image');
         let buffer = Buffer.from([]);
         for await (const chunk of stream) {
             buffer = Buffer.concat([buffer, chunk]);
         }
 
-       
+        const StickerClass = getSticker();
+        if (!StickerClass) {
+            await sock.sendMessage(from, { text: '❌ Sticker-Generator nicht gefunden. Bitte installiere wa-sticker-formatter.', quoted: msg });
+            break;
+        }
+
         let username = msg.pushName || 'Unbekannt';
 
-
-        const sticker = new Sticker(buffer, {
+        const sticker = new StickerClass(buffer, {
             pack: 'Erstellt mit BeastBot',
             author: username,
             type: 'full'
         });
 
-     
-        await sock.sendMessage(from, { sticker: await sticker.toBuffer(), quoted: msg });
+        const stickerData = await sticker.toBuffer();
+        await sock.sendMessage(from, { sticker: stickerData }, { quoted: msg });
 
     } catch (e) {
-        console.log(e);
-        await sock.sendMessage(from, { text: '❌ Fehler beim Erstellen des Stickers', quoted: msg });
+        console.error('Fehler beim Sticker-Befehl:', e);
+        await sock.sendMessage(from, { text: '❌ Fehler beim Erstellen des Stickers. Bitte stelle sicher, dass das Bild korrekt ist und versuche es erneut.', quoted: msg });
     }
     break;
 }
@@ -4593,7 +4850,11 @@ case 'video': {
   try {
     await sock.sendPresenceUpdate('composing', chatId);
     await sleep(400);
-    await sock.readMessages([msg.key]);
+    try {
+      await sock.readMessages([msg.key]);
+    } catch (readError) {
+      console.log('Fehler beim Lesen der Nachricht:', readError.message);
+    }
 
     let url = q;
     if (!q.startsWith('http')) {
@@ -4804,6 +5065,11 @@ case 'ai': // oder 'gptde'
                  (AXIOM_API_KEY || (apiConfig.axiom && apiConfig.axiom.apiKey))) {
         providerConfig = Object.assign({}, apiConfig.axiom || {});
         if (AXIOM_API_KEY) providerConfig.apiKey = AXIOM_API_KEY;
+      } else if (userConfig.aiModel === 'Voltra' &&
+                 ((apiConfig.voltra && apiConfig.voltra.apiKey) || VOLTRA_API_KEY || VOLTRA_API_URL)) {
+        providerConfig = Object.assign({ endpoint: '/api/chat' }, apiConfig.voltra || {});
+        if (VOLTRA_API_KEY) providerConfig.apiKey = VOLTRA_API_KEY;
+        if (VOLTRA_API_URL) providerConfig.baseUrl = VOLTRA_API_URL;
       } else {
         // Fallback: Nutze ersten verfügbaren Provider
         if (apiConfig.claude && apiConfig.claude.apiKey) {
@@ -4812,6 +5078,11 @@ case 'ai': // oder 'gptde'
         } else if (apiConfig.groq && apiConfig.groq.apiKey) {
           providerConfig = apiConfig.groq;
           providerName = 'Groq';
+        } else if ((apiConfig.voltra && apiConfig.voltra.apiKey) || VOLTRA_API_KEY) {
+          providerConfig = Object.assign({ endpoint: '/api/chat' }, apiConfig.voltra || {});
+          if (VOLTRA_API_KEY) providerConfig.apiKey = VOLTRA_API_KEY;
+          if (VOLTRA_API_URL) providerConfig.baseUrl = VOLTRA_API_URL;
+          providerName = 'Voltra';
         } else if (NYX_API_KEY) {
           // only env var is set, use default host if available
           providerConfig = {
@@ -4856,6 +5127,16 @@ case 'ai': // oder 'gptde'
           'Authorization': `Bearer ${providerConfig.apiKey}`,
           'Content-Type': 'application/json'
         };
+      } else if (providerName === 'Voltra') {
+        const voltraKey = providerConfig.apiKey || VOLTRA_API_KEY;
+        if (!voltraKey) {
+          await sock.sendMessage(from, { text: '❌ Voltra API-Key fehlt. Bitte VOLTRA_API_KEY setzen oder apiConfig.json ergänzen.' }, { quoted: msg });
+          break;
+        }
+        providerConfig.apiKey = voltraKey;
+        const voltraReply = await callVoltraChat(query, chatId, providerConfig);
+        await sock.sendMessage(from, { text: `🤖 Voltra:\n\n${voltraReply}` }, { quoted: msg });
+        break;
       } else if (providerName === 'Nyxion') {
         // Verwende die spezielle Nyxion-Funktion
         const nyxionResponse = await handleNyxionMessage(query, sender, sock, from);
@@ -4939,6 +5220,43 @@ case 'ai': // oder 'gptde'
   } catch (err) {
     console.error('AI Error:', err);
     await sock.sendMessage(from, { text: `❌ Fehler: ${err.message}` }, { quoted: msg });
+  }
+  break;
+}
+
+case 'vol':
+case 'voltra': {
+  try {
+    if (!q) {
+      await sock.sendMessage(from, { text: '🤖 Voltra AI\n\nVerwendung: /vol <Frage>\nBeispiel: /vol Erzähl mir einen Witz' }, { quoted: msg });
+      break;
+    }
+
+    await sock.sendMessage(from, { react: { text: '🤖', key: msg.key } });
+
+    const apiConfig = require('./apiConfig.json');
+    const cfg = apiConfig.voltra || {};
+    const apiKey = VOLTRA_API_KEY || cfg.apiKey;
+    if (!apiKey) {
+      await sock.sendMessage(from, { text: '❌ Kein Voltra API-Key gefunden. Setze VOLTRA_API_KEY in config.env oder in apiConfig.json.' }, { quoted: msg });
+      break;
+    }
+
+    const voltraConfig = {
+      apiKey,
+      baseUrl: cfg.baseUrl || VOLTRA_API_URL || DEFAULT_VOLTRA_URL,
+      endpoint: cfg.endpoint || '/api/chat'
+    };
+
+    try {
+      await sock.sendPresenceUpdate('composing', chatId);
+    } catch (_) {}
+
+    const answer = await callVoltraChat(q, chatId, voltraConfig);
+    await sock.sendMessage(from, { text: `🤖 Voltra:\n\n${answer}` }, { quoted: msg });
+  } catch (err) {
+    console.error('Voltra Command Error:', err);
+    await sock.sendMessage(from, { text: `❌ Voltra Fehler: ${err.message}` }, { quoted: msg });
   }
   break;
 }
@@ -5976,7 +6294,7 @@ Der Betreiber dieses Bots ist verantwortlich für die Datenverarbeitung.
 ✓ Benutzername / Profilname - Personalisierung
 ✓ Nachrichten & Sprachnachrichten - Verarbeitung & Kommunikation
 ✓ *Konfigurationsdaten:*
-   → Bevorzugte KI (Claude, Groq, Nyxion)
+   → Bevorzugte KI (Claude, Groq, Nyxion, Axiom, Voltra)
    → Geburtstag
    → Lieblingsspiel
    → Spracheinstellungen (de, en, es, fr)
@@ -6012,7 +6330,7 @@ Audio (Temp): Sofort nach Verarbeitung gelöscht (max. 5 Min)
 Die Daten werden verarbeitet durch:
 → Bot-Serversystem
 → Speichersysteme (SQLite, JSON-Dateien)
-→ Externe KI-APIs (Claude, Groq, Nyxion) *nur bei /ask Befehlen
+→ Externe KI-APIs (Claude, Groq, Nyxion, Axiom, Voltra) *nur bei /ask Befehlen
 → Audio-Processing-Systeme (FFmpeg)
 
 *Keine Weitergabe an Dritte ohne Zustimmung*
@@ -6627,6 +6945,7 @@ case 'menu': {
 │ 🚪 ${currentPrefix}leavegrp
 │ 🪞 ${currentPrefix}viewonce
 │ 🤖 ${currentPrefix}ai <Frage>
+│ ⚡ ${currentPrefix}vol <Frage> - Voltra AI Chat
 │ 🎨 ${currentPrefix}imagine <Beschreibung>
 │ 📱 ${currentPrefix}qrcode <Text|Nachricht> - QR-Code erstellen
 │ 📖 ${currentPrefix}qrread - QR-Code aus Bild lesen
@@ -6703,9 +7022,10 @@ case 'menu': {
   ╰────────────────────╯
   `,
 
-    "12": `
+  "12": `
   ╭───❍ *KI Commands* ❍───╮
   │ 🤖 ${currentPrefix}ask <Frage> - Stelle eine Frage an die KI
+  │ ⚡ ${currentPrefix}vol <Frage> - Chat mit Voltra (voltraai.onrender.com)
   │ 📝 ${currentPrefix}summarize <Text> - Zusammenfassung erstellen
   │ 🌍 ${currentPrefix}translate <Sprache> <Text> - Text übersetzen
   │ 😂 ${currentPrefix}joke - Zufälliger Witz
@@ -7861,21 +8181,22 @@ case 'config': {
 🎨 Design: *${config.theme}*
 
 *Befehle:*
-/config ai <Claude|Groq|Nyxion|Axiom> - KI-Modell ändern
+/config ai <Claude|Groq|Nyxion|Axiom|Voltra> - KI-Modell ändern
 /config nyxkey <API-Key> - Nyxion API-Key setzen
 /config birthday <TT.MM.YYYY> - Geburtstag setzen
 /config game <Spiel> - Lieblingsspiel setzen
 /config lang <de|en|es|fr> - Sprache ändern
 /config theme <dark|light> - Design ändern
+Voltra sendet Anfragen an https://voltraai.onrender.com/api/chat
       `;
       return await sock.sendMessage(from, { text: configText }, { quoted: msg });
     }
 
     if (subcommand.toLowerCase() === 'ai') {
       const aiModel = args[1];
-      if (!aiModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion|Axiom>' }, { quoted: msg });
+      if (!aiModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion|Axiom|Voltra>' }, { quoted: msg });
       
-      const validModels = ['Claude', 'Groq', 'Nyxion', 'Axiom'];
+      const validModels = ['Claude', 'Groq', 'Nyxion', 'Axiom', 'Voltra'];
       if (!validModels.includes(aiModel)) {
         return await sock.sendMessage(from, { text: `❌ Ungültige KI. Verfügbar: ${validModels.join(', ')}` }, { quoted: msg });
       }
@@ -7974,7 +8295,7 @@ case 'config': {
 ⚙️ *Konfigurationsoptionen*
 
 /config oder /config view - Zeige aktuelle Einstellungen
-/config ai <Modell> - Wähle KI (Claude, Groq, Nyxion, Axiom)
+/config ai <Modell> - Wähle KI (Claude, Groq, Nyxion, Axiom, Voltra)
 /config nyxkey <API-Key> - Setze Nyxion API-Key
 /config birthday <TT.MM.YYYY> - Setze Geburtstag
 /config game <Spiel> - Setze Lieblingsspiel
@@ -8410,7 +8731,7 @@ Wenn du nicht einverstanden bist, nutze den Bot bitte nicht.
    • Hauptentwicklung: Beast Industries / Beastmeds
    
 🛠️ *Feature-Entwickler:*
-   • KI-Integrationen: OpenAI, Groq, Nyxion-Team
+   • KI-Integrationen: OpenAI, Groq, Nyxion-Team, Axiom, Voltra
    • Audio-Processing: FFmpeg Integration Team
    • Main Commands: by Deadsclient
    • Multisession-System: by 777Nyxara
@@ -10412,7 +10733,11 @@ case 'noplay1': {
   try {
     await sock.sendPresenceUpdate('composing', chatId);
     await sleep(400);
-    await sock.readMessages([msg.key]);
+    try {
+      await sock.readMessages([msg.key]);
+    } catch (readError) {
+      console.log('Fehler beim Lesen der Nachricht:', readError.message);
+    }
 
     const search = await yts.search(q);
     if (!search.videos.length) {
@@ -10633,7 +10958,11 @@ case 'play': {
     // Simuliere "schreiben" wie ein Bot
     await sock.sendPresenceUpdate('composing', chatId);
     await sleep(500);
-    await sock.readMessages([msg.key]);
+    try {
+      await sock.readMessages([msg.key]);
+    } catch (readError) {
+      console.log('Fehler beim Lesen der Nachricht:', readError.message);
+    }
 
 
     const search = await yts.search(q);
@@ -10766,7 +11095,11 @@ case 'mp4': {
   try {
     await sock.sendPresenceUpdate('composing', chatId);
     await sleep(500);
-    await sock.readMessages([msg.key]);
+    try {
+      await sock.readMessages([msg.key]);
+    } catch (readError) {
+      console.log('Fehler beim Lesen der Nachricht:', readError.message);
+    }
 
     const search = await yts.search(q);
     if (!search.videos.length) {
@@ -11448,10 +11781,18 @@ case 'pay': {
   }
 
   const targetJid = msg.mentions[0];
-  const amount = parseInt(args[1]);
-  
-  if (isNaN(amount) || amount <= 0) {
-    await sock.sendMessage(chatId, { text: '❌ Bitte gib einen gültigen Betrag an.' }, { quoted: msg });
+  const rawAmount = args[1].toString().trim();
+  const normalizedAmount = rawAmount.replace(/[.,]/g, '');
+  const amount = Number(normalizedAmount);
+
+  if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
+    await sock.sendMessage(chatId, { text: '❌ Bitte gib einen gültigen, positiven Ganzzahlbetrag an (z. B. 100, 1.000.000).'}, { quoted: msg });
+    break;
+  }
+
+  const MAX_CASH = 9007199254740991; // JS safe integer / SQLite 64-bit integer
+  if (amount > MAX_CASH) {
+    await sock.sendMessage(chatId, { text: `❌ Betrag ist zu groß. Maximaler überweisbarer Betrag: ${formatMoney(MAX_CASH)}.` }, { quoted: msg });
     break;
   }
 
@@ -11509,16 +11850,21 @@ case 'pay': {
   }
 
   const senderEcon = getEconomy(senderJid);
+  senderEcon.cash = Number(senderEcon.cash) || 0;
+  if (!Number.isFinite(senderEcon.cash)) senderEcon.cash = 0;
+
   if (senderEcon.cash < amount) {
     await sock.sendMessage(chatId, { text: `❌ Du hast nicht genug Cash! (Benötigt: ${formatMoney(amount)}, Hast: ${formatMoney(senderEcon.cash)})` }, { quoted: msg });
     break;
   }
 
   const targetEcon = getEconomy(targetJid);
-  
+  targetEcon.cash = Number(targetEcon.cash) || 0;
+  if (!Number.isFinite(targetEcon.cash)) targetEcon.cash = 0;
+
   // Transfer
-  senderEcon.cash -= amount;
-  targetEcon.cash += amount;
+  senderEcon.cash = Math.max(0, senderEcon.cash - amount);
+  targetEcon.cash = targetEcon.cash + amount;
   
   setEconomy(senderJid, senderEcon);
   setEconomy(targetJid, targetEcon);
@@ -12750,6 +13096,449 @@ case 'mutedlist': {
   });
   break;
 }
+case '1':
+case 'sock': {
+  try {
+    await sock.sendMessage(chatId, { text: '🩸🥷𝐃𝐞𝐚𝐝𝐬𝐂𝐥𝐢𝐞𝐧𝐭🥷🩸' }, { quoted: msg });
+  } catch (err) {
+    console.error('sock command error:', err?.message || err);
+    await sock.sendMessage(chatId, { text: '❌ Konnte die Sock-Nachricht nicht senden.' }, { quoted: msg });
+  }
+  break;
+}
+case '2': {
+  try {
+    // WA currently rejects bare requestPhoneNumberMessage → fallback: button prompt
+    await sock.sendMessage(chatId, {
+      text: '📱 Bitte teile deine Nummer.',
+      footer: 'Tippe auf den Button, um deine Nummer zu senden.',
+      buttons: [
+        {
+          buttonId: 'share_phone',
+          buttonText: { displayText: 'Meine Nummer teilen' },
+          type: 1
+        }
+      ],
+      headerType: 1
+    }, { quoted: msg });
+
+    // Zusatz-Buttons wie bei /alledits (Links)
+    const CHANNEL_URL = 'https://whatsapp.com/channel/0029Va4g5Va4VdKv1D2n6I';
+    const WEBSITE_URL = 'https://beastbot.base44.app';
+    const MINI_WEB = 'https://beastmeds.io';
+
+    const linkButtons = [
+      { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📎 WhatsApp Channel', url: CHANNEL_URL }) },
+      { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🌐 Website', url: WEBSITE_URL }) },
+      { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '👤 Owner Infos', url: MINI_WEB }) }
+    ];
+
+    const content = {
+      interactiveMessage: {
+        body: { text: 'Weitere Links & Infos' },
+        nativeFlowMessage: { buttons: linkButtons }
+      }
+    };
+
+    const generated = generateWAMessageFromContent(chatId, content, { userJid: sock.user.id, quoted: msg });
+    await sock.relayMessage(chatId, generated.message, { messageId: generated.key.id });
+  } catch (err) {
+    console.error('2 command error:', err?.message || err);
+    await sock.sendMessage(chatId, { text: '❌ Konnte die Nummer-Anfrage nicht senden.' }, { quoted: msg });
+  }
+  break;
+}
+case 'main2': {
+  const from = msg.key.remoteJid;
+  const { owner, bot, admins, system, features } = settings;
+
+  const now = new Date();
+  const currentTime = `${now.getHours().toString().padStart(2,"0")}:${now.getMinutes().toString().padStart(2,"0")}`;
+
+  const process = require('process');
+  const start = Date.now();
+  const latency = Date.now() - start;
+
+  const mediaImage = await prepareWAMessageMedia(
+    { image: fs.readFileSync('/Users/nicolloyd/Desktop/BeastBot/bot/bot.png') },
+    { upload: sock.waUploadToServer }
+  );
+
+  const messageParamsJson = JSON.stringify({
+    bottom_sheet: {
+      in_thread_buttons_limit: 1,
+      divider_indices: [0],
+      list_title: `🍀 Main Menu\n🕒 ${currentTime}`,
+      button_title: " "
+    },
+    limited_time_offer: {
+      text: "𝑴𝒖𝒍𝒕𝒊𝑴𝒆𝒏𝒖™️🍀",
+      url: "https://t.me/deadsclient1",
+      copy_code: "https://t.me/deadsclient1",
+      expiration_time: Date.now() * 10000
+    }
+  });
+
+  const cards = [
+
+    // ===== OWNER PANEL =====
+    {
+      header: { title: "👑 Owner Panel 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ OWNER PANEL ❍─╮
+👤 Name: ${owner.name}  
+🤖 Bot: ${bot.name} (v${bot.version})  
+📅 Release: ${bot.releaseDate}  
+📲 Telegram: ${owner.telegram}  
+
+💻 Multi-Bot System  
+🎮 Games & Casino  
+📸 TikTok Downloader & Scraper  
+📷 Instagram Scraper  
+╰────────────────╯` },
+      footer: { text: "©️DeadClient | Owner Panel" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🄾🅆🄽🄴🅁 Actions",
+            sections: [
+              {
+                title: "───────── Owner Info ─────────",
+                highlight_label: "📄 Owner Info",
+                rows: [
+                  { title: "📄 Owner Info", description: "📝 Details anzeigen", id: "$owner" }
+                ]
+              },
+              {
+                title: "───────── Ping ─────────",
+                highlight_label: "🏓 Ping",
+                rows: [
+                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "$cping" }
+                ]
+              },
+              {
+                title: "───────── Main Menu ─────────",
+                highlight_label: "📂 Menu",
+                rows: [
+                  { title: "📂 Menu", description: "📋 Hauptmenü anzeigen", id: "$menu" }
+                ]
+              },
+              {
+                title: "───────── Cards Module ─────────",
+                highlight_label: "🃏 Cards",
+                rows: [
+                  { title: "🃏 Cards1", description: "🎴 Zeige Karten Modul", id: "$cards1" }
+                ]
+              },
+              {
+                title: "───────── Instagram Lookup ─────────",
+                highlight_label: "📸 IG User",
+                rows: [
+                  { title: "📸 IG User", description: "🔎 Instagram Lookup", id: "$iguser @deadsclient" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    },
+
+    // ===== GAME & DRAGON CARD =====
+    {
+      header: { title: "🎲 Game Hub & Dragon RPG 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ GAME HUB ❍─╮
+🎰 Slots  
+🎯 Darts  
+🐉 Dragon RPG  
+🏆 Rewards  
+🌟 Extras  
+╰────────────────╯` },
+      footer: { text: "©️DeadClient | Game Hub" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🎮 Game Hub",
+            sections: [
+              {
+                title: "───────── Slots Menu ─────────",
+                highlight_label: "🎰 Slots",
+                rows: [
+                  { title: "🎰 Slots Menu", description: "Öffne das Slots Spiel", id: "$slotsmenu" }
+                ]
+              },
+              {
+                title: "───────── Darts Menu ─────────",
+                highlight_label: "🎯 Darts",
+                rows: [
+                  { title: "🎯 Darts Menu", description: "Starte Darts Spiel", id: "$dartsmenu" }
+                ]
+              },
+              {
+                title: "───────── Dragon RPG ─────────",
+                highlight_label: "🐉 Dragon",
+                rows: [
+                  { title: "🐉 Dragon Menu", description: "Öffne dein Dragon RPG", id: "$dragonmenu" }
+                ]
+              },
+              {
+                title: "───────── Rewards ─────────",
+                highlight_label: "🏆 Rewards",
+                rows: [
+                  { title: "🏆 Daily Rewards", description: "Sammle deine Belohnungen", id: "$rewards" }
+                ]
+              },
+              {
+                title: "───────── Extras ─────────",
+                highlight_label: "🌟 Extras",
+                rows: [
+                  { title: "🌟 Extras Menu", description: "Zusatzfunktionen & Boni", id: "$extras" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    },
+
+    // ===== IP PANEL =====
+    {
+      header: { title: "🌐 IP Tools 🖧", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ IP TOOLS ❍─╮
+🌐 Track & Analyse  
+📍 Standort & Daten  
+🔒 Security Checks  
+╰────────────────╯` },
+      footer: { text: "©️DeadClient | IP Tools" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🌐 IP Actions",
+            sections: [
+              {
+                title: "───────── Track IP ─────────",
+                highlight_label: "🔍 Track IP",
+                rows: [
+                  { title: "🔍 Track IP", id: "$trackip 88.69.87.35" }
+                ]
+              },
+              {
+                title: "───────── Reverse DNS ─────────",
+                highlight_label: "🔁 Reverse DNS",
+                rows: [
+                  { title: "🔁 Reverse DNS", id: "$reversedns 88.69.87.35" }
+                ]
+              },
+              {
+                title: "───────── Domain → IP ─────────",
+                highlight_label: "🌐 Domain → IP",
+                rows: [
+                  { title: "🌐 Domain → IP", id: "$domainip example.com" }
+                ]
+              },
+              {
+                title: "───────── Port Scan ─────────",
+                highlight_label: "🧠 Port Scan",
+                rows: [
+                  { title: "🧠 Port Scan", id: "$portscan 8.8.8.8" }
+                ]
+              },
+              {
+                title: "───────── Abuse Check ─────────",
+                highlight_label: "🚨 Abuse Check",
+                rows: [
+                  { title: "🚨 Abuse Check", id: "$abusecheck 88.69.87.35" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    },
+
+    // ===== SCRAPER PANEL =====
+    {
+      header: { title: "📥 Scraper Tools 🛠", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ SCRAPER TOOLS ❍─╮
+📱 TikTok & Instagram  
+🛒 Amazon Produkte  
+🌐 Webseiten Analyse  
+╰────────────────╯` },
+      footer: { text: "©️DeadClient | Scraper Hub" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🛠 Scraper Hub",
+            sections: [
+              {
+                title: "───────── Amazon Search ─────────",
+                highlight_label: "📦 Amazon",
+                rows: [
+                  { title: "📦 Amazon Search", description: "Produkte suchen", id: "$Amazon i phone 17 pro max" }
+                ]
+              },
+              {
+                title: "───────── Instagram User ─────────",
+                highlight_label: "📸 Instagram",
+                rows: [
+                  { title: "📸 Instagram User", description: "Benutzer suchen", id: "$iguser @deadsclient" }
+                ]
+              },
+              {
+                title: "───────── TikTok User ─────────",
+                highlight_label: "🎵 TikTok",
+                rows: [
+                  { title: "🎵 TikTok User", description: "Benutzer suchen", id: "$ttuser @keineahnung" }
+                ]
+              },
+              {
+                title: "───────── Webseiten Analyse ─────────",
+                highlight_label: "🌐 Web",
+                rows: [
+                  { title: "🌐 Analyse", description: "Webseiten prüfen & Daten sammeln", id: "$webanalyse" }
+                ]
+              },
+              {
+                title: "───────── Extras ─────────",
+                highlight_label: "🌟 Extras",
+                rows: [
+                  { title: "🌟 Tools Menu", description: "Zusatzfunktionen & Boni", id: "$extras" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    },
+
+    // ===== WEATHER PANEL =====
+    {
+      header: { title: "🌦 Weather Panel 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ WEATHER PANEL ❍─╮
+🌍 Worldwide locations  
+☁️ Live weather data  
+🌡️ Forecast system  
+🌧️ Rain alerts  
+╰────────────────╯` },
+      footer: { text: "©️DeadClient | Weather" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🌦 Weather Actions",
+            sections: [
+              {
+                title: "───────── Baden-Württemberg ─────────",
+                highlight_label: "🌤 Baden-Württemberg",
+                rows: [
+                  { title: "🌤 Baden-Württemberg", id: "$wetter Baden-Württemberg" }
+                ]
+              },
+              {
+                title: "───────── Bayern ─────────",
+                highlight_label: "🌤 Bayern",
+                rows: [
+                  { title: "🌤 Bayern", id: "$wetter Bayern" }
+                ]
+              },
+              {
+                title: "───────── Berlin ─────────",
+                highlight_label: "🌤 Berlin",
+                rows: [
+                  { title: "🌤 Berlin", id: "$wetter Berlin" }
+                ]
+              },
+              {
+                title: "───────── Brandenburg ─────────",
+                highlight_label: "🌤 Brandenburg",
+                rows: [
+                  { title: "🌤 Brandenburg", id: "$wetter Brandenburg" }
+                ]
+              },
+              {
+                title: "───────── Hamburg ─────────",
+                highlight_label: "🌤 Hamburg",
+                rows: [
+                  { title: "🌤 Hamburg", id: "$wetter Hamburg" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    },
+
+    // ===== SYSTEM PANEL =====
+    {
+      header: { title: "🖥 System & Admin 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ SYSTEM PANEL ❍─╮
+💻 ${system.os} | ⚡ ${system.nodeVersion}  
+🕒 Uptime: ${Math.floor(process.uptime())}s  
+╰────────────────╯` },
+      footer: { text: "©️DeadClient | System" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🖥 System Actions",
+            sections: [
+              {
+                title: "───────── System Info ─────────",
+                highlight_label: "📊 System Info",
+                rows: [
+                  { title: "📊 System Info", id: "$sysinfo" }
+                ]
+              },
+              {
+                title: "───────── Admins ─────────",
+                highlight_label: "👥 Admins",
+                rows: [
+                  { title: "👥 Admins", id: "$admins" }
+                ]
+              },
+              {
+                title: "───────── Premium ─────────",
+                highlight_label: "⭐ Premium",
+                rows: [
+                  { title: "⭐ Premium", id: "$premium" }
+                ]
+              },
+              {
+                title: "───────── Modules ─────────",
+                highlight_label: "🛠 Modules",
+                rows: [
+                  { title: "🛠 Modules", id: "$modules" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    }
+
+  ];
+
+  await sock.sendjsonv3(from, {
+    interactiveMessage: {
+      body: { text: "Main Menu\n\n Codet by DeadClient" },
+      carouselMessage: { cards }
+    }
+  }, { quoted: msg });
+
+  break;
+}
+case 'dead': {
+ await sock.sendMessage(chatId, { text: ' Danke an DeadsClient, für das coole /main2 woraus ich noch sehr viel machen werde.' });
+     break;
+}
 case 'antidelete': {
   const groupId = msg.key.remoteJid;
   const isGroup = groupId.endsWith('@g.us');
@@ -12904,7 +13693,8 @@ case 'device': {
      const econ = getEconomy(senderJid);
      const prem = getPremium(senderJid);
      const now = Date.now();
-     const cooldown = 24 * 60 * 60 * 1000;
+     const baseDaily = 24 * 60 * 60 * 1000;
+     const cooldown = (isPremium(senderJid) && prem.multidaily) ? (baseDaily / 2) : baseDaily;
      
      if (econ.lastDaily && (now - econ.lastDaily) < cooldown) {
        const remaining = formatTime(cooldown - (now - econ.lastDaily));
@@ -13418,16 +14208,17 @@ case 'device': {
          cleanJid = `${cleanJid}@s.whatsapp.net`;
        }
        
-       const days = parseInt(args[2]) || 30;
+       const days = args[2] ? parseInt(args[2], 10) : null; // null/NaN => dauerhaft
        
        addPremium(cleanJid, days);
        
        // Extrahiere Nummer aus JID
        const jidNumber = cleanJid.split('@')[0];
        
-       await sock.sendMessage(chatId, { text: `✅ 👑 Premium für +${jidNumber} für ${days} Tage aktiviert!`, mentions: [cleanJid] }, { quoted: msg });
-       break;
-     }
+       const durationText = (!days || isNaN(days) || days <= 0) ? 'dauerhaft' : `${days} Tage`;
+       await sock.sendMessage(chatId, { text: `✅ 👑 Premium für +${jidNumber} für ${durationText} aktiviert!`, mentions: [cleanJid] }, { quoted: msg });
+      break;
+    }
      
      // /premium - Zeige Premium Status
      const prem = getPremium(senderJid);
@@ -13445,11 +14236,11 @@ case 'device': {
    }
 
 //=============PREMIUM: SPAWNMONEY============================//
-   case 'spawnmoney': {
-     if (!isPremium(senderJid)) {
-       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command\n\nNutze */getpremium* um Premium zu aktivieren!` }, { quoted: msg });
-       break;
-     }
+  case 'spawnmoney': {
+    if (!isPremium(senderJid)) {
+      await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command\n\nNutze */getpremium* um Premium zu aktivieren!` }, { quoted: msg });
+      break;
+    }
      
      const prem = getPremium(senderJid);
      const econ = getEconomy(senderJid);
@@ -13469,7 +14260,152 @@ case 'device': {
      setEconomy(senderJid, econ);
      setPremium(senderJid, prem);
      
-     await sock.sendMessage(chatId, { text: `✨ *PREMIUM SPAWN MONEY*\n\n💵 +${formatMoney(amount)} Cash generiert!\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+    await sock.sendMessage(chatId, { text: `✨ *PREMIUM SPAWN MONEY*\n\n💵 +${formatMoney(amount)} Cash generiert!\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+    break;
+  }
+
+//=============PREMIUM: COOLDOWNS============================//
+   case 'cooldowns': {
+     const econ = getEconomy(senderJid);
+     const prem = getPremium(senderJid);
+     const now = Date.now();
+
+     const workCd = (isPremium(senderJid) ? 5 : 10) * 60 * 1000;
+     const dailyCd = (isPremium(senderJid) && prem.multidaily) ? 12 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+     const weeklyCd = 7 * 24 * 60 * 60 * 1000;
+     const begCd = 5 * 60 * 1000;
+     const spawnCd = 24 * 60 * 60 * 1000;
+
+     const remainingText = (last, cd) => {
+       if (!last) return '✅ bereit';
+       const diff = cd - (now - last);
+       return diff > 0 ? `⏱️ ${formatTime(diff)}` : '✅ bereit';
+     };
+
+     const text = `⏱️ *Deine Cooldowns*${isPremium(senderJid) ? ' (Premium)' : ''}\n\n`
+      + `💼 Work: ${remainingText(econ.lastWork, workCd)}\n`
+      + `🎁 Daily: ${remainingText(econ.lastDaily, dailyCd)}\n`
+      + `📅 Weekly: ${remainingText(econ.lastWeekly, weeklyCd)}\n`
+      + `🙏 Beg: ${remainingText(econ.lastBeg, begCd)}\n`
+      + `✨ Spawnmoney: ${remainingText(prem.lastSpawnmoney, spawnCd)}`;
+
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: RICHLIST============================//
+   case 'rich': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Nur Premium-Mitglieder können die Richlist sehen.` }, { quoted: msg });
+       break;
+     }
+
+     const stmt = dbInstance.prepare(`
+       SELECT e.jid, e.cash, e.bank, (e.cash + e.bank) as total, u.name
+       FROM economy e
+       LEFT JOIN users u ON u.jid = e.jid
+       WHERE EXISTS (SELECT 1 FROM premium p WHERE p.jid = e.jid AND p.isPremium = 1)
+       ORDER BY total DESC
+       LIMIT 10
+     `);
+
+     const rows = stmt.all();
+     let text = '👑 *Premium Richlist (Top 10)*\n\n';
+
+     if (rows.length === 0) {
+       text += 'Noch keine Premium-Spieler gefunden.';
+     } else {
+       rows.forEach((r, i) => {
+         const name = r.name || r.jid.split('@')[0];
+         text += `${i + 1}. ${name} – ${formatMoney(r.total || 0)} (💵 ${formatMoney(r.cash || 0)} | 🏦 ${formatMoney(r.bank || 0)})\n`;
+       });
+     }
+
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: BOOST============================//
+   case 'boost': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+
+     const now = Date.now();
+     const cooldown = 12 * 60 * 60 * 1000; // 12h
+     const lastBoost = autoPremiumState.boost.get(senderJid) || 0;
+
+     if ((now - lastBoost) < cooldown) {
+       const remaining = formatTime(cooldown - (now - lastBoost));
+       await sock.sendMessage(chatId, { text: `⏳ Dein Boost ist noch aktiv oder im Cooldown. Warte ${remaining}.` }, { quoted: msg });
+       break;
+     }
+
+     const econ = getEconomy(senderJid);
+     const bonus = Math.floor(Math.random() * 1000) + 500;
+     econ.cash = (econ.cash || 100) + bonus;
+     setEconomy(senderJid, econ);
+     autoPremiumState.boost.set(senderJid, now);
+
+     await sock.sendMessage(chatId, { text: `⚡ *Premium Boost aktiviert!*\n\n💵 Sofortbonus: +${formatMoney(bonus)} Cash\n⏱️ Nächster Boost in 12h\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: SHOP============================//
+   case 'premiumshop': {
+     const text = `🛒 *Premium Shop*\n\n`
+      + `1) 7 Tage Premium — 6.000 Cash\n`
+      + `2) 30 Tage Premium — 20.000 Cash\n`
+      + `3) AutoWork / AutoFish freischalten — gratis für Premium, einfach /autowork on bzw. /autofish on\n\n`
+      + `Kaufe mit: */buypremium 7* oder */buypremium 30*`;
+     await sock.sendMessage(chatId, { text }, { quoted: msg });
+     break;
+   }
+
+   case 'buypremium': {
+     const days = parseInt(args[0]) || 30;
+     const econ = getEconomy(senderJid);
+
+     let price;
+     if (days >= 30) price = 20000;
+     else if (days >= 7) price = 6000;
+     else price = Math.max(3000, days * 800);
+
+     if (econ.cash < price) {
+       await sock.sendMessage(chatId, { text: `❌ Zu wenig Cash! Benötigt: ${formatMoney(price)} | Hast: ${formatMoney(econ.cash)}` }, { quoted: msg });
+       break;
+     }
+
+     econ.cash -= price;
+     setEconomy(senderJid, econ);
+     addPremium(senderJid, days);
+
+     await sock.sendMessage(chatId, { text: `✅ Premium gekauft!\n\n⏱️ Dauer: ${days} Tage\n💸 -${formatMoney(price)} Cash\n💰 Neuer Kontostand: ${formatMoney(econ.cash)}` }, { quoted: msg });
+     break;
+   }
+
+//=============PREMIUM: AUTO FEATURES============================//
+   case 'autowork':
+   case 'autofish':
+   case 'multidaily': {
+     if (!isPremium(senderJid)) {
+       await sock.sendMessage(chatId, { text: `❌ Das ist ein Premium Command!` }, { quoted: msg });
+       break;
+     }
+
+     const toggle = (args[0] || '').toLowerCase();
+     const enable = toggle !== 'off' && toggle !== '0' && toggle !== 'false';
+     const prem = getPremium(senderJid);
+
+     if (command === 'autowork') prem.autowork = enable ? 1 : 0;
+     if (command === 'autofish') prem.autofish = enable ? 1 : 0;
+     if (command === 'multidaily') prem.multidaily = enable ? 1 : 0;
+
+     setPremium(senderJid, prem);
+
+     const statusText = enable ? 'aktiviert' : 'deaktiviert';
+     await sock.sendMessage(chatId, { text: `🤖 ${command} ${statusText}.` }, { quoted: msg });
      break;
    }
 
@@ -17363,6 +18299,17 @@ case 'ranksssssssssssssssssssss': {
             }
 
         } // switch END
+} catch (err) {
+  console.error(`❌ Fehler bei Command '${command}':`, err.message || err);
+  console.error('Stack:', err.stack);
+  try {
+    await sock.sendMessage(chatId, { 
+      text: `❌ Ein Fehler ist bei der Ausführung des Befehls aufgetreten:\n\n_${err.message}_` 
+    }, { quoted: msg });
+  } catch (sendErr) {
+    console.error('Fehler beim Senden der Fehlermeldung:', sendErr.message || sendErr);
+  }
+}
 
   }); // sock.ev.on END
 

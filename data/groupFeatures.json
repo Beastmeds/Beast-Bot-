@@ -317,7 +317,7 @@
     "welcomeText": "willkommen @user hier sind Sticker und co. bitte nicht perverse oder rassistische Sticker und co. BEI BEASTBOT NICHT MENU 3 ÖFFNEN WER DAS MACHT EINE VERWAHNUNG"
   },
   "120363423751820854@g.us": {
-    "welcome": false,
+    "welcome": true,
     "goodbye": false,
     "leveling": false,
     "antilink": false,
@@ -330,5 +330,50 @@
     "eilmeldungen": true,
     "badwords": [],
     "welcomeText": "morgen und willkommen @user wenn du link hier rein schickst dann bitte alles außer sexuelles z.B. WhatsApp Kanal"
+  },
+  "120363426363317260@g.us": {
+    "welcome": true,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "willkommen hier werden Abstimmung gemacht eif bei der idden Gruppe Abstimmung einreichen danke 🙏"
+  },
+  "120363423954946135@g.us": {
+    "welcome": true,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "hallo @user willkommen in der offiziellen Community"
+  },
+  "120363427149673623@g.us": {
+    "welcome": true,
+    "goodbye": false,
+    "leveling": false,
+    "antilink": false,
+    "antispam": false,
+    "antinsfw": false,
+    "antibot": false,
+    "autosticker": false,
+    "mutegc": false,
+    "autoreact": false,
+    "eilmeldungen": true,
+    "badwords": [],
+    "welcomeText": "Herzlich Willkomen @user Hier könnt ihr Fragen stellen, und wenn ihr Fragen an einen bestimmten Admin habt dann geht in die Gruppe von ihr/ihm... Regeln: - nichts rassistisches - nicht beleidigen - nichts sexuelles Verwarnungen: Noch keiner Ab 2 Verwarnungen kick"
   }
 }

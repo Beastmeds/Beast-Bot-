@@ -1,5 +1,5 @@
 {
-  "lastId": 3,
+  "lastId": 4,
   "requests": [
     {
       "id": 1,
@@ -28,6 +28,15 @@
       "status": "abgelehnt",
       "timestamp": 1774079141598,
       "rejectReason": "Deine Anfrage wurde abgelehnt."
+    },
+    {
+      "id": 4,
+      "user": "232156555116744@lid",
+      "chat": "120363407822258424@g.us",
+      "message": "Max hat einen Fehler gemacht wir sind Menschen wir machen Fehler also kannst du Max bitte entbannen Lian?",
+      "banReason": "hast mal eine Auszeit",
+      "status": "genehmigt",
+      "timestamp": 1774541825969
     }
   ]
 }
