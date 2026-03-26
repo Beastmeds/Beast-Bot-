@@ -1,5 +1,5 @@
 // downloaders.js
-const { ytdl, igdl, fbdl, twdl } = require("@neelegirl/downloader");
+const { ytdl, igdl, fbdl, twdl } = require("./lib/mediaDownloader");
 
 async function handleYT(sock, m, args) {
     const from = m.key.remoteJid;

@@ -446,11 +446,11 @@ const { exec } = require('child_process');
 
 const os = require('os');
 const weatherCooldowns = new Map();
-const { ytdl, ttdl, igdl, fbdl, twdl } = require("@neelegirl/downloader");
+const { ytdl, ttdl, igdl, fbdl, twdl, ytdown, instagram } = require("./lib/mediaDownloader");
 const { handleYT, handleIG, handleFB, handleTW } = require("./downloaders.js");
 const yts = require("yt-search");
 const playdl = require("play-dl");
-const neeledownloader = require("@neelegirl/downloader");
+const neeledownloader = require("./lib/mediaDownloader");
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 //=================AntiDelete=================//
 const nsfwFile = './antinsfw.json';
@@ -9441,7 +9441,6 @@ case 'leave2': {
 case 'igs':
 case 'igsc':
 {
-    const { igdl } = require('ruhend-scraper');
     const axios = require('axios');
     const { exec } = require('child_process');
     const fs = require('fs');
