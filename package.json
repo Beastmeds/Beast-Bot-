@@ -14,7 +14,7 @@
 		"@adiwajshing/keyed-db": "^0.2.4",
 		"@ffmpeg-installer/ffmpeg": "^1.1.0",
 		"@neelegirl/downloader": "^0.1.62",
-		"@neelegirl/wa-api": "^1.1.1",
+		"@neelegirl/wa-api": "git+https://github.com/neelegirly/neelegirl-wa-api.git",
 		"axios": "^1.13.4",
 		"better-sqlite3": "^12.6.2",
 		"canvas": "^3.2.0",
