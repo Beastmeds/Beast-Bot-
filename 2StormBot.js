@@ -11144,7 +11144,7 @@ case 'mp4': {
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
 
-    const ffmpegLocation = '/opt/homebrew/bin/ffmpeg';
+    const ffmpegLocation = '/usr/bin/ffmpeg';
 
     await new Promise((resolve, reject) => {
       exec(
