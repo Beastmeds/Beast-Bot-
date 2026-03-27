@@ -11009,7 +11009,7 @@ case 'play': {
     const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
     
     // Use system ffmpeg (should be in PATH after brew install ffmpeg)
-    const ffmpegLocation = '/opt/homebrew/bin/ffmpeg';
+    const ffmpegLocation = '/usr/bin/ffmpeg';
 
     await new Promise((resolve, reject) => {
       exec(
