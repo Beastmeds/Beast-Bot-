@@ -396,12 +396,11 @@ async function callVoltraChat(prompt, sessionId, config = {}) {
     message: prompt,
     session_id: sessionId,
     messages: ctx.messages.slice(0, -1),
-    api_key: apiKey
   };
   if (config.model) payload.model = config.model;
 
   const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  if (apiKey) headers['X-API-Key'] = apiKey;
 
   try {
     const response = await axios.post(url, payload, { timeout: 30000, headers });
