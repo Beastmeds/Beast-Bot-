@@ -11009,7 +11009,7 @@ case 'play': {
     const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
     
     // Use system ffmpeg (should be in PATH after brew install ffmpeg)
-    const ffmpegLocation = '/usr/bin/ffmpeg';
+    const ffmpegLocation = '';
 
     await new Promise((resolve, reject) => {
       exec(
@@ -11144,7 +11144,7 @@ case 'mp4': {
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
 
-    const ffmpegLocation = '/usr/bin/ffmpeg';
+    const ffmpegLocation = '';
 
     await new Promise((resolve, reject) => {
       exec(
