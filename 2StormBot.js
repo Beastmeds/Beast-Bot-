@@ -2666,18 +2666,49 @@ if (afkStatusCheck) {
 // Premium-Autoaktionen (laufen auch ohne Befehl, sobald der User schreibt)
 await handlePremiumAutoActions(sock, chatId, senderJid);
 
-	const pfx = getPrefixForChat(chatId);
-	// Button/List Replies (z.B. aus /main2) → in echte Prefix-Kommandos umwandeln,
-	// damit ein Klick (z.B. "/ping") auch bei anderen Prefixen korrekt ausgeführt wird.
-	const isUiReply =
-	  contentType === 'interactiveResponseMessage' ||
-	  contentType === 'buttonsResponseMessage' ||
-	  contentType === 'listResponseMessage' ||
-	  contentType === 'templateButtonReplyMessage';
-		if (isUiReply && messageBody) {
-		  const trimmed = messageBody.trim();
-		  if (trimmed.startsWith('$')) {
-		    // "$ping" → "<prefix>ping"
+		const pfx = getPrefixForChat(chatId);
+		// Button/List Replies (z.B. aus /main2) → in echte Prefix-Kommandos umwandeln,
+		// damit ein Klick (z.B. "/ping") auch bei anderen Prefixen korrekt ausgeführt wird.
+		const isUiReply =
+		  contentType === 'interactiveResponseMessage' ||
+		  contentType === 'buttonsResponseMessage' ||
+		  contentType === 'listResponseMessage' ||
+		  contentType === 'templateButtonReplyMessage';
+		// Manche WhatsApp-Clients schicken bei Buttons/Listen den Display-Text als normale Textnachricht
+		// (conversation/extendedTextMessage) statt einer buttonsResponseMessage. Für /main2 fangen wir das ab.
+		if (!isUiReply && messageBody && !messageBody.startsWith(pfx)) {
+		  const raw = messageBody.toString();
+		  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+		  const firstLine = (lines[0] || '').toLowerCase();
+		  const firstWord = firstLine
+		    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+		    .replace(/\s+/g, ' ')
+		    .trim();
+		  const haystack = raw.toLowerCase();
+
+		  let mapped = '';
+		  if (
+		    firstWord === 'ping' ||
+		    (haystack.includes('🏓') && haystack.includes('ping') && (haystack.includes('latenz') || haystack.includes('latency')))
+		  ) {
+		    mapped = 'ping';
+		  } else if (
+		    firstWord === 'menu' ||
+		    (haystack.includes('📁') && haystack.includes('menu')) ||
+		    (haystack.includes('📂') && haystack.includes('menu'))
+		  ) {
+		    mapped = 'menu';
+		  }
+
+		  if (mapped) {
+		    if (DEBUG_BUTTONS) console.log(`🔁 Display-Text→Command Mapping: "${raw}" -> ${pfx}${mapped}`);
+		    messageBody = `${pfx}${mapped}`;
+		  }
+		}
+			if (isUiReply && messageBody) {
+			  const trimmed = messageBody.trim();
+			  if (trimmed.startsWith('$')) {
+			    // "$ping" → "<prefix>ping"
 		    messageBody = `${pfx}${trimmed.slice(1)}`;
 		  } else if (trimmed.startsWith('/') || trimmed.startsWith('.') || trimmed.startsWith('!')) {
 		    // "/ping" → "<prefix>ping" (Prefix pro Chat kann variieren)
