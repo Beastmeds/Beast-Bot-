@@ -192,6 +192,17 @@ const AXIOM_API_KEY = process.env.AXIOM_API_KEY || '';
 const VOLTRA_API_KEY = process.env.VOLTRA_API_KEY || '';
 const VOLTRA_API_URL = process.env.VOLTRA_API_URL || '';
 const DEFAULT_VOLTRA_URL = 'https://voltraai.onrender.com/api/chat';
+const DEBUG_BUTTONS = (process.env.DEBUG_BUTTONS || '').trim() === '1';
+
+function safeStringifyLimited(value, limit = 8000) {
+  try {
+    const out = JSON.stringify(value, null, 2);
+    if (!out) return '';
+    return out.length > limit ? out.slice(0, limit) + '\n...<truncated>' : out;
+  } catch (e) {
+    return `[unstringifiable: ${e?.message || e}]`;
+  }
+}
 
 // create shared logger that writes to logs/log.txt
 if (!fs.existsSync(path.join(__dirname, 'logs'))) fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
@@ -2160,15 +2171,27 @@ switch (contentType) {
     messageBody = messageContent.buttonsMessage.contentText || '';
     preview = `[🟦 Button Nachricht] ${messageBody}`;
     break;
-	  case 'buttonsResponseMessage':
-	    messageBody = messageContent.buttonsResponseMessage.selectedButtonId || '';
-	    preview = `[🟦 Button Antwort] ${messageBody}`;
-	    break;
-	  case 'interactiveResponseMessage': {
-	    // Native Flow / Single-Select replies (used by /main2)
-	    const native = messageContent.interactiveResponseMessage?.nativeFlowResponseMessage;
-	    const paramsJson = native?.paramsJson || native?.paramsJSON || '';
-	    let selectedId = '';
+		  case 'buttonsResponseMessage':
+		    if (DEBUG_BUTTONS) {
+		      console.log('🔍 RAW buttonsResponseMessage:', safeStringifyLimited(messageContent.buttonsResponseMessage));
+		    }
+		    messageBody = messageContent.buttonsResponseMessage.selectedButtonId || '';
+		    preview = `[🟦 Button Antwort] ${messageBody}`;
+		    break;
+		  case 'interactiveResponseMessage': {
+		    if (DEBUG_BUTTONS) {
+		      console.log('🔍 RAW interactiveResponseMessage:', safeStringifyLimited(messageContent.interactiveResponseMessage));
+		      console.log(
+		        '🔍 RAW nativeFlowResponseMessage.paramsJson:',
+		        messageContent.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+		          messageContent.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJSON ||
+		          ''
+		      );
+		    }
+		    // Native Flow / Single-Select replies (used by /main2)
+		    const native = messageContent.interactiveResponseMessage?.nativeFlowResponseMessage;
+		    const paramsJson = native?.paramsJson || native?.paramsJSON || '';
+		    let selectedId = '';
 			    if (paramsJson) {
 			      try {
 			        let parsed = JSON.parse(paramsJson);
