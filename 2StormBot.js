@@ -432,6 +432,7 @@ function setUserConfig(jid, config) {
 
 // Voltra AI lightweight session handling (keeps short context per chat)
 const voltraSessions = new Map();
+const voltraContextUnsupportedUrls = new Set();
 const VOLTRA_CONTEXT_TIMEOUT = 15 * 60 * 1000;
 let voltraCleanupStarted = false;
 
@@ -473,30 +474,63 @@ async function callVoltraChat(prompt, sessionId, config = {}) {
 
   const url = buildVoltraUrl(config.baseUrl, config.endpoint);
   const apiKey = config.apiKey || VOLTRA_API_KEY;
+  const disableContext = voltraContextUnsupportedUrls.has(url);
 
-  const payload = {
-    message: prompt,
+  // Voltra Minimal Payload (wie curl): { "message": "Hallo" }
+  // Manche Deployments akzeptieren KEINE extra Felder. Deshalb: erst mit Context
+  // probieren und bei 400/422 auf minimalen Body zurückfallen.
+  const minimalPayload = { message: prompt };
+  if (config.model) minimalPayload.model = config.model;
+
+  const contextPayload = {
+    ...minimalPayload,
     session_id: sessionId,
     messages: ctx.messages.slice(0, -1),
   };
-  if (config.model) payload.model = config.model;
 
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['X-API-Key'] = apiKey;
 
+  const extractAnswer = (data) =>
+    data?.response ||
+    data?.message ||
+    data?.reply ||
+    data?.answer ||
+    data?.content ||
+    data?.choices?.[0]?.message?.content ||
+    'Keine Antwort erhalten.';
+
+  // If we already know this endpoint rejects extra fields, don't try context payload.
+  if (disableContext) {
+    try {
+      const response = await axios.post(url, minimalPayload, { timeout: 30000, headers });
+      const answer = extractAnswer(response.data);
+      ctx.messages.push({ role: 'assistant', content: answer });
+      return answer;
+    } catch (err) {
+      throw new Error(err.response?.data?.error || err.response?.data?.message || err.message || 'Voltra API Fehler');
+    }
+  }
+
   try {
-    const response = await axios.post(url, payload, { timeout: 30000, headers });
-    const answer =
-      response.data?.response ||
-      response.data?.message ||
-      response.data?.reply ||
-      response.data?.answer ||
-      response.data?.content ||
-      response.data?.choices?.[0]?.message?.content ||
-      'Keine Antwort erhalten.';
+    const response = await axios.post(url, contextPayload, { timeout: 30000, headers });
+    const answer = extractAnswer(response.data);
     ctx.messages.push({ role: 'assistant', content: answer });
     return answer;
   } catch (err) {
+    const status = err.response?.status;
+    const shouldRetryMinimal = status === 400 || status === 415 || status === 422;
+    if (shouldRetryMinimal) {
+      voltraContextUnsupportedUrls.add(url);
+      try {
+        const response = await axios.post(url, minimalPayload, { timeout: 30000, headers });
+        const answer = extractAnswer(response.data);
+        ctx.messages.push({ role: 'assistant', content: answer });
+        return answer;
+      } catch (err2) {
+        throw new Error(err2.response?.data?.error || err2.response?.data?.message || err2.message || 'Voltra API Fehler');
+      }
+    }
     throw new Error(err.response?.data?.error || err.response?.data?.message || err.message || 'Voltra API Fehler');
   }
 }
@@ -5289,13 +5323,13 @@ case 'ai': // oder 'gptde'
   break;
 }
 
-case 'vol':
-case 'voltra': {
-  try {
-    if (!q) {
-      await sock.sendMessage(from, { text: '🤖 Voltra AI\n\nVerwendung: /vol <Frage>\nBeispiel: /vol Erzähl mir einen Witz' }, { quoted: msg });
-      break;
-    }
+	case 'vol':
+	case 'voltra': {
+	  try {
+	    if (!q) {
+	      await sock.sendMessage(from, { text: '🤖 Voltra AI\n\nVerwendung: /vol oder /voltra <Frage>\nBeispiel: /vol Erzähl mir einen Witz' }, { quoted: msg });
+	      break;
+	    }
 
     await sock.sendMessage(from, { react: { text: '🤖', key: msg.key } });
 
@@ -7008,13 +7042,14 @@ case 'menu': {
 │ 🚪 ${currentPrefix}leave
 │ 🚪 ${currentPrefix}leave2
 │ 🚪 ${currentPrefix}leavegrp
-│ 🪞 ${currentPrefix}viewonce
-│ 🤖 ${currentPrefix}ai <Frage>
-│ ⚡ ${currentPrefix}vol <Frage> - Voltra AI Chat
-│ 🎨 ${currentPrefix}imagine <Beschreibung>
-│ 📱 ${currentPrefix}qrcode <Text|Nachricht> - QR-Code erstellen
-│ 📖 ${currentPrefix}qrread - QR-Code aus Bild lesen
-╰────────────────────╯
+	│ 🪞 ${currentPrefix}viewonce
+	│ 🤖 ${currentPrefix}ai <Frage>
+	│ ⚡ ${currentPrefix}vol <Frage> - Voltra AI Chat
+	│ ⚡ ${currentPrefix}voltra <Frage> - Alias für Voltra
+	│ 🎨 ${currentPrefix}imagine <Beschreibung>
+	│ 📱 ${currentPrefix}qrcode <Text|Nachricht> - QR-Code erstellen
+	│ 📖 ${currentPrefix}qrread - QR-Code aus Bild lesen
+	╰────────────────────╯
 `,
 
     "7": `
@@ -7087,14 +7122,15 @@ case 'menu': {
   ╰────────────────────╯
   `,
 
-  "12": `
-  ╭───❍ *KI Commands* ❍───╮
-  │ 🤖 ${currentPrefix}ask <Frage> - Stelle eine Frage an die KI
-  │ ⚡ ${currentPrefix}vol <Frage> - Chat mit Voltra (voltraai.onrender.com)
-  │ 📝 ${currentPrefix}summarize <Text> - Zusammenfassung erstellen
-  │ 🌍 ${currentPrefix}translate <Sprache> <Text> - Text übersetzen
-  │ 😂 ${currentPrefix}joke - Zufälliger Witz
-  │ 🎵 ${currentPrefix}rhyme <Wort> - Reimwörter finden
+	  "12": `
+	  ╭───❍ *KI Commands* ❍───╮
+	  │ 🤖 ${currentPrefix}ask <Frage> - Stelle eine Frage an die KI
+	  │ ⚡ ${currentPrefix}vol <Frage> - Chat mit Voltra (voltraai.onrender.com)
+	  │ ⚡ ${currentPrefix}voltra <Frage> - Alias für Voltra
+	  │ 📝 ${currentPrefix}summarize <Text> - Zusammenfassung erstellen
+	  │ 🌍 ${currentPrefix}translate <Sprache> <Text> - Text übersetzen
+	  │ 😂 ${currentPrefix}joke - Zufälliger Witz
+	  │ 🎵 ${currentPrefix}rhyme <Wort> - Reimwörter finden
   │ ✍️ ${currentPrefix}poem <Thema> - Gedicht generieren
   │ 📖 ${currentPrefix}story <Thema> - Geschichte erzählen
   │ 🧩 ${currentPrefix}riddle - Rätsel lösen
@@ -8257,18 +8293,26 @@ Voltra sendet Anfragen an https://voltraai.onrender.com/api/chat
       return await sock.sendMessage(from, { text: configText }, { quoted: msg });
     }
 
-    if (subcommand.toLowerCase() === 'ai') {
-      const aiModel = args[1];
-      if (!aiModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion|Axiom|Voltra>' }, { quoted: msg });
-      
-      const validModels = ['Claude', 'Groq', 'Nyxion', 'Axiom', 'Voltra'];
-      if (!validModels.includes(aiModel)) {
-        return await sock.sendMessage(from, { text: `❌ Ungültige KI. Verfügbar: ${validModels.join(', ')}` }, { quoted: msg });
-      }
-      
-      setUserConfig(sender, { aiModel });
-      return await sock.sendMessage(from, { text: `✅ KI-Modell auf *${aiModel}* gesetzt!` }, { quoted: msg });
-    }
+	    if (subcommand.toLowerCase() === 'ai') {
+	      const rawModel = (args[1] || '').trim();
+	      if (!rawModel) return await sock.sendMessage(from, { text: '❗ Usage: /config ai <Claude|Groq|Nyxion|Axiom|Voltra>' }, { quoted: msg });
+
+	      const modelMap = {
+	        claude: 'Claude',
+	        groq: 'Groq',
+	        nyxion: 'Nyxion',
+	        axiom: 'Axiom',
+	        voltra: 'Voltra'
+	      };
+	      const aiModel = modelMap[rawModel.toLowerCase()];
+	      const validModels = Object.values(modelMap);
+	      if (!aiModel) {
+	        return await sock.sendMessage(from, { text: `❌ Ungültige KI. Verfügbar: ${validModels.join(', ')}` }, { quoted: msg });
+	      }
+
+	      setUserConfig(sender, { aiModel });
+	      return await sock.sendMessage(from, { text: `✅ KI-Modell auf *${aiModel}* gesetzt!` }, { quoted: msg });
+	    }
 
     if (subcommand.toLowerCase() === 'nyxkey' || subcommand.toLowerCase() === 'nyxionkey') {
       const apiKey = args[1];

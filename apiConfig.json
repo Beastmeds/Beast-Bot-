@@ -20,7 +20,7 @@
   },
   "voltra": {
     "enabled": true,
-    "apiKey": "vol_iFIED1n93q0_Wn_GZVE78f-SdH8O7u2fRnU3Yvz3mC8",
+    "apiKey": "vol_dGlzWo6H88YtjFRQERZXJL36Mhzk7l310YLwiphlXP0",
     "baseUrl": "https://voltraai.onrender.com",
     "endpoint": "/api/chat",
     "model": "voltra-default"
