@@ -2152,13 +2152,18 @@ switch (contentType) {
 	    let selectedId = '';
 	    if (paramsJson) {
 	      try {
-	        const parsed = JSON.parse(paramsJson);
+	        let parsed = JSON.parse(paramsJson);
+	        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
 	        selectedId =
 	          parsed?.id ||
 	          parsed?.selectedRowId ||
 	          parsed?.rowId ||
 	          parsed?.buttonId ||
 	          parsed?.value ||
+	          parsed?.list_reply?.id ||
+	          parsed?.listReply?.id ||
+	          parsed?.singleSelectReply?.selectedRowId ||
+	          parsed?.single_select_reply?.selected_row_id ||
 	          '';
 	      } catch {}
 	    }
@@ -13366,12 +13371,12 @@ case 'main2': {
                 ]
               },
               {
-                title: "───────── Ping ─────────",
-                highlight_label: "🏓 Ping",
-                rows: [
-                  { title: "🏓 Pint", description: "⏱ Latenzesten", id: "/ping" }
-                ]
-              },
+	                title: "───────── Ping ─────────",
+	                highlight_label: "🏓 Ping",
+	                rows: [
+	                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "$ping" }
+	                ]
+	              },
               {
                 title: "───────── Main Menu ─────────",
                 highlight_label: "📂 Menu",
