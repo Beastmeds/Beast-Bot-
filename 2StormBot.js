@@ -2604,10 +2604,22 @@ if (afkStatusCheck) {
 await handlePremiumAutoActions(sock, chatId, senderJid);
 
 	const pfx = getPrefixForChat(chatId);
-	// NativeFlow IDs im main2 Menü nutzen "$cmd ..." → in echtes Prefix-Kommando umwandeln
-	if (contentType === 'interactiveResponseMessage' && messageBody && messageBody.trim().startsWith('$')) {
+	// Button/List Replies (z.B. aus /main2) → in echte Prefix-Kommandos umwandeln,
+	// damit ein Klick (z.B. "/ping") auch bei anderen Prefixen korrekt ausgeführt wird.
+	const isUiReply =
+	  contentType === 'interactiveResponseMessage' ||
+	  contentType === 'buttonsResponseMessage' ||
+	  contentType === 'listResponseMessage' ||
+	  contentType === 'templateButtonReplyMessage';
+	if (isUiReply && messageBody) {
 	  const trimmed = messageBody.trim();
-	  messageBody = `${pfx}${trimmed.slice(1)}`;
+	  if (trimmed.startsWith('$')) {
+	    // "$ping" → "<prefix>ping"
+	    messageBody = `${pfx}${trimmed.slice(1)}`;
+	  } else if (trimmed.startsWith('/') || trimmed.startsWith('.') || trimmed.startsWith('!')) {
+	    // "/ping" → "<prefix>ping" (Prefix pro Chat kann variieren)
+	    messageBody = `${pfx}${trimmed.slice(1)}`;
+	  }
 	}
 	// Sonderfall: INFO ohne Prefix → Gruppeninfos & Prefix anzeigen
 	if (messageBody && messageBody.trim().toUpperCase() === 'INFO') {
