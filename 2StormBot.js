@@ -104,6 +104,88 @@ try {
   require('dotenv').config({ path: path.join(__dirname, 'config.env') });
 } catch {} // ignore if dotenv isn't installed or file doesn't exist
 
+// -------------------- yt-dlp helpers (Linux/Windows compatible) --------------------
+const YTDLP_IO_CAPTURE_LIMIT = 64 * 1024;
+
+function appendLimited(current, chunk, limit = YTDLP_IO_CAPTURE_LIMIT) {
+  const next = (current || '') + chunk.toString();
+  return next.length > limit ? next.slice(-limit) : next;
+}
+
+function getYtDlpCandidates() {
+  const candidates = [];
+  const bundled = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+  if (fs.existsSync(bundled)) candidates.push({ cmd: bundled, args: [] });
+
+  // Fallbacks (in PATH) and npx
+  candidates.push({ cmd: 'yt-dlp', args: [] });
+  if (process.platform === 'win32') candidates.push({ cmd: 'yt-dlp.exe', args: [] });
+  candidates.push({ cmd: 'npx', args: ['yt-dlp'] });
+  return candidates;
+}
+
+function getYtDlpJsRuntimeArgs() {
+  // yt-dlp needs a JS runtime for YouTube in newer versions. Node is guaranteed
+  // to exist because the bot itself runs in Node.
+  const value = (process.env.YTDLP_JS_RUNTIMES || '').trim() || `node:${process.execPath}`;
+  return ['--js-runtimes', value];
+}
+
+function getYtDlpFfmpegArgs() {
+  // Only pass --ffmpeg-location if it actually exists, otherwise yt-dlp disables
+  // ffmpeg detection and you'll get the "ffmpeg-location does not exist" warning.
+  const raw =
+    process.env.YTDLP_FFMPEG_LOCATION ||
+    process.env.FFMPEG_LOCATION ||
+    process.env.FFMPEG_PATH ||
+    '';
+  const location = (raw || '').trim();
+  if (!location) return [];
+  try {
+    if (!fs.existsSync(location)) return [];
+  } catch {
+    return [];
+  }
+  return ['--ffmpeg-location', location];
+}
+
+function spawnCapture(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      ...opts,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => {
+      stdout = appendLimited(stdout, d);
+    });
+    child.stderr.on('data', (d) => {
+      stderr = appendLimited(stderr, d);
+    });
+    child.on('error', (error) => reject({ error, stdout, stderr }));
+    child.on('close', (code) => {
+      if (code === 0) return resolve({ stdout, stderr });
+      reject({ error: new Error(`yt-dlp exited with code ${code}`), stdout, stderr });
+    });
+  });
+}
+
+async function runYtDlp(args, opts = {}) {
+  const candidates = getYtDlpCandidates();
+  let last = null;
+  for (const c of candidates) {
+    try {
+      return await spawnCapture(c.cmd, [...c.args, ...args], { cwd: __dirname, ...opts });
+    } catch (e) {
+      last = e;
+    }
+  }
+  const message = (last?.stderr || last?.stdout || last?.error?.message || 'yt-dlp failed').trim();
+  throw new Error(message);
+}
+
 // convenience variables for LLM keys from environment
 const NYX_API_KEY = process.env.NYX_API_KEY || '';
 const AXIOM_API_KEY = process.env.AXIOM_API_KEY || '';
@@ -4873,32 +4955,15 @@ case 'video': {
       text: `🎬 Video wird heruntergeladen:\n❏ Titel: ${title}\n❏ Kanal: ${channel.name}\n❏ Dauer: ${Math.floor(durationInSec/60)}:${durationInSec%60}\n> ${botName}`
     }, { quoted: msg });
 
-    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
-    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
-
-    const ytCmds = [
-      `"${path.join(__dirname, 'yt-dlp')}"`,
-      'yt-dlp',
-      'yt-dlp.exe',
-      'npx yt-dlp'
-    ];
-    let dlErr = null;
-    let dlSuccess = false;
-    for (const cmd of ytCmds) {
-      try {
-        await new Promise((resolve, reject) => {
-          exec(`${cmd} -f "best[height<=360]" -o "${filePath}" "${url}"`, (error, stdout, stderr) => {
-            if (error) return reject(stderr || error.message);
-            resolve(stdout);
-          });
-        });
-        dlSuccess = true;
-        break;
-      } catch (e) {
-        dlErr = e;
-      }
-    }
-    if (!dlSuccess) throw new Error(dlErr || 'yt-dlp not found');
+	    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
+	    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
+	    await runYtDlp([
+	      ...getYtDlpJsRuntimeArgs(),
+	      ...getYtDlpFfmpegArgs(),
+	      '-f', 'best[height<=360]',
+	      '-o', filePath,
+	      url
+	    ]);
 
     const videoBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
@@ -10886,33 +10951,17 @@ case 'spotify': {
 
     await sock.sendMessage(chatId, { react: { text: '🎧', key: msg.key } });
 
-    // --- YouTube Download (wie /play) ---
-    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
-    const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
-
-    const ytCmds = [
-      `"${path.join(__dirname, 'yt-dlp')}"`,
-      'yt-dlp',
-      'yt-dlp.exe',
-      'npx yt-dlp'
-    ];
-    let dlErr = null;
-    let dlSuccess = false;
-    for (const cmd of ytCmds) {
-      try {
-        await new Promise((resolve, reject) => {
-          exec(`${cmd} -x --audio-format mp3 --ffmpeg-location "${ffmpeg.path}" -o "${filePath}" "${url}"`, (error, stdout, stderr) => {
-            if (error) return reject(stderr || error.message);
-            resolve(stdout);
-          });
-        });
-        dlSuccess = true;
-        break;
-      } catch (e) {
-        dlErr = e;
-      }
-    }
-    if (!dlSuccess) throw new Error(dlErr || 'yt-dlp not found');
+	    // --- YouTube Download (wie /play) ---
+	    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
+	    const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
+	    await runYtDlp([
+	      ...getYtDlpJsRuntimeArgs(),
+	      ...getYtDlpFfmpegArgs(),
+	      '-x',
+	      '--audio-format', 'mp3',
+	      '-o', filePath,
+	      url
+	    ]);
 
     const audioBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
@@ -11001,25 +11050,19 @@ case 'play': {
       caption: infoText,
     }, { quoted: msg });
 
-    await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+	    await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
-    // === yt-dlp + ffmpeg ===
-    const ytDlpPath = path.join(__dirname, 'yt-dlp');
-    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
-    const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
-    
-    // Use system ffmpeg (should be in PATH after brew install ffmpeg)
-    const ffmpegLocation = '';
-
-    await new Promise((resolve, reject) => {
-      exec(
-        `"${ytDlpPath}" -x --audio-format mp3 --ffmpeg-location "${ffmpegLocation}" -o "${filePath}" "${url}"`,
-        (error, stdout, stderr) => {
-          if (error) return reject(stderr || error.message);
-          resolve(stdout);
-        }
-      );
-    });
+	    // === yt-dlp (Audio) ===
+	    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
+	    const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
+	    await runYtDlp([
+	      ...getYtDlpJsRuntimeArgs(),
+	      ...getYtDlpFfmpegArgs(),
+	      '-x',
+	      '--audio-format', 'mp3',
+	      '-o', filePath,
+	      url
+	    ]);
 
     const audioBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
@@ -11137,24 +11180,18 @@ case 'mp4': {
       caption: infoText,
     }, { quoted: msg });
 
-    await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+	    await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
-    // === yt-dlp + ffmpeg für mp4 ===
-    const ytDlpPath = path.join(__dirname, 'yt-dlp');
-    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
-    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
-
-    const ffmpegLocation = '';
-
-    await new Promise((resolve, reject) => {
-      exec(
-        `"${ytDlpPath}" -f mp4 -o "${filePath}" "${url}"`,
-        (error, stdout, stderr) => {
-          if (error) return reject(stderr || error.message);
-          resolve(stdout);
-        }
-      );
-    });
+	    // === yt-dlp (Video mp4) ===
+	    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
+	    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
+	    await runYtDlp([
+	      ...getYtDlpJsRuntimeArgs(),
+	      ...getYtDlpFfmpegArgs(),
+	      '-f', 'mp4',
+	      '-o', filePath,
+	      url
+	    ]);
 
     const videoBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
