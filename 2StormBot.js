@@ -2169,31 +2169,39 @@ switch (contentType) {
 	    const native = messageContent.interactiveResponseMessage?.nativeFlowResponseMessage;
 	    const paramsJson = native?.paramsJson || native?.paramsJSON || '';
 	    let selectedId = '';
-		    if (paramsJson) {
-		      try {
-		        let parsed = JSON.parse(paramsJson);
-		        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-		        // Some clients wrap the selection inside another paramsJson field
-		        if (parsed?.paramsJson && typeof parsed.paramsJson === 'string') {
-		          try {
-		            let inner = JSON.parse(parsed.paramsJson);
-		            if (typeof inner === 'string') inner = JSON.parse(inner);
-		            parsed = inner || parsed;
-		          } catch {}
-		        }
-		        selectedId =
-		          parsed?.id ||
-		          parsed?.selectedRowId ||
-		          parsed?.rowId ||
-		          parsed?.buttonId ||
-	          parsed?.value ||
-	          parsed?.list_reply?.id ||
-	          parsed?.listReply?.id ||
-	          parsed?.singleSelectReply?.selectedRowId ||
-	          parsed?.single_select_reply?.selected_row_id ||
-	          '';
-	      } catch {}
-	    }
+			    if (paramsJson) {
+			      try {
+			        let parsed = JSON.parse(paramsJson);
+			        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+			        // Some clients wrap the selection inside another paramsJson field
+			        if (parsed?.paramsJson && typeof parsed.paramsJson === 'string') {
+			          try {
+			            let inner = JSON.parse(parsed.paramsJson);
+			            if (typeof inner === 'string') inner = JSON.parse(inner);
+			            parsed = inner || parsed;
+			          } catch {}
+			        }
+			        selectedId =
+			          parsed?.id ||
+			          parsed?.selectedRowId ||
+			          parsed?.selected_row_id ||
+			          parsed?.selectedRow?.id ||
+			          parsed?.selected_row?.id ||
+			          parsed?.selection?.id ||
+			          parsed?.rowId ||
+			          parsed?.buttonId ||
+		          parsed?.value ||
+		          parsed?.list_reply?.id ||
+		          parsed?.listReply?.id ||
+		          parsed?.singleSelectReply?.selectedRowId ||
+		          parsed?.single_select_reply?.selected_row_id ||
+		          '';
+			        if (!selectedId) {
+			          const m = paramsJson.match(/\"(?:id|selected_row_id|selectedRowId)\"\\s*:\\s*\"([^\"]+)\"/);
+			          if (m?.[1]) selectedId = m[1];
+			        }
+		      } catch {}
+		    }
 	    // Fallbacks seen in some message shapes
 	    selectedId =
 	      selectedId ||
@@ -2643,20 +2651,27 @@ await handlePremiumAutoActions(sock, chatId, senderJid);
 	  contentType === 'buttonsResponseMessage' ||
 	  contentType === 'listResponseMessage' ||
 	  contentType === 'templateButtonReplyMessage';
-	if (isUiReply && messageBody) {
-	  const trimmed = messageBody.trim();
-	  if (trimmed.startsWith('$')) {
-	    // "$ping" → "<prefix>ping"
-	    messageBody = `${pfx}${trimmed.slice(1)}`;
-	  } else if (trimmed.startsWith('/') || trimmed.startsWith('.') || trimmed.startsWith('!')) {
-	    // "/ping" → "<prefix>ping" (Prefix pro Chat kann variieren)
-	    messageBody = `${pfx}${trimmed.slice(1)}`;
-	  }
-	}
-	// Sonderfall: INFO ohne Prefix → Gruppeninfos & Prefix anzeigen
-	if (messageBody && messageBody.trim().toUpperCase() === 'INFO') {
-	  try {
-	    const prefix = getPrefixForChat(chatId);
+		if (isUiReply && messageBody) {
+		  const trimmed = messageBody.trim();
+		  if (trimmed.startsWith('$')) {
+		    // "$ping" → "<prefix>ping"
+		    messageBody = `${pfx}${trimmed.slice(1)}`;
+		  } else if (trimmed.startsWith('/') || trimmed.startsWith('.') || trimmed.startsWith('!')) {
+		    // "/ping" → "<prefix>ping" (Prefix pro Chat kann variieren)
+		    messageBody = `${pfx}${trimmed.slice(1)}`;
+		  }
+		}
+		// UI-Klick erkannt, aber keine ID extrahiert → antworte trotzdem (User-Feedback)
+		if (isUiReply && (!messageBody || !messageBody.trim())) {
+		  try {
+		    await sock.sendMessage(chatId, { text: '✅ Button-Klick erkannt, aber ich konnte keine Auswahl-ID lesen. Bitte nochmal auswählen.' }, { quoted: msg });
+		  } catch {}
+		  return;
+		}
+		// Sonderfall: INFO ohne Prefix → Gruppeninfos & Prefix anzeigen
+		if (messageBody && messageBody.trim().toUpperCase() === 'INFO') {
+		  try {
+		    const prefix = getPrefixForChat(chatId);
 	    const meta = isGroupChat ? await sock.groupMetadata(chatId) : null;
     const subject = meta?.subject || groupName || 'Unbekannte Gruppe';
     const desc = meta?.desc || 'Keine Beschreibung gesetzt.';
