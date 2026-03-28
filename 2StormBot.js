@@ -3305,7 +3305,7 @@ case 'owner': {
 
 👤 *Inhaber*
 • Name: Beastmeds
-• Nummer: +4367764694963
+• Nummer: Nicht Verfügbar
 
 🛡️ *Co-Owner*
 • Name: Lian
@@ -13213,7 +13213,7 @@ case 'main2': {
                 title: "───────── Ping ─────────",
                 highlight_label: "🏓 Ping",
                 rows: [
-                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "$cping" }
+                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "/ping" }
                 ]
               },
               {
