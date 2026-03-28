@@ -2141,14 +2141,42 @@ switch (contentType) {
     messageBody = messageContent.buttonsMessage.contentText || '';
     preview = `[🟦 Button Nachricht] ${messageBody}`;
     break;
-  case 'buttonsResponseMessage':
-    messageBody = messageContent.buttonsResponseMessage.selectedButtonId || '';
-    preview = `[🟦 Button Antwort] ${messageBody}`;
-    break;
-  case 'listMessage':
-    messageBody = messageContent.listMessage.description || '';
-    preview = `[📋 Listen-Nachricht] ${messageBody}`;
-    break;
+	  case 'buttonsResponseMessage':
+	    messageBody = messageContent.buttonsResponseMessage.selectedButtonId || '';
+	    preview = `[🟦 Button Antwort] ${messageBody}`;
+	    break;
+	  case 'interactiveResponseMessage': {
+	    // Native Flow / Single-Select replies (used by /main2)
+	    const native = messageContent.interactiveResponseMessage?.nativeFlowResponseMessage;
+	    const paramsJson = native?.paramsJson || native?.paramsJSON || '';
+	    let selectedId = '';
+	    if (paramsJson) {
+	      try {
+	        const parsed = JSON.parse(paramsJson);
+	        selectedId =
+	          parsed?.id ||
+	          parsed?.selectedRowId ||
+	          parsed?.rowId ||
+	          parsed?.buttonId ||
+	          parsed?.value ||
+	          '';
+	      } catch {}
+	    }
+	    // Fallbacks seen in some message shapes
+	    selectedId =
+	      selectedId ||
+	      messageContent.interactiveResponseMessage?.buttonReplyMessage?.selectedButtonId ||
+	      messageContent.interactiveResponseMessage?.listReply?.singleSelectReply?.selectedRowId ||
+	      '';
+
+	    messageBody = selectedId || '';
+	    preview = `[🧩 Interactive Antwort] ${messageBody}`;
+	    break;
+	  }
+	  case 'listMessage':
+	    messageBody = messageContent.listMessage.description || '';
+	    preview = `[📋 Listen-Nachricht] ${messageBody}`;
+	    break;
     case 'reactionMessage':
   const reaction = messageContent.reactionMessage.text || '❓';
   let reactedMsg = '';
@@ -2575,12 +2603,17 @@ if (afkStatusCheck) {
 // Premium-Autoaktionen (laufen auch ohne Befehl, sobald der User schreibt)
 await handlePremiumAutoActions(sock, chatId, senderJid);
 
-const pfx = getPrefixForChat(chatId);
-// Sonderfall: INFO ohne Prefix → Gruppeninfos & Prefix anzeigen
-if (messageBody && messageBody.trim().toUpperCase() === 'INFO') {
-  try {
-    const prefix = getPrefixForChat(chatId);
-    const meta = isGroupChat ? await sock.groupMetadata(chatId) : null;
+	const pfx = getPrefixForChat(chatId);
+	// NativeFlow IDs im main2 Menü nutzen "$cmd ..." → in echtes Prefix-Kommando umwandeln
+	if (contentType === 'interactiveResponseMessage' && messageBody && messageBody.trim().startsWith('$')) {
+	  const trimmed = messageBody.trim();
+	  messageBody = `${pfx}${trimmed.slice(1)}`;
+	}
+	// Sonderfall: INFO ohne Prefix → Gruppeninfos & Prefix anzeigen
+	if (messageBody && messageBody.trim().toUpperCase() === 'INFO') {
+	  try {
+	    const prefix = getPrefixForChat(chatId);
+	    const meta = isGroupChat ? await sock.groupMetadata(chatId) : null;
     const subject = meta?.subject || groupName || 'Unbekannte Gruppe';
     const desc = meta?.desc || 'Keine Beschreibung gesetzt.';
     const memberCount = meta?.participants?.length || (isGroupChat ? 'Unbekannt' : '—');
