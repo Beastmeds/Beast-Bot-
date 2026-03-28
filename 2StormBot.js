@@ -13294,7 +13294,7 @@ case 'main2': {
                 title: "───────── Ping ─────────",
                 highlight_label: "🏓 Ping",
                 rows: [
-                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "/ping" }
+                  { title: "🏓 Pint", description: "⏱ Latenzesten", id: "/ping" }
                 ]
               },
               {
