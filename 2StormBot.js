@@ -2100,7 +2100,26 @@ if (mtype === 'viewOnceMessage') {
   mtype = getContentType(messageContent);
 }
 
-const contentType = getContentType(messageContent);
+// Unwrap common wrappers so button replies are detected correctly
+if (mtype === 'ephemeralMessage') {
+  messageContent = messageContent.ephemeralMessage?.message || messageContent;
+  mtype = getContentType(messageContent);
+}
+if (mtype === 'viewOnceMessageV2') {
+  messageContent = messageContent.viewOnceMessageV2?.message || messageContent;
+  mtype = getContentType(messageContent);
+}
+if (mtype === 'viewOnceMessageV2Extension') {
+  messageContent = messageContent.viewOnceMessageV2Extension?.message || messageContent;
+  mtype = getContentType(messageContent);
+}
+
+let contentType = getContentType(messageContent);
+// Sometimes baileys returns a wrapper type; force-detect button reply types
+if (messageContent?.interactiveResponseMessage) contentType = 'interactiveResponseMessage';
+if (messageContent?.buttonsResponseMessage) contentType = 'buttonsResponseMessage';
+if (messageContent?.listResponseMessage) contentType = 'listResponseMessage';
+if (messageContent?.templateButtonReplyMessage) contentType = 'templateButtonReplyMessage';
 let preview = '';
 let messageBody = '';
 
@@ -2150,15 +2169,23 @@ switch (contentType) {
 	    const native = messageContent.interactiveResponseMessage?.nativeFlowResponseMessage;
 	    const paramsJson = native?.paramsJson || native?.paramsJSON || '';
 	    let selectedId = '';
-	    if (paramsJson) {
-	      try {
-	        let parsed = JSON.parse(paramsJson);
-	        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-	        selectedId =
-	          parsed?.id ||
-	          parsed?.selectedRowId ||
-	          parsed?.rowId ||
-	          parsed?.buttonId ||
+		    if (paramsJson) {
+		      try {
+		        let parsed = JSON.parse(paramsJson);
+		        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+		        // Some clients wrap the selection inside another paramsJson field
+		        if (parsed?.paramsJson && typeof parsed.paramsJson === 'string') {
+		          try {
+		            let inner = JSON.parse(parsed.paramsJson);
+		            if (typeof inner === 'string') inner = JSON.parse(inner);
+		            parsed = inner || parsed;
+		          } catch {}
+		        }
+		        selectedId =
+		          parsed?.id ||
+		          parsed?.selectedRowId ||
+		          parsed?.rowId ||
+		          parsed?.buttonId ||
 	          parsed?.value ||
 	          parsed?.list_reply?.id ||
 	          parsed?.listReply?.id ||
