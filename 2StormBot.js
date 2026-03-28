@@ -430,6 +430,19 @@ function setUserConfig(jid, config) {
   saveUserConfigs(configs);
 }
 
+function normalizeApiKey(value) {
+  const raw = (value ?? '').toString().trim();
+  if (!raw) return '';
+  const noNewlines = raw.replace(/\r?\n/g, '').trim();
+  if (
+    (noNewlines.startsWith('"') && noNewlines.endsWith('"')) ||
+    (noNewlines.startsWith("'") && noNewlines.endsWith("'"))
+  ) {
+    return noNewlines.slice(1, -1).trim();
+  }
+  return noNewlines;
+}
+
 // Voltra AI lightweight session handling (keeps short context per chat)
 const voltraSessions = new Map();
 const voltraContextUnsupportedUrls = new Set();
@@ -473,20 +486,14 @@ async function callVoltraChat(prompt, sessionId, config = {}) {
   if (ctx.messages.length > 10) ctx.messages = ctx.messages.slice(-10);
 
   const url = buildVoltraUrl(config.baseUrl, config.endpoint);
-  const apiKey = config.apiKey || VOLTRA_API_KEY;
-  const disableContext = voltraContextUnsupportedUrls.has(url);
+  const apiKey = normalizeApiKey(config.apiKey || VOLTRA_API_KEY);
+  const sendContext = config.sendContext === true || (process.env.VOLTRA_SEND_CONTEXT || '').trim() === '1';
+  const sendModel = config.sendModel === true || (process.env.VOLTRA_SEND_MODEL || '').trim() === '1';
 
   // Voltra Minimal Payload (wie curl): { "message": "Hallo" }
-  // Manche Deployments akzeptieren KEINE extra Felder. Deshalb: erst mit Context
-  // probieren und bei 400/422 auf minimalen Body zurückfallen.
+  // Default: exakt wie curl. Context/Model nur wenn explizit aktiviert.
   const minimalPayload = { message: prompt };
-  if (config.model) minimalPayload.model = config.model;
-
-  const contextPayload = {
-    ...minimalPayload,
-    session_id: sessionId,
-    messages: ctx.messages.slice(0, -1),
-  };
+  if (sendModel && config.model) minimalPayload.model = config.model;
 
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['X-API-Key'] = apiKey;
@@ -500,17 +507,33 @@ async function callVoltraChat(prompt, sessionId, config = {}) {
     data?.choices?.[0]?.message?.content ||
     'Keine Antwort erhalten.';
 
-  // If we already know this endpoint rejects extra fields, don't try context payload.
-  if (disableContext) {
+  const toErrMessage = (err) => {
+    const status = err.response?.status;
+    const serverMsg = err.response?.data?.error || err.response?.data?.message;
+    if (serverMsg) return serverMsg;
+    if (status === 401) return 'Voltra: 401 Unauthorized (API-Key ungültig oder fehlt).';
+    if (status === 403) return 'Voltra: 403 Forbidden (API-Key/Captcha/Server-Regeln).';
+    if (status === 404) return 'Voltra: 404 Endpoint nicht gefunden.';
+    return err.message || 'Voltra API Fehler';
+  };
+
+  // Default: minimaler Body wie curl
+  if (!sendContext || voltraContextUnsupportedUrls.has(url)) {
     try {
       const response = await axios.post(url, minimalPayload, { timeout: 30000, headers });
       const answer = extractAnswer(response.data);
       ctx.messages.push({ role: 'assistant', content: answer });
       return answer;
     } catch (err) {
-      throw new Error(err.response?.data?.error || err.response?.data?.message || err.message || 'Voltra API Fehler');
+      throw new Error(toErrMessage(err));
     }
   }
+
+  const contextPayload = {
+    ...minimalPayload,
+    session_id: sessionId,
+    messages: ctx.messages.slice(0, -1),
+  };
 
   try {
     const response = await axios.post(url, contextPayload, { timeout: 30000, headers });
@@ -519,7 +542,7 @@ async function callVoltraChat(prompt, sessionId, config = {}) {
     return answer;
   } catch (err) {
     const status = err.response?.status;
-    const shouldRetryMinimal = status === 400 || status === 415 || status === 422;
+    const shouldRetryMinimal = status === 400 || status === 401 || status === 415 || status === 422;
     if (shouldRetryMinimal) {
       voltraContextUnsupportedUrls.add(url);
       try {
@@ -528,10 +551,10 @@ async function callVoltraChat(prompt, sessionId, config = {}) {
         ctx.messages.push({ role: 'assistant', content: answer });
         return answer;
       } catch (err2) {
-        throw new Error(err2.response?.data?.error || err2.response?.data?.message || err2.message || 'Voltra API Fehler');
+        throw new Error(toErrMessage(err2));
       }
     }
-    throw new Error(err.response?.data?.error || err.response?.data?.message || err.message || 'Voltra API Fehler');
+    throw new Error(toErrMessage(err));
   }
 }
 
@@ -5167,7 +5190,9 @@ case 'ai': // oder 'gptde'
       } else if (userConfig.aiModel === 'Voltra' &&
                  ((apiConfig.voltra && apiConfig.voltra.apiKey) || VOLTRA_API_KEY || VOLTRA_API_URL)) {
         providerConfig = Object.assign({ endpoint: '/api/chat' }, apiConfig.voltra || {});
-        if (VOLTRA_API_KEY) providerConfig.apiKey = VOLTRA_API_KEY;
+        const cfgKey = normalizeApiKey(apiConfig.voltra?.apiKey);
+        const envKey = normalizeApiKey(VOLTRA_API_KEY);
+        if (cfgKey || envKey) providerConfig.apiKey = cfgKey || envKey;
         if (VOLTRA_API_URL) providerConfig.baseUrl = VOLTRA_API_URL;
       } else {
         // Fallback: Nutze ersten verfügbaren Provider
@@ -5179,7 +5204,9 @@ case 'ai': // oder 'gptde'
           providerName = 'Groq';
         } else if ((apiConfig.voltra && apiConfig.voltra.apiKey) || VOLTRA_API_KEY) {
           providerConfig = Object.assign({ endpoint: '/api/chat' }, apiConfig.voltra || {});
-          if (VOLTRA_API_KEY) providerConfig.apiKey = VOLTRA_API_KEY;
+          const cfgKey = normalizeApiKey(apiConfig.voltra?.apiKey);
+          const envKey = normalizeApiKey(VOLTRA_API_KEY);
+          if (cfgKey || envKey) providerConfig.apiKey = cfgKey || envKey;
           if (VOLTRA_API_URL) providerConfig.baseUrl = VOLTRA_API_URL;
           providerName = 'Voltra';
         } else if (NYX_API_KEY) {
@@ -5226,13 +5253,13 @@ case 'ai': // oder 'gptde'
           'Authorization': `Bearer ${providerConfig.apiKey}`,
           'Content-Type': 'application/json'
         };
-      } else if (providerName === 'Voltra') {
-        const voltraKey = providerConfig.apiKey || VOLTRA_API_KEY;
-        if (!voltraKey) {
-          await sock.sendMessage(from, { text: '❌ Voltra API-Key fehlt. Bitte VOLTRA_API_KEY setzen oder apiConfig.json ergänzen.' }, { quoted: msg });
-          break;
-        }
-        providerConfig.apiKey = voltraKey;
+	      } else if (providerName === 'Voltra') {
+	        const voltraKey = normalizeApiKey(providerConfig.apiKey) || normalizeApiKey(VOLTRA_API_KEY);
+	        if (!voltraKey) {
+	          await sock.sendMessage(from, { text: '❌ Voltra API-Key fehlt. Bitte VOLTRA_API_KEY setzen oder apiConfig.json ergänzen.' }, { quoted: msg });
+	          break;
+	        }
+	        providerConfig.apiKey = voltraKey;
         const voltraReply = await callVoltraChat(query, chatId, providerConfig);
         await sock.sendMessage(from, { text: `🤖 Voltra:\n\n${voltraReply}` }, { quoted: msg });
         break;
@@ -5323,23 +5350,24 @@ case 'ai': // oder 'gptde'
   break;
 }
 
-	case 'vol':
-	case 'voltra': {
-	  try {
-	    if (!q) {
-	      await sock.sendMessage(from, { text: '🤖 Voltra AI\n\nVerwendung: /vol oder /voltra <Frage>\nBeispiel: /vol Erzähl mir einen Witz' }, { quoted: msg });
-	      break;
-	    }
+		case 'vol':
+		case 'coltra':
+		case 'voltra': {
+		  try {
+		    if (!q) {
+		      await sock.sendMessage(from, { text: '🤖 Voltra AI\n\nVerwendung: /vol oder /coltra <Frage>\nBeispiel: /vol Erzähl mir einen Witz' }, { quoted: msg });
+		      break;
+		    }
 
     await sock.sendMessage(from, { react: { text: '🤖', key: msg.key } });
 
-    const apiConfig = require('./apiConfig.json');
-    const cfg = apiConfig.voltra || {};
-    const apiKey = VOLTRA_API_KEY || cfg.apiKey;
-    if (!apiKey) {
-      await sock.sendMessage(from, { text: '❌ Kein Voltra API-Key gefunden. Setze VOLTRA_API_KEY in config.env oder in apiConfig.json.' }, { quoted: msg });
-      break;
-    }
+	    const apiConfig = require('./apiConfig.json');
+	    const cfg = apiConfig.voltra || {};
+	    const apiKey = normalizeApiKey(cfg.apiKey) || normalizeApiKey(VOLTRA_API_KEY);
+	    if (!apiKey) {
+	      await sock.sendMessage(from, { text: '❌ Kein Voltra API-Key gefunden. Setze VOLTRA_API_KEY in config.env oder in apiConfig.json.' }, { quoted: msg });
+	      break;
+	    }
 
     const voltraConfig = {
       apiKey,
@@ -7044,12 +7072,13 @@ case 'menu': {
 │ 🚪 ${currentPrefix}leavegrp
 	│ 🪞 ${currentPrefix}viewonce
 	│ 🤖 ${currentPrefix}ai <Frage>
-	│ ⚡ ${currentPrefix}vol <Frage> - Voltra AI Chat
-	│ ⚡ ${currentPrefix}voltra <Frage> - Alias für Voltra
-	│ 🎨 ${currentPrefix}imagine <Beschreibung>
-	│ 📱 ${currentPrefix}qrcode <Text|Nachricht> - QR-Code erstellen
-	│ 📖 ${currentPrefix}qrread - QR-Code aus Bild lesen
-	╰────────────────────╯
+		│ ⚡ ${currentPrefix}vol <Frage> - Voltra AI Chat
+		│ ⚡ ${currentPrefix}voltra <Frage> - Alias für Voltra
+		│ ⚡ ${currentPrefix}coltra <Frage> - Alias für Voltra
+		│ 🎨 ${currentPrefix}imagine <Beschreibung>
+		│ 📱 ${currentPrefix}qrcode <Text|Nachricht> - QR-Code erstellen
+		│ 📖 ${currentPrefix}qrread - QR-Code aus Bild lesen
+		╰────────────────────╯
 `,
 
     "7": `
@@ -7125,12 +7154,13 @@ case 'menu': {
 	  "12": `
 	  ╭───❍ *KI Commands* ❍───╮
 	  │ 🤖 ${currentPrefix}ask <Frage> - Stelle eine Frage an die KI
-	  │ ⚡ ${currentPrefix}vol <Frage> - Chat mit Voltra (voltraai.onrender.com)
-	  │ ⚡ ${currentPrefix}voltra <Frage> - Alias für Voltra
-	  │ 📝 ${currentPrefix}summarize <Text> - Zusammenfassung erstellen
-	  │ 🌍 ${currentPrefix}translate <Sprache> <Text> - Text übersetzen
-	  │ 😂 ${currentPrefix}joke - Zufälliger Witz
-	  │ 🎵 ${currentPrefix}rhyme <Wort> - Reimwörter finden
+		  │ ⚡ ${currentPrefix}vol <Frage> - Chat mit Voltra (voltraai.onrender.com)
+		  │ ⚡ ${currentPrefix}voltra <Frage> - Alias für Voltra
+		  │ ⚡ ${currentPrefix}coltra <Frage> - Alias für Voltra
+		  │ 📝 ${currentPrefix}summarize <Text> - Zusammenfassung erstellen
+		  │ 🌍 ${currentPrefix}translate <Sprache> <Text> - Text übersetzen
+		  │ 😂 ${currentPrefix}joke - Zufälliger Witz
+		  │ 🎵 ${currentPrefix}rhyme <Wort> - Reimwörter finden
   │ ✍️ ${currentPrefix}poem <Thema> - Gedicht generieren
   │ 📖 ${currentPrefix}story <Thema> - Geschichte erzählen
   │ 🧩 ${currentPrefix}riddle - Rätsel lösen
