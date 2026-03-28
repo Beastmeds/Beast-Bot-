@@ -2659,6 +2659,17 @@ await handlePremiumAutoActions(sock, chatId, senderJid);
 		  } else if (trimmed.startsWith('/') || trimmed.startsWith('.') || trimmed.startsWith('!')) {
 		    // "/ping" → "<prefix>ping" (Prefix pro Chat kann variieren)
 		    messageBody = `${pfx}${trimmed.slice(1)}`;
+		  } else {
+		    // Manche Buttons senden nur "ping" statt "/ping" oder "$ping"
+		    const id = trimmed.toLowerCase();
+		    const uiIdToCommand = {
+		      ping: 'ping',
+		      menu: 'menu',
+		      main2: 'main2',
+		    };
+		    if (uiIdToCommand[id]) {
+		      messageBody = `${pfx}${uiIdToCommand[id]}`;
+		    }
 		  }
 		}
 		// UI-Klick erkannt, aber keine ID extrahiert → antworte trotzdem (User-Feedback)
