@@ -2191,51 +2191,97 @@ switch (contentType) {
 		    // Native Flow / Single-Select replies (used by /main2)
 		    const native = messageContent.interactiveResponseMessage?.nativeFlowResponseMessage;
 		    const paramsJson = native?.paramsJson || native?.paramsJSON || '';
+
+		    const parseJsonChain = (input) => {
+		      let cur = input;
+		      for (let i = 0; i < 4; i++) {
+		        if (typeof cur !== 'string') return cur;
+		        const s = cur.trim();
+		        if (!s) return '';
+		        // Some clients send quoted JSON or JSON-in-JSON
+		        if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']')) || (s.startsWith('"') && s.endsWith('"'))) {
+		          try {
+		            cur = JSON.parse(s);
+		            continue;
+		          } catch {
+		            return cur;
+		          }
+		        }
+		        return cur;
+		      }
+		      return cur;
+		    };
+
+		    const deepPickId = (obj) => {
+		      const preferredKeys = new Set([
+		        'id',
+		        'selectedId',
+		        'selected_id',
+		        'selectedRowId',
+		        'selected_row_id',
+		        'rowId',
+		        'buttonId',
+		        'value',
+		        'selectedButtonId',
+		      ]);
+		      const queue = [obj];
+		      const seen = new Set();
+		      while (queue.length) {
+		        const cur = queue.shift();
+		        if (!cur || (typeof cur !== 'object' && typeof cur !== 'function')) continue;
+		        if (seen.has(cur)) continue;
+		        seen.add(cur);
+
+		        for (const key of Object.keys(cur)) {
+		          const val = cur[key];
+		          if (preferredKeys.has(key) && typeof val === 'string' && val.trim()) return val.trim();
+		        }
+		        // common nested structures used by list/single_select
+		        const nested =
+		          cur?.list_reply ||
+		          cur?.listReply ||
+		          cur?.singleSelectReply ||
+		          cur?.single_select_reply ||
+		          cur?.selection ||
+		          cur?.selectedRow ||
+		          cur?.selected_row ||
+		          cur?.params ||
+		          cur?.response ||
+		          cur?.result ||
+		          null;
+		        if (nested) queue.push(nested);
+
+		        for (const val of Object.values(cur)) {
+		          if (val && typeof val === 'object') queue.push(val);
+		        }
+		      }
+		      return '';
+		    };
+
 		    let selectedId = '';
-			    if (paramsJson) {
-			      try {
-			        let parsed = JSON.parse(paramsJson);
-			        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-			        // Some clients wrap the selection inside another paramsJson field
-			        if (parsed?.paramsJson && typeof parsed.paramsJson === 'string') {
-			          try {
-			            let inner = JSON.parse(parsed.paramsJson);
-			            if (typeof inner === 'string') inner = JSON.parse(inner);
-			            parsed = inner || parsed;
-			          } catch {}
-			        }
-			        selectedId =
-			          parsed?.id ||
-			          parsed?.selectedRowId ||
-			          parsed?.selected_row_id ||
-			          parsed?.selectedRow?.id ||
-			          parsed?.selected_row?.id ||
-			          parsed?.selection?.id ||
-			          parsed?.rowId ||
-			          parsed?.buttonId ||
-		          parsed?.value ||
-		          parsed?.list_reply?.id ||
-		          parsed?.listReply?.id ||
-		          parsed?.singleSelectReply?.selectedRowId ||
-		          parsed?.single_select_reply?.selected_row_id ||
-		          '';
-			        if (!selectedId) {
-			          const m = paramsJson.match(/\"(?:id|selected_row_id|selectedRowId)\"\\s*:\\s*\"([^\"]+)\"/);
-			          if (m?.[1]) selectedId = m[1];
-			        }
+		    if (paramsJson) {
+		      try {
+		        let parsed = parseJsonChain(paramsJson);
+		        if (parsed?.paramsJson) parsed = parseJsonChain(parsed.paramsJson);
+		        selectedId = deepPickId(parsed);
+		        if (!selectedId && typeof paramsJson === 'string') {
+		          const m = paramsJson.match(/\"(?:id|selectedId|selected_row_id|selectedRowId)\"\\s*:\\s*\"([^\"]+)\"/);
+		          if (m?.[1]) selectedId = m[1];
+		        }
 		      } catch {}
 		    }
-	    // Fallbacks seen in some message shapes
-	    selectedId =
-	      selectedId ||
-	      messageContent.interactiveResponseMessage?.buttonReplyMessage?.selectedButtonId ||
-	      messageContent.interactiveResponseMessage?.listReply?.singleSelectReply?.selectedRowId ||
-	      '';
 
-	    messageBody = selectedId || '';
-	    preview = `[🧩 Interactive Antwort] ${messageBody}`;
-	    break;
-	  }
+		    // Fallbacks seen in some message shapes
+		    selectedId =
+		      selectedId ||
+		      messageContent.interactiveResponseMessage?.buttonReplyMessage?.selectedButtonId ||
+		      messageContent.interactiveResponseMessage?.listReply?.singleSelectReply?.selectedRowId ||
+		      '';
+
+		    messageBody = selectedId || '';
+		    preview = `[🧩 Interactive Antwort] ${messageBody}`;
+		    break;
+		  }
 	  case 'listMessage':
 	    messageBody = messageContent.listMessage.description || '';
 	    preview = `[📋 Listen-Nachricht] ${messageBody}`;
