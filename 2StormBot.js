@@ -1788,8 +1788,13 @@ startUserFileWatcher();
 console.log('👁️ File Watcher für users.json aktiviert');
 
 sock.ev.on('messages.upsert', async (m) => {
-  const msg = m.messages[0];
-  if (!msg.message) return;
+  const msg = m.messages?.[0];
+  if ((process.env.DEBUG_UPSERT || '').trim() === '1') {
+    console.log('📨 upsert.type:', m.type);
+    console.log('📨 msg.fromMe:', msg?.key?.fromMe);
+    console.log('📨 msg.message keys:', Object.keys(msg?.message || {}));
+  }
+  if (!msg?.message) return;
 
   const chatId = msg.key.remoteJid;
   const from = chatId;
@@ -1799,7 +1804,30 @@ sock.ev.on('messages.upsert', async (m) => {
   if (!global._allChatIds) global._allChatIds = new Set();
   if (chatId) global._allChatIds.add(chatId);
   
-  const body = msg.message.conversation || msg.message.extendedTextMessage?.text;
+  const unwrapForEarlyType = (root) => {
+    let cur = root;
+    for (let i = 0; i < 4; i++) {
+      if (!cur || typeof cur !== 'object') break;
+      if (cur.viewOnceMessage?.message) cur = cur.viewOnceMessage.message;
+      else if (cur.ephemeralMessage?.message) cur = cur.ephemeralMessage.message;
+      else if (cur.viewOnceMessageV2?.message) cur = cur.viewOnceMessageV2.message;
+      else if (cur.viewOnceMessageV2Extension?.message) cur = cur.viewOnceMessageV2Extension.message;
+      else break;
+    }
+    return cur || root;
+  };
+
+  // Detect UI replies early so timeout/filters don't delete/ignore button clicks
+  const earlyContent = unwrapForEarlyType(msg.message);
+  const isUiReplyEarly = !!(
+    earlyContent?.interactiveResponseMessage ||
+    earlyContent?.buttonsResponseMessage ||
+    earlyContent?.listResponseMessage ||
+    earlyContent?.templateButtonReplyMessage
+  );
+
+  // NOTE: keep this as a string so non-text messages (buttons/lists) don't crash the handler
+  const body = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').toString();
   
   // === AUTOSTICKER: Muss VOR "if (!body) return" prüfen, da Sticker kein Text-Feld haben ===
   if (isGroupChat && !msg.key.fromMe) {
@@ -1857,7 +1885,7 @@ sock.ev.on('messages.upsert', async (m) => {
     }
   }
   
-  if (!body) return;
+	  // Don't return on empty body: button/list replies often have no conversation text.
 
   // 📌 Definiere pushName früh, damit es überall verfügbar ist
   let pushName = msg.pushName || null;
@@ -1879,7 +1907,7 @@ sock.ev.on('messages.upsert', async (m) => {
   if (msg.key.fromMe && !body.startsWith(prefix)) return;
 
   // === TIMEOUT CHECK für normale Nachrichten ===
-  if (!body.startsWith(prefix) && isGroupChat && !msg.key.fromMe) {
+  if (!body.startsWith(prefix) && isGroupChat && !msg.key.fromMe && !isUiReplyEarly) {
     const userKey = msg.key.participant || msg.key.remoteJid || chatId;
     const userTimeout = timeoutUsers[userKey];
     if (userTimeout && userTimeout.expiresAt > Date.now()) {
@@ -2417,7 +2445,8 @@ try {
   }
 
   // Antispam: wenn gleiche User innerhalb 5s erneut sendet, löschen und warnen
-  if (features.antispam && isGroupChat) {
+  // (UI-Button/List Replies nicht blocken, sonst wirken Klicks wie "werden ignoriert")
+  if (features.antispam && isGroupChat && !isUiReplyEarly) {
     try {
       global._lastMsgTimes = global._lastMsgTimes || {};
       const userKey = msg.key.participant || msg.key.remoteJid || chatId;
