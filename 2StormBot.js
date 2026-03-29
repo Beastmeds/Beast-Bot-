@@ -17674,7 +17674,7 @@ case 'viewonce': {
 //=============Extract viewOnceMessage============================//    
 //=============PTV============================//
 case 'ptv': {
-  const { downloadContentFromMessage, generateWAMessageFromContent } = require('@adiwajshing/baileys');
+  const { downloadContentFromMessage, generateWAMessageFromContent } = require('@717development/baileys');
   const fs = require('fs');
   const { spawn } = require('child_process');
 
