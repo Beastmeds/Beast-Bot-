@@ -12117,12 +12117,13 @@ case 'pay': {
   }
 
   // Empfänger MUSS erwähnt sein
-  if (!msg.mentions || msg.mentions.length === 0) {
+  const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+  if (mentions.length === 0) {
     await sock.sendMessage(chatId, { text: '❌ Bitte markiere den Empfänger mit @!\n\nBeispiel: */pay @jemand 100*' }, { quoted: msg });
     break;
   }
 
-  const targetJid = msg.mentions[0];
+  const targetJid = mentions[0];
   const rawAmount = args[1].toString().trim();
   const normalizedAmount = rawAmount.replace(/[.,]/g, '');
   const amount = Number(normalizedAmount);
@@ -13556,7 +13557,7 @@ case 'main2': {
 	                title: "───────── Ping ─────────",
 	                highlight_label: "🏓 Ping",
 	                rows: [
-	                  { title: "/ping", description: "⏱ Latenz testen", id: "$ping" }
+	                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "$ping" }
 	                ]
 	              },
               {
@@ -13608,7 +13609,7 @@ case 'main2': {
                 title: "───────── Slots Menu ─────────",
                 highlight_label: "🎰 Slots",
                 rows: [
-                  { title: "🎰 Slots Menu", description: "Öffne das Slots Spiel", id: "$slotsmenu" }
+                  { title: "🎰 Slots", description: "Öffne das Slots Spiel", id: "$slot" }
                 ]
               },
               {
