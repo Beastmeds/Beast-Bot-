@@ -2794,7 +2794,7 @@ await handlePremiumAutoActions(sock, chatId, senderJid);
 		    const uiIdToCommand = {
 		      ping: 'ping',
 		      menu: 'menu',
-		      main2: 'main2',
+		      main: 'main',
 		    };
 		    if (uiIdToCommand[id]) {
 		      messageBody = `${pfx}${uiIdToCommand[id]}`;
@@ -13501,7 +13501,7 @@ case '2': {
   }
   break;
 }
-case 'main2': {
+case 'main': {
   const from = msg.key.remoteJid;
   const { owner, bot, admins, system, features } = settings;
 
@@ -13540,8 +13540,7 @@ case 'main2': {
       body: { text: `╭─❍ OWNER PANEL ❍─╮
 👤 Name: ${owner.name}  
 🤖 Bot: ${bot.name} (v${bot.version})  
-📅 Release: ${bot.releaseDate}  
-📲 Telegram: ${owner.telegram}  
+📅 Release: ${bot.releaseDate}   
 
 💻 Multi-Bot System  
 🎮 Games & Casino  
@@ -13847,14 +13846,14 @@ case 'main2': {
                 title: "───────── System Info ─────────",
                 highlight_label: "📊 System Info",
                 rows: [
-                  { title: "📊 System Info", id: "$sysinfo" }
+                  { title: "📊 System Info", id: "$info" }
                 ]
               },
               {
-                title: "───────── Admins ─────────",
-                highlight_label: "👥 Admins",
+                title: "───────── Team ─────────",
+                highlight_label: "👥 Team",
                 rows: [
-                  { title: "👥 Admins", id: "$admins" }
+                  { title: "👥 Team", id: "$team" }
                 ]
               },
               {
@@ -13869,6 +13868,55 @@ case 'main2': {
                 highlight_label: "🛠 Modules",
                 rows: [
                   { title: "🛠 Modules", id: "$modules" }
+                ]
+              }
+            ]
+          })
+        }]
+      }
+    },
+
+    // ===== Economy PANEL =====
+    {
+      header: { title: "🪙 Economy 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+      body: { text: `╭─❍ ECONOMY PANEL ❍─╮
+💻 ${system.os} | ⚡ ${system.nodeVersion}  
+🕒 Uptime: ${Math.floor(process.uptime())}s  
+╰────────────────╯` },
+      footer: { text: "©️Beastmeds | Economy" },
+      nativeFlowMessage: {
+        messageParamsJson,
+        buttons: [{
+          name: "single_select",
+          buttonParamsJson: JSON.stringify({
+            title: "🪙 Economy Actions",
+            sections: [
+              {
+                title: "───────── Economy Menu 1 ─────────",
+                highlight_label: "📊 Economy Menu 1",
+                rows: [
+                  { title: "📊 Economy Menu 1", id: "$menu 5" }
+                ]
+              },
+              {
+                title: "───────── Economy Menu 2 ─────────",
+                highlight_label: "📊 Economy Menu 2",
+                rows: [
+                  { title: "📊 Economy Menu 2", id: "$menu 13" }
+                ]
+              },
+              {
+                title: "───────── Bank ─────────",
+                highlight_label: "🏦 Bank",
+                rows: [
+                  { title: "🏦 Bank", id: "$bank" }
+                ]
+              },
+              {
+                title: "───────── Balance ─────────",
+                highlight_label: "� Balance",
+                rows: [
+                  { title: " Balance", id: "$balance" }
                 ]
               }
             ]
