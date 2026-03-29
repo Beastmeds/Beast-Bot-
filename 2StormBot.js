@@ -17674,71 +17674,89 @@ case 'viewonce': {
 //=============Extract viewOnceMessage============================//    
 //=============PTV============================//
 case 'ptv': {
-  let sender;
-  if (msg.key.fromMe) {
-    // Wenn die Nachricht vom Bot selbst gesendet wurde, nutze die Bot-Nummer
-    sender = sock.user.id.split(':')[0];
-  } else if (isGroupChat && msg.key.participant) {
-    sender = msg.key.participant.split('@')[0];
-  } else {
-    sender = chatId.split('@')[0];
-  }
-  const cleanedSender = sender.replace(/[^0-9]/g, '');
+  const { downloadContentFromMessage, generateWAMessageFromContent } = require('@adiwajshing/baileys');
+  const fs = require('fs');
+  const { spawn } = require('child_process');
 
-  
   try {
     const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    const isViewOnce = quoted?.viewOnceMessage?.message;
-    const actualMessage = isViewOnce ? quoted.viewOnceMessage.message : quoted;
-    const sticker = actualMessage?.stickerMessage;
-    const gif = actualMessage?.videoMessage?.gifPlayback;
-    const video = actualMessage?.videoMessage && !gif;
-    const image = actualMessage?.imageMessage;
-    if (!sticker && !gif && !video && !image) {
-      await sock.sendMessage(msg.key.remoteJid, {
-        text: "❌ Bitte antworte auf einen animierten Sticker, GIF, Bild, ViewOnce oder kurzes Video!"
-      }, { quoted: msg });
+    if (!quoted) {
+      await sock.sendMessage(msg.key.remoteJid, { text: "❌ Bitte antworte auf einen Sticker, GIF, Video oder Bild!" }, { quoted: msg });
       break;
     }
-    if (video) {
-      const duration = actualMessage.videoMessage.seconds || 0;
-      if (duration > 50) {
-        await sock.sendMessage(msg.key.remoteJid, {
-          text: "❌ Bitte ein Video mit maximal 5 Sekunden Länge schicken!"
-        }, { quoted: msg });
-        break;
-      }
+
+    // Prüfe Typ
+    const sticker = quoted.stickerMessage;
+    const image = quoted.imageMessage;
+    const videoMsg = quoted.videoMessage;
+    const isGif = videoMsg?.gifPlayback;
+
+    // Videos dürfen maximal 5 Sekunden sein
+    if (videoMsg && !isGif && (videoMsg.seconds || 0) > 5) {
+      await sock.sendMessage(msg.key.remoteJid, { text: "❌ Videos dürfen nur bis 5 Sekunden lang sein!" }, { quoted: msg });
+      break;
     }
-    let mediaType;
-    if (sticker) mediaType = 'sticker';
-    else if (gif || video) mediaType = 'video';
-    else if (image) mediaType = 'image';
-    const mediaMessage =
-      sticker ? actualMessage.stickerMessage :
-      gif || video ? actualMessage.videoMessage :
-      image ? actualMessage.imageMessage :
-      null;
+
+    let mediaType, mediaMessage;
+    if (sticker) {
+      mediaType = 'sticker';
+      mediaMessage = sticker;
+    } else if (image) {
+      mediaType = 'image';
+      mediaMessage = image;
+    } else if (videoMsg) {
+      mediaType = 'video';
+      mediaMessage = videoMsg;
+    } else {
+      await sock.sendMessage(msg.key.remoteJid, { text: "❌ Unbekannter Medientyp!" }, { quoted: msg });
+      break;
+    }
+
+    // Download
     const stream = await downloadContentFromMessage(mediaMessage, mediaType);
     const bufferChunks = [];
-    for await (const chunk of stream) {
-      bufferChunks.push(chunk);
-    }
+    for await (const chunk of stream) bufferChunks.push(chunk);
     const buffer = Buffer.concat(bufferChunks);
-    await sock.sendMessage(msg.key.remoteJid, {
-      video: buffer,
-      mimetype: 'video/webp',
-      caption: "🎥 Hier ist dein PTV!",
-      ptv: true
-    }, { quoted: msg });
+
+    // Wenn es Sticker ist → direkt senden
+    if (sticker) {
+      await sock.sendMessage(msg.key.remoteJid, { sticker: buffer, mimetype: 'image/webp', ptv: true }, { quoted: msg });
+      break;
+    }
+
+    // Ansonsten mit ffmpeg in WebP umwandeln
+    const tempFile = './temp_ptv_input';
+    const tempOutput = './temp_ptv_output.webp';
+    fs.writeFileSync(tempFile, buffer);
+
+    await new Promise((resolve, reject) => {
+      const ff = spawn('ffmpeg', [
+        '-i', tempFile,
+        '-vcodec', 'libwebp',
+        '-filter:v', 'fps=fps=15,scale=512:512:force_original_aspect_ratio=decrease',
+        '-lossless', '1',
+        '-loop', '0',
+        '-preset', 'default',
+        '-an', '-vsync', '0',
+        tempOutput
+      ]);
+
+      ff.on('close', (code) => code === 0 ? resolve() : reject(new Error('ffmpeg Fehler')));
+    });
+
+    const finalBuffer = fs.readFileSync(tempOutput);
+
+    await sock.sendMessage(msg.key.remoteJid, { sticker: finalBuffer, mimetype: 'image/webp', ptv: true }, { quoted: msg });
+
+    fs.unlinkSync(tempFile);
+    fs.unlinkSync(tempOutput);
 
   } catch (err) {
-    console.error("❌ Fehler bei getptv:", err);
-    await sock.sendMessage(msg.key.remoteJid, {
-      text: "⚠️ Fehler beim Senden des PTV."
-    }, { quoted: msg });
+    console.error("❌ Fehler bei PTV:", err);
+    await sock.sendMessage(msg.key.remoteJid, { text: "⚠️ Fehler beim Erstellen des PTV." }, { quoted: msg });
   }
   break;
-}  
+} 
 
  
 case 'ptv3': {
