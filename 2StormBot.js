@@ -10923,7 +10923,11 @@ case 'getpic': {
 //==========================Gruppen Funktionen=======================//
 // ...existing code...
 case 'warn': {
+  // Prüfen ob es ein Gruppenchat ist
+  const isGroup = from.endsWith('@g.us'); // alle Gruppen-IDs enden auf @g.us
   if (!isGroup) return sock.sendMessage(from, { text: '⚠️ Dieser Befehl geht nur in Gruppen.' });
+
+  // Prüfen ob der Sender Admin ist
   if (!(await isUserAdmin(from, sender))) return sock.sendMessage(from, { text: '🚫 Nur Admins dürfen verwarnen.' });
 
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
@@ -11414,7 +11418,11 @@ case 'play': {
 }
 
 case 'resetwarn': {
+  // Prüfen ob es ein Gruppenchat ist
+  const isGroup = from.endsWith('@g.us');
   if (!isGroup) return sock.sendMessage(from, { text: '⚠️ Nur in Gruppen verfügbar.' });
+
+  // Prüfen ob der Sender Admin ist
   if (!(await isUserAdmin(from, sender))) return sock.sendMessage(from, { text: '🚫 Keine Admin-Rechte.' });
 
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
@@ -11797,6 +11805,8 @@ case 'grouplist': {
 // ...existing code...
 
 case 'warns': {
+  // Prüfen ob es ein Gruppenchat ist
+  const isGroup = from.endsWith('@g.us');
   if (!isGroup) return sock.sendMessage(from, { text: '⚠️ Dieser Befehl geht nur in Gruppen.' });
 
   const groupWarns = warnedUsers[from];
