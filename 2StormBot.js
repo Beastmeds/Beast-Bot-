@@ -2959,7 +2959,7 @@ const commandsList = [
   'hug', 'kiss', 'slap', 'pat', 'poke', 'cuddle', 'fuck', 'horny', 'kill', 'goon', 'penis', 'tok', 'tok2',
 
  
-  'id', 'leave', 'leave2', 'join', 'addme', 'sessions', 'antideletepn',
+  'id', 'ig', 'igd', 'instagramdownload', 'leave', 'leave2', 'join', 'addme', 'sessions', 'antideletepn',
 
   
   'ban', 'unban', 'unbanrequest', 'approveunban', 'rejectunban', 'unregister', 'broadcast', 'tagall', 'grpinfo', 'antidelete', 
@@ -4356,7 +4356,9 @@ case 'msg': {
     }
     break;
 }
-case 'ig': {
+case 'ig':
+case 'igd':
+case 'instagramdownload': {
   const q = args.join(' ');
   const botName = '💻 BeastBot';
   const startTime = Date.now();
