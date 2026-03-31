@@ -599,6 +599,7 @@ const weatherCooldowns = new Map();
 const { ytdl, ttdl, igdl, fbdl, twdl, ytdown, instagram } = require("./lib/mediaDownloader");
 const { handleYT, handleIG, handleFB, handleTW } = require("./downloaders.js");
 const yts = require("yt-search");
+const { sticker: convertToSticker } = require('./lib/sticker');
 const playdl = require("play-dl");
 const neeledownloader = require("./lib/mediaDownloader");
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -4997,43 +4998,55 @@ break;
 
 case 'sticker': {
     try {
-        let imageMessage;
+        let contentMessage;
+        let isVideo = false;
 
         if (msg.message.imageMessage) {
-            imageMessage = msg.message.imageMessage;
+            contentMessage = msg.message.imageMessage;
         } else if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
-            imageMessage = msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage;
+            contentMessage = msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage;
+        } else if (msg.message.videoMessage) {
+            contentMessage = msg.message.videoMessage;
+            isVideo = true;
+        } else if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage) {
+            contentMessage = msg.message.extendedTextMessage.contextInfo.quotedMessage.videoMessage;
+            isVideo = true;
         } else {
-            await sock.sendMessage(from, { text: '❌ Bitte sende ein Bild oder zitiere ein Bild!', quoted: msg });
+            await sock.sendMessage(from, { text: '❌ Bitte sende ein Bild/Video oder zitiere ein Bild/Video!', quoted: msg });
             break;
         }
 
-        const stream = await downloadContentFromMessage(imageMessage, 'image');
+        const stream = await downloadContentFromMessage(contentMessage, isVideo ? 'video' : 'image');
         let buffer = Buffer.from([]);
         for await (const chunk of stream) {
             buffer = Buffer.concat([buffer, chunk]);
         }
 
-        const StickerClass = getSticker();
-        if (!StickerClass) {
-            await sock.sendMessage(from, { text: '❌ Sticker-Generator nicht gefunden. Bitte installiere wa-sticker-formatter.', quoted: msg });
-            break;
+        const username = msg.pushName || 'Unbekannt';
+        let stickerData;
+
+        if (isVideo) {
+            // Im Video-Fall die fortschrittliche Konvertierung aus lib/sticker verwenden
+            stickerData = await convertToSticker(buffer, null, 'BeastBot', username);
+        } else {
+            const StickerClass = getSticker();
+            if (!StickerClass) {
+                await sock.sendMessage(from, { text: '❌ Sticker-Generator nicht gefunden. Bitte installiere wa-sticker-formatter.', quoted: msg });
+                break;
+            }
+            const sticker = new StickerClass(buffer, {
+                pack: 'Erstellt mit BeastBot',
+                author: username,
+                type: 'full'
+            });
+            stickerData = await sticker.toBuffer();
         }
 
-        let username = msg.pushName || 'Unbekannt';
-
-        const sticker = new StickerClass(buffer, {
-            pack: 'Erstellt mit BeastBot',
-            author: username,
-            type: 'full'
-        });
-
-        const stickerData = await sticker.toBuffer();
         await sock.sendMessage(from, { sticker: stickerData }, { quoted: msg });
 
     } catch (e) {
         console.error('Fehler beim Sticker-Befehl:', e);
-        await sock.sendMessage(from, { text: '❌ Fehler beim Erstellen des Stickers. Bitte stelle sicher, dass das Bild korrekt ist und versuche es erneut.', quoted: msg });
+        await sock.sendMessage(from, { text: '❌ Fehler beim Erstellen des Stickers. Bitte stelle sicher, dass dein Bild/Video korrekt ist und versuche es erneut.', quoted: msg });
     }
     break;
 }
