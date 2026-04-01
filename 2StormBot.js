@@ -4425,10 +4425,14 @@ case 'instagramdownload': {
     const fileName = `instagram_${Date.now()}.mp4`;
     const outputPath = path.join(tmpDir, fileName);
 
-    // Instagram credentials (optional)
+    // Instagram credentials (optional) - Cookies have priority over username/password
     const igArgs = [];
-    if (process.env.INSTAGRAM_USERNAME && process.env.INSTAGRAM_PASSWORD) {
+    if (process.env.INSTAGRAM_COOKIES && fs.existsSync(process.env.INSTAGRAM_COOKIES)) {
+      igArgs.push('--cookies', process.env.INSTAGRAM_COOKIES);
+    } else if (process.env.INSTAGRAM_USERNAME && process.env.INSTAGRAM_PASSWORD) {
       igArgs.push('--username', process.env.INSTAGRAM_USERNAME, '--password', process.env.INSTAGRAM_PASSWORD);
+      // Add delay to avoid rate limiting
+      igArgs.push('--sleep-requests', '1');
     }
 
     await runYtDlp([
