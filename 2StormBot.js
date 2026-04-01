@@ -11666,7 +11666,7 @@ case 'resetwarn': {
   break;
 }
 case 'mp4': {
-  const q = args.join(' ');
+  let q = args.join(' ').trim();
   const botName = '💻 BeastBot';
   const startTime = Date.now();
 
@@ -11679,8 +11679,157 @@ case 'mp4': {
     break;
   }
 
+  const isYouTubeUrl = /(https?:\/\/)?(?:www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)/i;
+  const isUrl = /(https?:\/\/)/i.test(q);
+  let url = q;
+  let title = '';
+  let thumbnail = '';
+  let useYtdlCore = false;
+
+  if (isYouTubeUrl.test(q)) {
+    useYtdlCore = true;
+    url = q.split(' ')[0]; // Nur den Link
+  }
+
   try {
     await sock.sendPresenceUpdate('composing', chatId);
+    await sleep(500);
+    try {
+      await sock.readMessages([msg.key]);
+    } catch (readError) {
+      console.log('Fehler beim Lesen der Nachricht:', readError.message);
+    }
+
+    if (!useYtdlCore) {
+      const search = await yts.search(q);
+      if (!search.videos.length) {
+        await sock.sendMessage(chatId, { text: `😕 Ich habe kein Video gefunden.\n> ${botName}`, quoted: msg });
+        break;
+      }
+
+      const v = search.videos[0];
+      title = v.title;
+      url = v.url;
+      thumbnail = v.thumbnail;
+
+      function durationToSeconds(str) {
+        if (!str) return 0;
+        return str.split(':').reverse().reduce((acc, val, i) => acc + (parseInt(val) || 0) * Math.pow(60, i), 0);
+      }
+
+      const durationSec = durationToSeconds(v.timestamp);
+      if (durationSec > 25200) { // max 7 Stunden
+        await sock.sendMessage(chatId, {
+          text: `⏰ Das Video ist zu lang (*${v.timestamp}*). Maximal 7 Stunden.\n> ${botName}`
+        }, { quoted: msg });
+        break;
+      }
+
+      const infoText =
+        `🎬 *BeastBot YouTube Video*\n\n` +
+        `❏ 📌 Titel: ${v.title}\n` +
+        `❏ ⏱ Dauer: ${v.timestamp}\n` +
+        `❏ 👀 Aufrufe: ${v.views.toLocaleString()}\n` +
+        `❏ 📅 Hochgeladen: ${v.ago}\n` +
+        `❏ 👤 Uploader: ${v.author?.name || 'Unbekannt'}\n` +
+        `❏ 🔗 Link: ${v.url}\n\n` +
+        `⏳ Ich lade das Video für dich… bitte einen Moment!`;
+
+      await sock.sendMessage(chatId, { image: { url: thumbnail }, caption: infoText }, { quoted: msg });
+      await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+
+    } else {
+      try {
+        const info = await ytdlCore.getInfo(url);
+        title = info.videoDetails.title || 'youtube_video';
+        thumbnail = info.videoDetails.thumbnails?.slice(-1)[0]?.url || '';
+      } catch (infoErr) {
+        console.log('⚠️ ytdl-core Metadata-Fehler:', infoErr.message || infoErr);
+        title = `youtube_video_${Date.now()}`;
+      }
+      thumbnail = thumbnail || '';
+      await sock.sendMessage(chatId, { text: `🎬 Starte direkten YouTube-Download: ${url}` }, { quoted: msg });
+      if (thumbnail) await sock.sendMessage(chatId, { image: { url: thumbnail }, caption: `📌 ${title}` }, { quoted: msg });
+      await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+    }
+
+    const cleanTitle = (title || url).replace(/[\\/:*?"<>|]/g, '').trim();
+    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
+
+    if (useYtdlCore) {
+      try {
+        const stream = ytdlCore(url, {
+          quality: 'highestvideo',
+          filter: 'audioandvideo',
+          highWaterMark: 1 << 25,
+          requestOptions: {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept-Language': 'en-US,en;q=0.9'
+            }
+          }
+        });
+
+        await new Promise((resolve, reject) => {
+          const writer = fs.createWriteStream(filePath);
+          stream.on('error', reject);
+          writer.on('error', reject);
+          writer.on('finish', resolve);
+          stream.pipe(writer);
+        });
+      } catch (ytErr) {
+        console.log('⚠️ ytdl-core fehler beim speichern, fallback yt-dlp:', ytErr.message || ytErr);
+        await runYtDlp([
+          ...getYtDlpJsRuntimeArgs(),
+          ...getYtDlpFfmpegArgs(),
+          '--no-check-certificates',
+          '--geo-bypass',
+          '--rm-cache-dir',
+          '--no-playlist',
+          '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+          '-o', filePath,
+          url
+        ]);
+      }
+    } else {
+      await runYtDlp([
+        ...getYtDlpJsRuntimeArgs(),
+        ...getYtDlpFfmpegArgs(),
+        '--no-check-certificates',
+        '--geo-bypass',
+        '--rm-cache-dir',
+        '--no-playlist',
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+        '-o', filePath,
+        url
+      ]);
+    }
+
+    if (!fs.existsSync(filePath)) throw new Error('Download fehlgeschlagen: Datei wurde nicht gefunden.');
+
+    const videoBuffer = fs.readFileSync(filePath);
+    const endTime = Date.now();
+    const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+
+    await sock.sendMessage(chatId, {
+      video: videoBuffer,
+      mimetype: 'video/mp4',
+      fileName: `${cleanTitle}.mp4`,
+      caption: `✅ Fertig! Das Video wurde in ${timeTaken}s heruntergeladen.\n> ${botName}`
+    }, { quoted: msg });
+
+    await sendReaction(from, msg, '✅');
+    fs.unlinkSync(filePath);
+
+  } catch (err) {
+    console.error('Fehler bei /mp4:', err);
+    await sock.sendMessage(chatId, {
+      text: `❌ Fehler beim Laden der MP4: ${err?.message || 'Unbekannt'}\n> ${botName}`
+    }, { quoted: msg });
+  }
+
+  break;
+}    await sock.sendPresenceUpdate('composing', chatId);
     await sleep(500);
     try {
       await sock.readMessages([msg.key]);
