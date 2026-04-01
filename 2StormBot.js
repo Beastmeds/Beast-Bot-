@@ -152,6 +152,66 @@ function getYtDlpFfmpegArgs() {
   return ['--ffmpeg-location', location];
 }
 
+async function downloadYoutubeVideo(url, outputPath) {
+  // Try ytdl-core first
+  try {
+    const stream = ytdlCore(url, {
+      quality: 'highestvideo',
+      filter: 'audioandvideo',
+      highWaterMark: 1 << 25,
+      requestOptions: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      }
+    });
+
+    await new Promise((resolve, reject) => {
+      const writer = fs.createWriteStream(outputPath);
+      stream.on('error', reject);
+      writer.on('error', reject);
+      writer.on('finish', resolve);
+      stream.pipe(writer);
+    });
+
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
+  } catch (err) {
+    console.log('⚠️ ytdl-core Fehler, fallback zu yt-dlp:', err.message || err);
+  }
+
+  // Fallback nto yt-dlp with stronger options
+  const ytDlpArgs = [
+    ...getYtDlpJsRuntimeArgs(),
+    ...getYtDlpFfmpegArgs(),
+    '--no-check-certificate',
+    '--geo-bypass',
+    '--rm-cache-dir',
+    '--no-playlist',
+    '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    '--add-header', 'Accept-Language: en-US,en;q=0.9',
+    '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+    '-o', outputPath,
+    url
+  ];
+
+  if (process.env.YOUTUBE_COOKIES && fs.existsSync(process.env.YOUTUBE_COOKIES)) {
+    ytDlpArgs.unshift('--cookies', process.env.YOUTUBE_COOKIES);
+  }
+
+  try {
+    await runYtDlp(ytDlpArgs);
+    return;
+  } catch (err) {
+    console.log('⚠️ yt-dlp starkere Fallback-Optionen fehlgeschlagen:', err.message || err);
+  }
+
+  // final fallback attempt: allow unplayable, nur Bilder wenn nötig (mögliches quarantäne-Video)
+  const ytDlpArgs2 = [...ytDlpArgs];
+  ytDlpArgs2.splice(ytDlpArgs2.indexOf('-f'), 2, '--allow-unplayable-formats');
+  await runYtDlp(ytDlpArgs2);
+}
+
 function spawnCapture(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -11756,55 +11816,7 @@ case 'mp4': {
     const cleanTitle = (title || url).replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
 
-    if (useYtdlCore) {
-      try {
-        const stream = ytdlCore(url, {
-          quality: 'highestvideo',
-          filter: 'audioandvideo',
-          highWaterMark: 1 << 25,
-          requestOptions: {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept-Language': 'en-US,en;q=0.9'
-            }
-          }
-        });
-
-        await new Promise((resolve, reject) => {
-          const writer = fs.createWriteStream(filePath);
-          stream.on('error', reject);
-          writer.on('error', reject);
-          writer.on('finish', resolve);
-          stream.pipe(writer);
-        });
-      } catch (ytErr) {
-        console.log('⚠️ ytdl-core fehler beim speichern, fallback yt-dlp:', ytErr.message || ytErr);
-        await runYtDlp([
-          ...getYtDlpJsRuntimeArgs(),
-          ...getYtDlpFfmpegArgs(),
-          '--no-check-certificates',
-          '--geo-bypass',
-          '--rm-cache-dir',
-          '--no-playlist',
-          '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
-          '-o', filePath,
-          url
-        ]);
-      }
-    } else {
-      await runYtDlp([
-        ...getYtDlpJsRuntimeArgs(),
-        ...getYtDlpFfmpegArgs(),
-        '--no-check-certificates',
-        '--geo-bypass',
-        '--rm-cache-dir',
-        '--no-playlist',
-        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
-        '-o', filePath,
-        url
-      ]);
-    }
-
+    await downloadYoutubeVideo(url, filePath);
     if (!fs.existsSync(filePath)) throw new Error('Download fehlgeschlagen: Datei wurde nicht gefunden.');
 
     const videoBuffer = fs.readFileSync(filePath);
