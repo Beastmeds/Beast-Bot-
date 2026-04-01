@@ -4425,6 +4425,12 @@ case 'instagramdownload': {
     const fileName = `instagram_${Date.now()}.mp4`;
     const outputPath = path.join(tmpDir, fileName);
 
+    // Instagram credentials (optional)
+    const igArgs = [];
+    if (process.env.INSTAGRAM_USERNAME && process.env.INSTAGRAM_PASSWORD) {
+      igArgs.push('--username', process.env.INSTAGRAM_USERNAME, '--password', process.env.INSTAGRAM_PASSWORD);
+    }
+
     await runYtDlp([
       ...getYtDlpJsRuntimeArgs(),
       ...getYtDlpFfmpegArgs(),
@@ -4432,6 +4438,7 @@ case 'instagramdownload': {
       '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '--merge-output-format', 'mp4',
       '-o', outputPath,
+      ...igArgs,
       q
     ]);
 
