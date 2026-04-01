@@ -20,7 +20,7 @@ const settings = require('./settings.js');
 const { spawn } = require('child_process');
 
 const fs = require('fs');
-const ytdl = require('ytdl-core');
+const ytdlCore = require('ytdl-core');
 const { downloadMediaMessage } = require('@717development/baileys');
 const chalkModule = require('chalk');
 const chalk = chalkModule.default || chalkModule; // compat for ESM/CJS chalk builds
@@ -238,7 +238,7 @@ async function downloadAndSendUrl(sock, url, chatId, msg, opts = {}) {
   if (isYouTube) {
     try {
       const ytdlOut = path.join(tmpDir, `autodownload_ytdl_${Date.now()}.mp4`);
-      const stream = ytdl(url, { quality: 'highestvideo', filter: 'audioandvideo', highWaterMark: 1 << 25 });
+      const stream = ytdlCore(url, { quality: 'highestvideo', filter: 'audioandvideo', highWaterMark: 1 << 25 });
       await new Promise((resolve, reject) => {
         stream.pipe(fs.createWriteStream(ytdlOut))
           .on('finish', resolve)
