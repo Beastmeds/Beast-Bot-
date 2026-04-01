@@ -177,6 +177,7 @@ function spawnCapture(cmd, args, opts = {}) {
 async function runYtDlp(args, opts = {}) {
   const candidates = getYtDlpCandidates();
   let last = null;
+
   for (const c of candidates) {
     try {
       return await spawnCapture(c.cmd, [...c.args, ...args], { cwd: __dirname, ...opts });
@@ -184,6 +185,25 @@ async function runYtDlp(args, opts = {}) {
       last = e;
     }
   }
+
+  // If yt-dlp complains about --js-runtimes and this option was in args,
+  // retry without it (for older yt-dlp versions).
+  const argsNoRuntime = args.filter((v, i) => {
+    if (v === '--js-runtimes') return false;
+    if (i > 0 && args[i - 1] === '--js-runtimes') return false;
+    return true;
+  });
+
+  if (argsNoRuntime.length !== args.length && last?.stderr?.includes('no such option: --js-runtimes')) {
+    for (const c of candidates) {
+      try {
+        return await spawnCapture(c.cmd, [...c.args, ...argsNoRuntime], { cwd: __dirname, ...opts });
+      } catch (e) {
+        last = e;
+      }
+    }
+  }
+
   const message = (last?.stderr || last?.stdout || last?.error?.message || 'yt-dlp failed').trim();
   throw new Error(message);
 }
