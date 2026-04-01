@@ -178,22 +178,31 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ Cookie-Datei nicht gefunden:', ytCookies);
   }
 
-  // Base yt-dlp arguments
-  const baseYtDlpArgs = [
+  // Base yt-dlp arguments with strong headers
+  const getBaseArgs = () => [
     ...getYtDlpJsRuntimeArgs(),
     ...getYtDlpFfmpegArgs(),
     '--no-check-certificate',
-    '--socket-timeout', '30',
+    '--socket-timeout', '60',
     '--no-playlist',
   ];
 
-  // Strategy 1: yt-dlp with best format (most likely to work)
+  const headers = [
+    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept-Language: en-US,en;q=0.9',
+    'Accept-Encoding: gzip, deflate',
+    'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+  ];
+
+  // Strategy 1: yt-dlp with skip-hls and stronger extractor args
   try {
+    console.log('🔄 Versuche yt-dlp Strategie 1 (skip-hls)...');
     const ytDlpArgs = [
-      ...baseYtDlpArgs,
-      '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      '-f', 'best',
+      ...getBaseArgs(),
+      '--extractor-args', 'youtube:skip=hls,player_client=web',
+      '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b',
       '-o', outputPath,
+      ...headers.flatMap(h => ['--add-header', h]),
       url
     ];
 
@@ -201,7 +210,6 @@ async function downloadYoutubeVideo(url, outputPath) {
       ytDlpArgs.unshift('--cookies', ytCookies);
     }
 
-    console.log('🔄 Versuche yt-dlp Strategie 1...');
     await runYtDlp(ytDlpArgs);
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
       console.log('✅ Download erfolgreich via yt-dlp Strategie 1');
@@ -211,17 +219,22 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ yt-dlp Strategie 1 fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
-  // Strategy 2: yt-dlp with alternative format selection
+  // Strategy 2: yt-dlp with alternative player and web extraction
   try {
+    console.log('🔄 Versuche yt-dlp Strategie 2 (web player)...');
     const ytDlpArgs = [
-      ...baseYtDlpArgs,
-      '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      '-f', 'bestvideo+bestaudio/best',
+      ...getBaseArgs(),
+      '--extractor-args', 'youtube:player_client=web,player_skip=js',
+      '-f', 'bv+ba/b',
       '-o', outputPath,
+      ...headers.flatMap(h => ['--add-header', h]),
       url
     ];
 
-    console.log('🔄 Versuche yt-dlp Strategie 2 (bestvideo+bestaudio)...');
+    if (cookiesExist) {
+      ytDlpArgs.unshift('--cookies', ytCookies);
+    }
+
     await runYtDlp(ytDlpArgs);
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
       console.log('✅ Download erfolgreich via yt-dlp Strategie 2');
@@ -231,7 +244,31 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ yt-dlp Strategie 2 fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
-  // Strategy 3: Try ytdl-core
+  // Strategy 3: yt-dlp simple fallback - just get ANY available format
+  try {
+    console.log('🔄 Versuche yt-dlp Strategie 3 (any format)...');
+    const ytDlpArgs = [
+      ...getBaseArgs(),
+      '-f', '(bv+ba/b)',
+      '-o', outputPath,
+      ...headers.flatMap(h => ['--add-header', h]),
+      url
+    ];
+
+    if (cookiesExist) {
+      ytDlpArgs.unshift('--cookies', ytCookies);
+    }
+
+    await runYtDlp(ytDlpArgs);
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ Download erfolgreich via yt-dlp Strategie 3');
+      return;
+    }
+  } catch (err) {
+    console.log('⚠️ yt-dlp Strategie 3 fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
+
+  // Strategy 4: Try ytdl-core with different agent
   try {
     console.log('🔄 Versuche ytdl-core...');
     const streamOpts = {
@@ -240,7 +277,7 @@ async function downloadYoutubeVideo(url, outputPath) {
       requestOptions: {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept-Language': 'de-DE,de;q=0.9'
+          'Accept-Language': 'en-US,en;q=0.9'
         }
       }
     };
@@ -265,10 +302,10 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ ytdl-core fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
-  // Strategy 4: play-dl fallback
+  // Strategy 5: play-dl with proper URL format
   try {
     console.log('🔄 Versuche play-dl...');
-    const streamObj = await playdl.stream(url, { quality: 2 });
+    const streamObj = await playdl.stream(url, { quality: 0 });
     if (streamObj && streamObj.stream) {
       await new Promise((resolve, reject) => {
         const writer = fs.createWriteStream(outputPath);
@@ -287,10 +324,45 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ play-dl fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
-  // All attempts failed
+  // Strategy 6: Invidious proxy service (last resort - uses alternative YouTube frontend)
+  try {
+    console.log('🔄 Versuche Invidious (YouTube-Alternative)...');
+    const invidiousInstances = [
+      'https://yewtu.be',
+      'https://invidious.jfoxel.de',
+      'https://invidious.io'
+    ];
+
+    for (const instance of invidiousInstances) {
+      try {
+        // Convert YouTube URL to Invidious
+        const videoId = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+        if (!videoId) break;
+
+        const invUrl = `${instance}/latest_version?id=${videoId}`;
+        const ytDlpArgs = [
+          ...getBaseArgs(),
+          '-f', 'best',
+          '-o', outputPath,
+          invUrl
+        ];
+
+        console.log(`  → Versuche ${instance}...`);
+        await runYtDlp(ytDlpArgs);
+        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+          console.log('✅ Download erfolgreich via Invidious');
+          return;
+        }
+      } catch (instErr) {
+        // Try next instance
+      }
+    }
+  } catch (err) {
+    console.log('⚠️ Invidious fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
   const errMsg = fs.existsSync(outputPath) 
     ? `Datei zu klein: ${fs.statSync(outputPath).size} bytes`
-    : '❌ Alle Download-Methoden fehlgeschlagen. YouTube blockiert Zugriff ohne gültige Authentifizierung.';
+    : '❌ YouTube blockiert alle Downloads. Alle Methoden fehlgeschlagen.';
   
   throw new Error(errMsg);
 }
