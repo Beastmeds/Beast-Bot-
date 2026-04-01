@@ -4435,11 +4435,29 @@ case 'instagramdownload': {
       igArgs.push('--sleep-requests', '1');
     }
 
+    // Debug: Zeige verfügbare Formate
+    console.log('🔍 Prüfe verfügbare Instagram-Formate...');
+    try {
+      const formatCheck = await runYtDlp([
+        ...getYtDlpJsRuntimeArgs(),
+        '--no-check-certificates',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        '--list-formats',
+        ...igArgs,
+        q
+      ]);
+      console.log('📋 Verfügbare Formate:', formatCheck.stdout);
+    } catch (formatError) {
+      console.log('⚠️ Format-Check fehlgeschlagen:', formatError.message);
+    }
+
     await runYtDlp([
       ...getYtDlpJsRuntimeArgs(),
       ...getYtDlpFfmpegArgs(),
       '--no-playlist',
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '--no-check-certificates',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      '-f', 'best[ext=mp4]/best',
       '--merge-output-format', 'mp4',
       '-o', outputPath,
       ...igArgs,
