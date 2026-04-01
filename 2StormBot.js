@@ -172,20 +172,68 @@ async function downloadYoutubeVideo(url, outputPath) {
     } catch (e) {
       console.log('⚠️ Cookie-Parse Fehler:', e.message || e);
     }
-  } else {
-    console.log('ℹ️ Kein YouTube Cookie gefunden in', ytCookies);
   }
 
-  // Try ytdl-core first
+  // Base yt-dlp arguments
+  const baseYtDlpArgs = [
+    ...getYtDlpJsRuntimeArgs(),
+    ...getYtDlpFfmpegArgs(),
+    '--no-check-certificate',
+    '--socket-timeout', '30',
+    '--no-playlist',
+  ];
+
+  // Strategy 1: yt-dlp with best format (most likely to work)
+  try {
+    const ytDlpArgs = [
+      ...baseYtDlpArgs,
+      '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      '-f', 'best',
+      '-o', outputPath,
+      url
+    ];
+
+    if (fs.existsSync(ytCookies)) {
+      ytDlpArgs.unshift('--cookies', ytCookies);
+    }
+
+    await runYtDlp(ytDlpArgs);
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ Download erfolgreich via yt-dlp');
+      return;
+    }
+  } catch (err) {
+    console.log('⚠️ yt-dlp Versuch 1 fehlgeschlagen');
+  }
+
+  // Strategy 2: yt-dlp with alternative format selection
+  try {
+    const ytDlpArgs = [
+      ...baseYtDlpArgs,
+      '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      '-f', 'bestvideo+bestaudio/best',
+      '-o', outputPath,
+      url
+    ];
+
+    await runYtDlp(ytDlpArgs);
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ Download erfolgreich via yt-dlp (audio+video)');
+      return;
+    }
+  } catch (err) {
+    console.log('⚠️ yt-dlp Versuch 2 fehlgeschlagen');
+  }
+
+  // Strategy 3: Try ytdl-core
   try {
     const streamOpts = {
-      quality: 'highestvideo',
-      filter: 'audioandvideo',
+      quality: 'highest',
       highWaterMark: 1 << 25,
       requestOptions: {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept-Language': 'de-DE,de;q=0.9'
         }
       }
     };
@@ -194,7 +242,6 @@ async function downloadYoutubeVideo(url, outputPath) {
     }
 
     const stream = ytdlCore(url, streamOpts);
-
     await new Promise((resolve, reject) => {
       const writer = fs.createWriteStream(outputPath);
       stream.on('error', reject);
@@ -203,69 +250,41 @@ async function downloadYoutubeVideo(url, outputPath) {
       stream.pipe(writer);
     });
 
-    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
-  } catch (err) {
-    console.log('⚠️ ytdl-core Fehler, fallback zu yt-dlp:', err.message || err);
-  }
-
-  // Fallback to yt-dlp with stronger options
-  const ytDlpArgs = [
-    ...getYtDlpJsRuntimeArgs(),
-    ...getYtDlpFfmpegArgs(),
-    '--no-check-certificate',
-    '--geo-bypass',
-    '--rm-cache-dir',
-    '--no-playlist',
-    '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    '--add-header', 'Accept-Language: en-US,en;q=0.9',
-    '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
-    '-o', outputPath,
-    url
-  ];
-
-  if (fs.existsSync(ytCookies)) {
-    ytDlpArgs.unshift('--cookies', ytCookies);
-  }
-
-  try {
-    await runYtDlp(ytDlpArgs);
-    return;
-  } catch (err) {
-    console.log('⚠️ yt-dlp starkere Fallback-Optionen fehlgeschlagen:', err.message || err);
-  }
-
-  // final fallback attempt: allow unplayable, nur Bilder wenn nötig (mögliches quarantäne-Video)
-  try {
-    const ytDlpArgs2 = [...ytDlpArgs];
-    const fIndex = ytDlpArgs2.indexOf('-f');
-    if (fIndex >= 0) {
-      ytDlpArgs2.splice(fIndex, 2, '--allow-unplayable-formats');
-    } else {
-      ytDlpArgs2.push('--allow-unplayable-formats');
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ Download erfolgreich via ytdl-core');
+      return;
     }
-    await runYtDlp(ytDlpArgs2);
-    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
   } catch (err) {
-    console.log('⚠️ yt-dlp allow-unplayable fehlgeschlagen:', err.message || err);
+    console.log('⚠️ ytdl-core fehlgeschlagen');
   }
 
-  // finaler Fallback: play-dl direkt streamen (falls ytdl-core/yt-dlp versagt)
+  // Strategy 4: play-dl fallback
   try {
-    const streamObj = await playdl.stream(url, { quality: 0 });
-    await new Promise((resolve, reject) => {
-      const writer = fs.createWriteStream(outputPath);
-      streamObj.stream.on('error', reject);
-      writer.on('error', reject);
-      writer.on('finish', resolve);
-      streamObj.stream.pipe(writer);
-    });
+    const streamObj = await playdl.stream(url, { quality: 2 });
+    if (streamObj && streamObj.stream) {
+      await new Promise((resolve, reject) => {
+        const writer = fs.createWriteStream(outputPath);
+        streamObj.stream.on('error', reject);
+        writer.on('error', reject);
+        writer.on('finish', resolve);
+        streamObj.stream.pipe(writer);
+      });
 
-    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
-    throw new Error('play-dl hat keine gültige Datei erstellt.');
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+        console.log('✅ Download erfolgreich via play-dl');
+        return;
+      }
+    }
   } catch (err) {
-    console.log('⚠️ play-dl Fallback fehlgeschlagen:', err.message || err);
-    throw new Error(`Kein Download möglich (ytdl-core, yt-dlp, play-dl alle fehlgeschlagen). Letzter Fehler: ${err.message || err}`);
+    console.log('⚠️ play-dl fehlgeschlagen');
   }
+
+  // All attempts failed
+  const errMsg = fs.existsSync(outputPath) 
+    ? `Datei zu klein: ${fs.statSync(outputPath).size} bytes`
+    : 'Alle Download-Methoden fehlgeschlagen (YouTube blockiert Zugriff). Versuche später erneut oder kontaktiere Admin.';
+  
+  throw new Error(errMsg);
 }
 
 function spawnCapture(cmd, args, opts = {}) {
