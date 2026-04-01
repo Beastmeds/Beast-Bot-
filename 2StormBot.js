@@ -238,11 +238,24 @@ async function downloadAndSendUrl(sock, url, chatId, msg, opts = {}) {
   if (isYouTube) {
     try {
       const ytdlOut = path.join(tmpDir, `autodownload_ytdl_${Date.now()}.mp4`);
-      const stream = ytdlCore(url, { quality: 'highestvideo', filter: 'audioandvideo', highWaterMark: 1 << 25 });
+      const stream = ytdlCore(url, {
+        quality: 'highestvideo',
+        filter: 'audioandvideo',
+        highWaterMark: 1 << 25,
+        requestOptions: {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9'
+          }
+        }
+      });
+
       await new Promise((resolve, reject) => {
-        stream.pipe(fs.createWriteStream(ytdlOut))
-          .on('finish', resolve)
-          .on('error', reject);
+        const writer = fs.createWriteStream(ytdlOut);
+        stream.on('error', reject);
+        writer.on('error', reject);
+        writer.on('finish', resolve);
+        stream.pipe(writer);
       });
 
       if (!fs.existsSync(ytdlOut)) throw new Error('YouTube-Download fehlgeschlagen (ytdl-core).');
