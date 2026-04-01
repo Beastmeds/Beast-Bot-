@@ -4444,30 +4444,6 @@ case 'instagramdownload': {
 
   break;
 }
-    await sock.sendMessage(chatId, {
-      video: videoBuffer,
-      mimetype: 'video/mp4',
-      fileName: `instagram_reel.mp4`,
-      caption: `📸 *Instagram Reel Download*\n\n✅ Fertig!\n⏱ Zeit: ${timeTaken}s | 📊 Größe: ${fileSizeMB} MB\n\n> ${botName}`,
-      gifPlayback: false
-    }, { quoted: msg });
-
-    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
-
-    // Speicher freigeben
-    videoBuffer = null;
-    if (global.gc) global.gc();
-    console.log('🗑 Buffer gelöscht');
-
-  } catch (err) {
-    console.error('Instagram Fehler:', err);
-    await sock.sendMessage(chatId, {
-      text: `❌ Fehler beim Download:\n${err?.message || 'Unbekannter Fehler'}\n\n> ${botName}`
-    }, { quoted: msg });
-  }
-
-  break;
-}
 
 case 'setup': {
   try {
