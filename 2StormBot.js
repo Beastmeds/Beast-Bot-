@@ -20,6 +20,7 @@ const settings = require('./settings.js');
 const { spawn } = require('child_process');
 
 const fs = require('fs');
+const ytdl = require('ytdl-core');
 const { downloadMediaMessage } = require('@717development/baileys');
 const chalkModule = require('chalk');
 const chalk = chalkModule.default || chalkModule; // compat for ESM/CJS chalk builds
@@ -231,6 +232,36 @@ async function downloadAndSendUrl(sock, url, chatId, msg, opts = {}) {
     igArgs.push('--cookies', process.env.INSTAGRAM_COOKIES);
   } else if (process.env.INSTAGRAM_USERNAME && process.env.INSTAGRAM_PASSWORD) {
     igArgs.push('--username', process.env.INSTAGRAM_USERNAME, '--password', process.env.INSTAGRAM_PASSWORD, '--sleep-requests', '1');
+  }
+
+  const isYouTube = /(?:youtube\.com\/watch\?v=|youtu\.be\/)/i.test(url);
+  if (isYouTube) {
+    try {
+      const ytdlOut = path.join(tmpDir, `autodownload_ytdl_${Date.now()}.mp4`);
+      const stream = ytdl(url, { quality: 'highestvideo', filter: 'audioandvideo', highWaterMark: 1 << 25 });
+      await new Promise((resolve, reject) => {
+        stream.pipe(fs.createWriteStream(ytdlOut))
+          .on('finish', resolve)
+          .on('error', reject);
+      });
+
+      if (!fs.existsSync(ytdlOut)) throw new Error('YouTube-Download fehlgeschlagen (ytdl-core).');
+      const videoBuffer = fs.readFileSync(ytdlOut);
+      const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
+
+      await sock.sendMessage(chatId, {
+        video: videoBuffer,
+        mimetype: 'video/mp4',
+        fileName: `autodownload_youtube.mp4`,
+        caption: `✅ YouTube (yt-core) Autodownload erfolgreich in ${timeTaken}s\n> ${botName}`
+      }, { quoted: msg });
+
+      fs.unlinkSync(ytdlOut);
+      return;
+    } catch (ytErr) {
+      console.log('⚠️ ytdl-core Fehler, fallback zu yt-dlp:', ytErr.message || ytErr);
+      // continue to yt-dlp fallback
+    }
   }
 
   await runYtDlp([
