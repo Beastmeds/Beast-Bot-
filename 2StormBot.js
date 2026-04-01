@@ -125,9 +125,11 @@ function getYtDlpCandidates() {
 }
 
 function getYtDlpJsRuntimeArgs() {
-  // yt-dlp needs a JS runtime for YouTube in newer versions. Node is guaranteed
-  // to exist because the bot itself runs in Node.
-  const value = (process.env.YTDLP_JS_RUNTIMES || '').trim() || `node:${process.execPath}`;
+  // yt-dlp supports --js-runtimes in newer versions. Older versions (and
+  // some packaged bots) may not support this option.
+  // If you need a runtime override, set YTDLP_JS_RUNTIMES in env.
+  const value = (process.env.YTDLP_JS_RUNTIMES || '').trim();
+  if (!value) return [];
   return ['--js-runtimes', value];
 }
 
