@@ -208,6 +208,61 @@ async function runYtDlp(args, opts = {}) {
   throw new Error(message);
 }
 
+function extractSupportedUrl(text) {
+  if (!text || typeof text !== 'string') return null;
+  const regex = /(https?:\/\/(www\.)?(youtube\.com\/watch\?v=[A-Za-z0-9_-]+|youtu\.be\/[A-Za-z0-9_-]+|instagram\.com\/(reel|reels|p)\/[A-Za-z0-9_-]+(?:\/?\S*)?|tiktok\.com\/@[^\s\/]+\/video\/[0-9]+(?:\/?\S*)?))/i;
+  const match = text.match(regex);
+  return match ? match[1] : null;
+}
+
+async function downloadAndSendUrl(url, chatId, msg, opts = {}) {
+  const botName = '💻 BeastBot';
+  const startTime = Date.now();
+
+  if (!url) throw new Error('Keine URL zum Download angegeben.');
+
+  const tmpDir = path.join(__dirname, 'tmp');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+  const fileName = `autodownload_${Date.now()}.mp4`;
+  const outputPath = path.join(tmpDir, fileName);
+
+  const igArgs = [];
+  if (process.env.INSTAGRAM_COOKIES && fs.existsSync(process.env.INSTAGRAM_COOKIES)) {
+    igArgs.push('--cookies', process.env.INSTAGRAM_COOKIES);
+  } else if (process.env.INSTAGRAM_USERNAME && process.env.INSTAGRAM_PASSWORD) {
+    igArgs.push('--username', process.env.INSTAGRAM_USERNAME, '--password', process.env.INSTAGRAM_PASSWORD, '--sleep-requests', '1');
+  }
+
+  await runYtDlp([
+    ...getYtDlpJsRuntimeArgs(),
+    ...getYtDlpFfmpegArgs(),
+    '--no-check-certificates',
+    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    '--no-playlist',
+    '-f', 'best[ext=mp4]/best',
+    '--merge-output-format', 'mp4',
+    '-o', outputPath,
+    ...igArgs,
+    url,
+  ]);
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error('Download fehlgeschlagen, Datei wurde nicht gefunden.');
+  }
+
+  const videoBuffer = fs.readFileSync(outputPath);
+  const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
+
+  await sock.sendMessage(chatId, {
+    video: videoBuffer,
+    mimetype: 'video/mp4',
+    fileName: `autodownload.mp4`,
+    caption: `✅ Autodownload erfolgreich in ${timeTaken}s\n> ${botName}`
+  }, { quoted: msg });
+
+  fs.unlinkSync(outputPath);
+}
+
 // convenience variables for LLM keys from environment
 const NYX_API_KEY = process.env.NYX_API_KEY || '';
 const AXIOM_API_KEY = process.env.AXIOM_API_KEY || '';
@@ -331,6 +386,7 @@ function loadGroupFeatures(groupId) {
       autosticker: false,
       mutegc: false,
       autoreact: false,
+      autodownload: false,
       eilmeldungen: true,
       badwords: []
     };
@@ -346,6 +402,7 @@ function loadGroupFeatures(groupId) {
       autosticker: false,
       mutegc: false,
       autoreact: false,
+      autodownload: false,
       eilmeldungen: true,
       badwords: []
     };
@@ -2854,6 +2911,21 @@ await handlePremiumAutoActions(sock, chatId, senderJid);
   return;
 }
 
+// Auto-Download, wenn in dieser Gruppe aktiviert und kein Bot-Befehl
+const groupFeature = loadGroupFeatures(chatId);
+if (!messageBody.startsWith(pfx) && groupFeature.autodownload) {
+  const autoUrl = extractSupportedUrl(messageBody);
+  if (autoUrl) {
+    try {
+      await sock.sendMessage(chatId, { text: `🔄 Autodownload: Starte Download für ${autoUrl}` }, { quoted: msg });
+      await downloadAndSendUrl(autoUrl, chatId, msg);
+    } catch (e) {
+      await sock.sendMessage(chatId, { text: `❌ Autodownload Fehler: ${e?.message || 'Unbekannt'}` }, { quoted: msg });
+    }
+    return;
+  }
+}
+
 if (!messageBody.startsWith(pfx)) return;
 
 const commandBody = messageBody.slice(pfx.length).trim();
@@ -4378,6 +4450,72 @@ case 'msg': {
         await sock.sendMessage(from, { text: '❌ Fehler beim Senden der Nachricht.' }, { quoted: msg });
     }
     break;
+}
+case 'autodownload': {
+  const botName = '💻 BeastBot';
+  const sub = args[0] ? args[0].toLowerCase() : '';
+  const features = loadGroupFeatures(chatId);
+
+  const senderRank = ranks.getRank(sender);
+  let isSenderAdmin = false;
+  if (isGroupChat) {
+    try {
+      const metadata = await sock.groupMetadata(chatId);
+      const participant = metadata.participants.find(p => p.id === sender);
+      isSenderAdmin = !!(participant && (participant.admin || participant.isAdmin || participant.admin === 'admin'));
+    } catch {}
+  }
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+  if (!isSenderAdmin && !allowed.includes(senderRank)) {
+    await sock.sendMessage(chatId, { text: '⛔ Nur Gruppe Admins / Team dürfen autodownload ein- oder ausschalten.' }, { quoted: msg });
+    break;
+  }
+
+  if (!sub || sub === 'help') {
+    await sock.sendMessage(chatId, {
+      text: '⚙️ /autodownload <on|off|status|<url>>\n' +
+            '• on: Automatischen Download aktivieren\n' +
+            '• off: Deaktivieren\n' +
+            '• status: aktuellen Zustand anzeigen\n' +
+            '• <url>: Download eines einzelnen Links starten'
+    }, { quoted: msg });
+    break;
+  }
+
+  if (sub === 'on') {
+    features.autodownload = true;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '✅ Autodownload wurde aktiviert (Linkerkennung läuft).'}, { quoted: msg });
+    break;
+  }
+
+  if (sub === 'off') {
+    features.autodownload = false;
+    saveGroupFeatures(chatId, features);
+    await sock.sendMessage(chatId, { text: '✅ Autodownload wurde deaktiviert.'}, { quoted: msg });
+    break;
+  }
+
+  if (sub === 'status') {
+    const enabled = !!features.autodownload;
+    await sock.sendMessage(chatId, { text: `ℹ️ Autodownload ist derzeit ${enabled ? 'aktiviert' : 'deaktiviert'}.`}, { quoted: msg });
+    break;
+  }
+
+  // Sonst URL direkt verarbeiten
+  const maybeUrl = extractSupportedUrl(args.join(' '));
+  if (!maybeUrl) {
+    await sock.sendMessage(chatId, { text: '❌ Keine unterstützte URL gefunden (YouTube/TikTok/Instagram).'}, { quoted: msg });
+    break;
+  }
+
+  await sock.sendMessage(chatId, { text: `🔄 Starte Download für ${maybeUrl}` }, { quoted: msg });
+  try {
+    await downloadAndSendUrl(maybeUrl, chatId, msg);
+  } catch (e) {
+    await sock.sendMessage(chatId, { text: `❌ Download fehlgeschlagen: ${e?.message || 'Unbekannt'}` }, { quoted: msg });
+  }
+  break;
 }
 case 'ig':
 case 'igd':
