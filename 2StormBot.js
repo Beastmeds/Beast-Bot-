@@ -153,7 +153,11 @@ function getYtDlpFfmpegArgs() {
 }
 
 async function downloadYoutubeVideo(url, outputPath) {
-  // Try ytdl-core first
+  // Determine cookie path once at start
+  const defaultCookiesPath = path.join(__dirname, 'youtube', 'cookies.txt');
+  const ytCookies = (process.env.YOUTUBE_COOKIES || defaultCookiesPath).replace(/^~\//, `${process.env.HOME || ''}/`);
+
+  // Parse cookies once
   let cookieHeader = '';
   if (fs.existsSync(ytCookies)) {
     try {
@@ -168,8 +172,11 @@ async function downloadYoutubeVideo(url, outputPath) {
     } catch (e) {
       console.log('⚠️ Cookie-Parse Fehler:', e.message || e);
     }
+  } else {
+    console.log('ℹ️ Kein YouTube Cookie gefunden in', ytCookies);
   }
 
+  // Try ytdl-core first
   try {
     const streamOpts = {
       quality: 'highestvideo',
@@ -201,7 +208,7 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ ytdl-core Fehler, fallback zu yt-dlp:', err.message || err);
   }
 
-  // Fallback nto yt-dlp with stronger options
+  // Fallback to yt-dlp with stronger options
   const ytDlpArgs = [
     ...getYtDlpJsRuntimeArgs(),
     ...getYtDlpFfmpegArgs(),
@@ -216,12 +223,8 @@ async function downloadYoutubeVideo(url, outputPath) {
     url
   ];
 
-  const defaultCookiesPath = path.join(__dirname, 'youtube', 'cookies.txt');
-  const ytCookies = (process.env.YOUTUBE_COOKIES || defaultCookiesPath).replace(/^~\//, `${process.env.HOME || ''}/`);
-  if (ytCookies && fs.existsSync(ytCookies)) {
+  if (fs.existsSync(ytCookies)) {
     ytDlpArgs.unshift('--cookies', ytCookies);
-  } else {
-    console.log('ℹ️ Kein YouTube Cookie gefunden in', ytCookies);
   }
 
   try {
