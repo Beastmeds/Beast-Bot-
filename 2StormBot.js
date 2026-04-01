@@ -159,7 +159,8 @@ async function downloadYoutubeVideo(url, outputPath) {
 
   // Parse cookies once
   let cookieHeader = '';
-  if (fs.existsSync(ytCookies)) {
+  const cookiesExist = fs.existsSync(ytCookies);
+  if (cookiesExist) {
     try {
       const cookieLines = fs.readFileSync(ytCookies, 'utf8').split(/\r?\n/);
       const cookies = cookieLines
@@ -169,9 +170,12 @@ async function downloadYoutubeVideo(url, outputPath) {
         .filter((parts) => parts.length >= 7)
         .map((parts) => `${parts[5]}=${parts[6]}`);
       if (cookies.length) cookieHeader = cookies.join('; ');
+      console.log(`✅ ${cookies.length} Cookies geladen`);
     } catch (e) {
       console.log('⚠️ Cookie-Parse Fehler:', e.message || e);
     }
+  } else {
+    console.log('⚠️ Cookie-Datei nicht gefunden:', ytCookies);
   }
 
   // Base yt-dlp arguments
@@ -193,17 +197,18 @@ async function downloadYoutubeVideo(url, outputPath) {
       url
     ];
 
-    if (fs.existsSync(ytCookies)) {
+    if (cookiesExist) {
       ytDlpArgs.unshift('--cookies', ytCookies);
     }
 
+    console.log('🔄 Versuche yt-dlp Strategie 1...');
     await runYtDlp(ytDlpArgs);
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
-      console.log('✅ Download erfolgreich via yt-dlp');
+      console.log('✅ Download erfolgreich via yt-dlp Strategie 1');
       return;
     }
   } catch (err) {
-    console.log('⚠️ yt-dlp Versuch 1 fehlgeschlagen');
+    console.log('⚠️ yt-dlp Strategie 1 fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
   // Strategy 2: yt-dlp with alternative format selection
@@ -216,17 +221,19 @@ async function downloadYoutubeVideo(url, outputPath) {
       url
     ];
 
+    console.log('🔄 Versuche yt-dlp Strategie 2 (bestvideo+bestaudio)...');
     await runYtDlp(ytDlpArgs);
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
-      console.log('✅ Download erfolgreich via yt-dlp (audio+video)');
+      console.log('✅ Download erfolgreich via yt-dlp Strategie 2');
       return;
     }
   } catch (err) {
-    console.log('⚠️ yt-dlp Versuch 2 fehlgeschlagen');
+    console.log('⚠️ yt-dlp Strategie 2 fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
   // Strategy 3: Try ytdl-core
   try {
+    console.log('🔄 Versuche ytdl-core...');
     const streamOpts = {
       quality: 'highest',
       highWaterMark: 1 << 25,
@@ -255,11 +262,12 @@ async function downloadYoutubeVideo(url, outputPath) {
       return;
     }
   } catch (err) {
-    console.log('⚠️ ytdl-core fehlgeschlagen');
+    console.log('⚠️ ytdl-core fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
   // Strategy 4: play-dl fallback
   try {
+    console.log('🔄 Versuche play-dl...');
     const streamObj = await playdl.stream(url, { quality: 2 });
     if (streamObj && streamObj.stream) {
       await new Promise((resolve, reject) => {
@@ -276,13 +284,13 @@ async function downloadYoutubeVideo(url, outputPath) {
       }
     }
   } catch (err) {
-    console.log('⚠️ play-dl fehlgeschlagen');
+    console.log('⚠️ play-dl fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
   // All attempts failed
   const errMsg = fs.existsSync(outputPath) 
     ? `Datei zu klein: ${fs.statSync(outputPath).size} bytes`
-    : 'Alle Download-Methoden fehlgeschlagen (YouTube blockiert Zugriff). Versuche später erneut oder kontaktiere Admin.';
+    : '❌ Alle Download-Methoden fehlgeschlagen. YouTube blockiert Zugriff ohne gültige Authentifizierung.';
   
   throw new Error(errMsg);
 }

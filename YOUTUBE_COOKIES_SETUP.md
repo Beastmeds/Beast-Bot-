@@ -1,82 +1,182 @@
-## 🔐 YouTube Downloads & Cookies Setup
+# 🔐 YouTube Downloads Setup Guide
 
-### Current Issue
-YouTube blocks automated downloads without valid authentication cookies. The server (`/root/Beast-Bot-/`) doesn't have the YouTube cookies file, which is why `/mp4` downloads fail with "Precondition check failed" errors.
-
-### Solution: Sync Cookies to Server
-
-The local machine has valid YouTube cookies in:
+## Problem
+YouTube is blocking automated downloads with error:
 ```
-/Users/nicolloyd/Desktop/BeastBot/youtube/cookies.txt
+⚠️ Precondition check failed / HTTP 400: Bad Request
 ```
 
-You need to copy these to the server at:
-```
-/root/Beast-Bot-/youtube/cookies.txt
-```
+**Root Cause:** YouTube requires valid authentication cookies. The server at `/root/Beast-Bot-/youtube/cookies.txt` **does not have the cookies file**, so all download methods fail.
 
-#### Option 1: Using SCP (Recommended)
+## Solution: Sync YouTube Cookies to Server
+
+### Option A: Automated Script (Recommended) ✨
+
+Run this from the BeastBot directory on your **local machine**:
+
 ```bash
-# From your local machine:
+bash sync-cookies.sh
+```
+
+Then follow the interactive prompts. The script will:
+1. ✅ Verify you have local cookies
+2. ✅ Test SSH connection to server
+3. ✅ Create `/root/Beast-Bot-/youtube/` directory
+4. ✅ Upload `youtube/cookies.txt` 
+5. ✅ Verify the upload was successful
+
+**That's it!** Restart the bot and test `/mp4` again.
+
+---
+
+### Option B: Manual SCP (If Script Doesn't Work)
+
+```bash
+# From your local BeastBot directory:
 scp youtube/cookies.txt root@<SERVER_IP>:/root/Beast-Bot-/youtube/
 
-# Or use this helper script:
-bash sync-cookies-to-server.sh root@<SERVER_IP>
-```
-
-#### Option 2: Manual SSH
-```bash
-ssh root@<SERVER_IP>
-mkdir -p /root/Beast-Bot-/youtube
-# Then paste the cookies content from local youtube/cookies.txt
-```
-
-#### Option 3: Restart Bot with New Code
-The updated code tries multiple strategies:
-1. yt-dlp with best format (needs cookies for YouTube)
-2. yt-dlp with audio+video merge
-3. ytdl-core library
-4. play-dl library
-
-Even without cookies, methods 3-4 may work, but are slower.
-
-### How to Get Fresh Cookies
-If cookies expire or stop working:
-```bash
-yt-dlp --cookies-from-browser firefox https://www.youtube.com -o "test.mp4"
-# Or Chrome/Chromium
-yt-dlp --cookies-from-browser chrome https://www.youtube.com -o "test.mp4"
-```
-
-Then copy the generated `cookies.txt` to both local and server:
-```bash
-cp cookies.txt youtube/cookies.txt
-scp youtube/cookies.txt root@<SERVER_IP>:/root/Beast-Bot-/youtube/
-```
-
-### Verify Setup
-Test with:
-```bash
-ssh root@<SERVER_IP> "cat /root/Beast-Bot-/youtube/cookies.txt"
-```
-
-Should show Netscape-format cookies starting with:
-```
-# Netscape HTTP Cookie File
-.youtube.com	TRUE	/	TRUE	...
-```
-
-### Testing
-Once synced, test `/mp4` command in WhatsApp:
-```
-/mp4 https://youtube.com/watch?v=<VIDEO_ID>
-```
-
-Monitor server logs for success:
-```
-pm2 logs BeastBot | grep "✅ Download"
+# Replace <SERVER_IP> with your actual server IP
+# Example: scp youtube/cookies.txt root@192.168.1.100:/root/Beast-Bot-/youtube/
 ```
 
 ---
-**Last Updated:** 2026-04-01
-**Required for:** YouTube video downloads via `/mp4` command
+
+### Option C: Manual SSH (No SCP)
+
+```bash
+# 1. SSH into the server
+ssh root@<SERVER_IP>
+
+# 2. Create directory
+mkdir -p /root/Beast-Bot-/youtube
+
+# 3. Create the cookies file - paste the contents from your local youtube/cookies.txt
+nano /root/Beast-Bot-/youtube/cookies.txt
+# Then paste the file contents, press Ctrl+X, Y, Enter to save
+
+# 4. Verify
+cat /root/Beast-Bot-/youtube/cookies.txt
+```
+
+---
+
+## Verify Setup ✅
+
+After syncing, check if cookies are on the server:
+
+```bash
+ssh root@<SERVER_IP> "ls -lh /root/Beast-Bot-/youtube/cookies.txt"
+```
+
+Should show:
+```
+-rw-r--r-- 1 root root 754 Apr  1 15:20 /root/Beast-Bot-/youtube/cookies.txt
+```
+
+---
+
+## Test Downloads
+
+### Step 1: Restart the Bot
+```bash
+pm2 restart BeastBot
+```
+
+### Step 2: Test /mp4 Command
+Send this in WhatsApp:
+```
+/mp4 https://youtube.com/watch?v=IxX_QHay02M
+```
+
+### Step 3: Monitor Logs
+```bash
+pm2 logs BeastBot | grep -i "download\|strategie"
+```
+
+**Success looks like:**
+```
+🔄 Versuche yt-dlp Strategie 1...
+✅ Download erfolgreich via yt-dlp Strategie 1
+```
+
+---
+
+## If Cookies Expire
+
+YouTube cookies expire after ~1 month. If downloads stop working again:
+
+```bash
+# Generate fresh cookies (choose ONE method):
+
+# Using Firefox
+yt-dlp --cookies-from-browser firefox https://www.youtube.com
+
+# Using Chrome/Chromium
+yt-dlp --cookies-from-browser chrome https://www.youtube.com
+
+# Using Edge
+yt-dlp --cookies-from-browser edge https://www.youtube.com
+```
+
+This creates a fresh `cookies.txt` file. Then:
+```bash
+bash sync-cookies.sh  # or use manual SCP/SSH
+pm2 restart BeastBot
+```
+
+---
+
+## Troubleshooting
+
+### ❌ "Connection Refused" when running sync-cookies.sh
+- SSH is not accessible on the server
+- Firewall is blocking port 22
+- Check with: `ssh root@<SERVER_IP> "echo test"`
+
+### ❌ "Permission denied (publickey)" 
+- SSH keys not set up
+- Use: `ssh-copy-id root@<SERVER_IP>`
+
+### ❌ Downloads still fail after syncing
+1. Verify cookies are on server: `ssh root@<SERVER_IP> "head -5 /root/Beast-Bot-/youtube/cookies.txt"`
+2. Check bot logs: `pm2 logs BeastBot`
+3. Cookies might be expired - generate fresh ones (see "If Cookies Expire" above)
+
+### ❌ "/play" command also broken
+- Same issue - both `/mp4` and `/play` use yt-dlp
+- Fix: Sync cookies, restart bot
+- `/play` will work once `/mp4` works
+
+### ❌ "/tok" (TikTok) downloads failing
+- TikTok downloads use external API (tikwm.com), not yt-dlp
+- Different issue - check internet connection
+- Try: `/tok https://vm.tiktok.com/...` with a fresh URL
+
+---
+
+## Tech Details
+
+**How it works:**
+1. YouTube uses **bot detection** to block scrapers
+2. **Authentication cookies** prove you're a real user
+3. With cookies, yt-dlp can download as if logged in
+4. Server needs cookies at: `/root/Beast-Bot-/youtube/cookies.txt`
+
+**What cookies contain:**
+- DEVICE_INFO, GPS, PREF, SOCS, VISITOR_INFO1_LIVE, etc.
+- No passwords or sensitive data - just session tokens
+- Generated by yt-dlp from your browser login
+- Expire after ~30 days
+
+**Download Strategy (in order):**
+1. yt-dlp with best format
+2. yt-dlp with video+audio merge  
+3. ytdl-core library
+4. play-dl library
+
+---
+
+**Last Updated:** 2026-04-01  
+**Created:** During YouTube blocking issues  
+**Status:** Active solution for 2026 YouTube anti-bot protection
+
