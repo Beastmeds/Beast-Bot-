@@ -195,8 +195,9 @@ async function downloadYoutubeVideo(url, outputPath) {
     url
   ];
 
-  if (process.env.YOUTUBE_COOKIES && fs.existsSync(process.env.YOUTUBE_COOKIES)) {
-    ytDlpArgs.unshift('--cookies', process.env.YOUTUBE_COOKIES);
+  const ytCookies = process.env.YOUTUBE_COOKIES || path.join(__dirname, 'youtube', 'cookies.txt');
+  if (ytCookies && fs.existsSync(ytCookies)) {
+    ytDlpArgs.unshift('--cookies', ytCookies);
   }
 
   try {
@@ -207,9 +208,37 @@ async function downloadYoutubeVideo(url, outputPath) {
   }
 
   // final fallback attempt: allow unplayable, nur Bilder wenn nötig (mögliches quarantäne-Video)
-  const ytDlpArgs2 = [...ytDlpArgs];
-  ytDlpArgs2.splice(ytDlpArgs2.indexOf('-f'), 2, '--allow-unplayable-formats');
-  await runYtDlp(ytDlpArgs2);
+  try {
+    const ytDlpArgs2 = [...ytDlpArgs];
+    const fIndex = ytDlpArgs2.indexOf('-f');
+    if (fIndex >= 0) {
+      ytDlpArgs2.splice(fIndex, 2, '--allow-unplayable-formats');
+    } else {
+      ytDlpArgs2.push('--allow-unplayable-formats');
+    }
+    await runYtDlp(ytDlpArgs2);
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
+  } catch (err) {
+    console.log('⚠️ yt-dlp allow-unplayable fehlgeschlagen:', err.message || err);
+  }
+
+  // finaler Fallback: play-dl direkt streamen (falls ytdl-core/yt-dlp versagt)
+  try {
+    const streamObj = await playdl.stream(url, { quality: 0 });
+    await new Promise((resolve, reject) => {
+      const writer = fs.createWriteStream(outputPath);
+      streamObj.stream.on('error', reject);
+      writer.on('error', reject);
+      writer.on('finish', resolve);
+      streamObj.stream.pipe(writer);
+    });
+
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
+    throw new Error('play-dl hat keine gültige Datei erstellt.');
+  } catch (err) {
+    console.log('⚠️ play-dl Fallback fehlgeschlagen:', err.message || err);
+    throw new Error(`Kein Download möglich (ytdl-core, yt-dlp, play-dl alle fehlgeschlagen). Letzter Fehler: ${err.message || err}`);
+  }
 }
 
 function spawnCapture(cmd, args, opts = {}) {
