@@ -215,7 +215,7 @@ function extractSupportedUrl(text) {
   return match ? match[1] : null;
 }
 
-async function downloadAndSendUrl(url, chatId, msg, opts = {}) {
+async function downloadAndSendUrl(sock, url, chatId, msg, opts = {}) {
   const botName = '💻 BeastBot';
   const startTime = Date.now();
 
@@ -2918,7 +2918,7 @@ if (!messageBody.startsWith(pfx) && groupFeature.autodownload) {
   if (autoUrl) {
     try {
       await sock.sendMessage(chatId, { text: `🔄 Autodownload: Starte Download für ${autoUrl}` }, { quoted: msg });
-      await downloadAndSendUrl(autoUrl, chatId, msg);
+      await downloadAndSendUrl(sock, autoUrl, chatId, msg);
     } catch (e) {
       await sock.sendMessage(chatId, { text: `❌ Autodownload Fehler: ${e?.message || 'Unbekannt'}` }, { quoted: msg });
     }
@@ -4511,7 +4511,7 @@ case 'autodownload': {
 
   await sock.sendMessage(chatId, { text: `🔄 Starte Download für ${maybeUrl}` }, { quoted: msg });
   try {
-    await downloadAndSendUrl(maybeUrl, chatId, msg);
+    await downloadAndSendUrl(sock, maybeUrl, chatId, msg);
   } catch (e) {
     await sock.sendMessage(chatId, { text: `❌ Download fehlgeschlagen: ${e?.message || 'Unbekannt'}` }, { quoted: msg });
   }
