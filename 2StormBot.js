@@ -4386,7 +4386,7 @@ case 'instagramdownload': {
     const isInstaReel = q.match(/instagram\.com\/(reel|reels|p)\/([A-Za-z0-9_-]+)/i);
     if (!isInstaReel) {
       await sock.sendMessage(chatId, {
-        text: `❌ Das scheint kein gültiger Instagram-Reel-Link zu sein.\n\nBeispiel:\n/ig https://instagram.com/reel/xxxxxx\n\n> ${botName}`
+        text: `❌ Das scheint kein gültiger Instagram-Link zu sein.\n\nBeispiel:\n/ig https://instagram.com/reel/xxxxxx\n\n> ${botName}`
       }, { quoted: msg });
       break;
     }
@@ -4397,46 +4397,53 @@ case 'instagramdownload': {
 
     await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
-    // === Reel herunterladen ===
-    const igData = await neeledownloader.instagram(q);
-  
+    // === yt-dlp für Instagram-Download verwenden ===
+    const tmpDir = path.join(__dirname, 'tmp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    const fileName = `instagram_${Date.now()}.mp4`;
+    const outputPath = path.join(tmpDir, fileName);
 
-    let videoUrl = null;
+    await runYtDlp([
+      ...getYtDlpJsRuntimeArgs(),
+      ...getYtDlpFfmpegArgs(),
+      '--no-playlist',
+      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '--merge-output-format', 'mp4',
+      '-o', outputPath,
+      q
+    ]);
 
-    // Mehrere mögliche API-Strukturen prüfen
-    if (igData?.data) {
-      if (Array.isArray(igData.data.video) && igData.data.video.length > 0) {
-        videoUrl = igData.data.video[0];
-      } else if (Array.isArray(igData.data) && igData.data.length > 0) {
-        videoUrl = igData.data[0]?.url || igData.data[0]?.download || igData.data[0]?.video;
-      } else if (typeof igData.data === 'object') {
-        videoUrl = igData.data.url || igData.data.download || igData.data.video || igData.data.mp4;
-      }
-    } else if (igData?.url) {
-      videoUrl = igData.url;
-    } else if (igData?.video) {
-      videoUrl = igData.video;
-    } else if (igData?.download) {
-      videoUrl = igData.download;
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Sorry, konnte die Datei nicht laden.');
     }
 
-    if (!videoUrl) {
-      console.error('❌ Instagram API Antwort ohne URL:', igData);
-      await sock.sendMessage(chatId, {
-        text: `❌ Keine gültige Video-URL gefunden.\n💡 Versuche einen anderen Link oder melde das Problem!\n\n> ${botName}`
-      }, { quoted: msg });
-      break;
-    }
-
-
-
-    const res = await axios.get(videoUrl, { responseType: 'arraybuffer' });
-    let videoBuffer = Buffer.from(res.data);
+    const videoBuffer = fs.readFileSync(outputPath);
     const fileSizeMB = (videoBuffer.length / 1024 / 1024).toFixed(2);
-
     const endTime = Date.now();
     const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
 
+    await sock.sendMessage(chatId, {
+      video: videoBuffer,
+      mimetype: 'video/mp4',
+      fileName: `instagram_reel.mp4`,
+      caption: `📸 *Instagram Reel Download*\n\n✅ Fertig!\n⏱ Zeit: ${timeTaken}s | 📊 Größe: ${fileSizeMB} MB\n\n> ${botName}`
+    }, { quoted: msg });
+
+    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+    fs.unlinkSync(outputPath);
+
+    // Speicher freigeben
+    if (global.gc) global.gc();
+
+  } catch (err) {
+    console.error('Instagram Fehler:', err);
+    await sock.sendMessage(chatId, {
+      text: `❌ Fehler beim Download:\n${err?.message || 'Unbekannter Fehler'}\n\n> ${botName}`
+    }, { quoted: msg });
+  }
+
+  break;
+}
     await sock.sendMessage(chatId, {
       video: videoBuffer,
       mimetype: 'video/mp4',
