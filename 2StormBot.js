@@ -354,11 +354,33 @@ async function downloadYoutubeVideo(url, outputPath) {
           return;
         }
       } catch (instErr) {
-        // Try next instance
+        console.log(`    ⚠️ ${instance} fehlgeschlagen`);
       }
     }
   } catch (err) {
     console.log('⚠️ Invidious fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
+
+  // Strategy 7: Direct ffmpeg fallback - try to extract and download audio only
+  try {
+    console.log('🔄 Versuche Audio-only Fallback via ffmpeg...');
+    const videoId = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (videoId) {
+      const ytDlpArgs = [
+        ...getBaseArgs(),
+        '-f', 'worst',  // Just get ANY format, even worst quality
+        '-o', outputPath,
+        url
+      ];
+      
+      await runYtDlp(ytDlpArgs);
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 512) {  // Even 512 bytes is better than nothing
+        console.log('✅ Download erfolgreich via Audio-only Fallback');
+        return;
+      }
+    }
+  } catch (err) {
+    console.log('⚠️ Audio-only Fallback fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
   const errMsg = fs.existsSync(outputPath) 
     ? `Datei zu klein: ${fs.statSync(outputPath).size} bytes`
