@@ -2201,6 +2201,9 @@ sock.ev.on('messages.upsert', async (m) => {
   }
   if (!msg?.message) return;
 
+  // Ignore old messages that were sent before the bot started
+  if (global.botStartTime && msg.messageTimestamp < global.botStartTime / 1000) return;
+
   const chatId = msg.key.remoteJid;
   const from = chatId;
   const isGroupChat = chatId && chatId.endsWith('@g.us');
