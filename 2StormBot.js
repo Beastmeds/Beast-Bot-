@@ -9,6 +9,50 @@ const autoPremiumState = {
   autofish: new Map(),
   boost: new Map()
 };
+
+// Message Queue System - verhindert Rate-Limits durch Delays
+const messageQueue = {
+  queue: [],
+  isProcessing: false,
+  delayMs: 1000, // 1 Sekunde Delay zwischen Messages
+  
+  async send(sock, chatId, messageObject, options = {}) {
+    return new Promise((resolve) => {
+      this.queue.push({ sock, chatId, messageObject, options, resolve });
+      this.process();
+    });
+  },
+  
+  async process() {
+    if (this.isProcessing || this.queue.length === 0) return;
+    this.isProcessing = true;
+    
+    while (this.queue.length > 0) {
+      const { sock, chatId, messageObject, options, resolve } = this.queue.shift();
+      try {
+        const result = await sock.sendMessage(chatId, messageObject, options);
+        resolve(result);
+      } catch (err) {
+        console.error('Message Queue Error:', err);
+        resolve(null);
+      }
+      // Delay zwischen Messages
+      if (this.queue.length > 0) {
+        await new Promise(r => setTimeout(r, this.delayMs));
+      }
+    }
+    this.isProcessing = false;
+  }
+};
+
+// Helper: Umleitung zu Message Queue
+function wrapSocketSendMessage(sock) {
+  const originalSendMessage = sock.sendMessage.bind(sock);
+  sock.sendMessage = async (chatId, messageObject, options) => {
+    return messageQueue.send(sock, chatId, messageObject, options);
+  };
+  return sock;
+}
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -4110,6 +4154,22 @@ case 'unbanrequest': {
     }
 
     const data = JSON.parse(fs.readFileSync(banRequestFile, 'utf8'));
+    
+    // Prüfe Cooldown (1x pro Woche = 7 Tage)
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+    const userLastRequest = data.requests
+      .filter(req => req.user === sender)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    if (userLastRequest && (Date.now() - userLastRequest.timestamp) < oneWeekMs) {
+      const timeLeftMs = oneWeekMs - (Date.now() - userLastRequest.timestamp);
+      const daysLeft = Math.ceil(timeLeftMs / (24 * 60 * 60 * 1000));
+      
+      return await sock.sendMessage(chatId, {
+        text: `⏳ Du kannst nur einmal pro Woche eine Entban-Anfrage stellen.\n\n📅 Nächster Versuch möglich in: *${daysLeft} Tag(en)*`,
+      }, { quoted: msg });
+    }
+
     const newId = data.lastId + 1;
     data.lastId = newId;
 
@@ -4125,20 +4185,26 @@ case 'unbanrequest': {
 
     fs.writeFileSync(banRequestFile, JSON.stringify(data, null, 2));
 
-    // Sende Anfrage an Support-Gruppe
+    // Sende Anfrage an Support-Gruppe mit größerem Delay
     const supportGroup = getSupportGroup();
     
     const unbanText = `🚫➡️✅ *Neue Entban-Anfrage #${newId}*\n\n👤 *Von:* @${sender.split("@")[0]}\n⛔ *Grund des Bans:* ${banData.reason}\n\n📩 *Grund für Entban-Anfrage:*\n${query}\n\n💡 *Zum Antworten:* \`/approveunban ${newId}\` oder \`/rejectunban ${newId}\``;
 
     if (supportGroup) {
+      // Delay von 3 Sekunden vor dem Senden
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
       await sock.sendMessage(supportGroup, {
         text: unbanText,
         mentions: [sender],
       });
     }
 
+    // Weiteres Delay von 2 Sekunden
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     await sock.sendMessage(chatId, {
-      text: `✅ Deine Entban-Anfrage wurde erfolgreich an die Support-Gruppe gesendet!\n\n🆔 Anfrage-ID: *#${newId}*\n⏳ Das Team wird deine Anfrage überprüfen und dir antworten.`,
+      text: `✅ Deine Entban-Anfrage wurde erfolgreich an die Support-Gruppe gesendet!\n\n🆔 Anfrage-ID: *#${newId}*\n⏳ Das Team wird deine Anfrage überprüfen und dir antworten.\n\n📅 Du kannst die nächste Anfrage in 7 Tagen stellen.`,
     }, { quoted: msg });
 
     await sock.sendMessage(chatId, { react: { text: "📨", key: msg.key } });
@@ -18360,12 +18426,15 @@ case 'newqr': {
 
   // Baileys Setup
   const { state, saveCreds } = await useMultiFileAuthState(dir);
-  const sockNew = makeWASocket({
+  let sockNew = makeWASocket({
     auth: state,
     logger: logger,
     browser: ['Dragon', 'Desktop', '1.0.0'],
     printQRInTerminal: false,
   });
+  
+  // Wrapper für Message Queue
+  sockNew = wrapSocketSendMessage(sockNew);
 
   sockNew.ev.on('connection.update', async (update) => {
     const { qr, connection, lastDisconnect } = update;
@@ -18423,13 +18492,16 @@ case 'newsessionssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
     const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
     const { version } = await fetchLatestBaileysVersion();
 
-    const newSock = makeWASocket({
+    let newSock = makeWASocket({
         version,
         printQRInTerminal: false,
         auth: state,
         logger: logger,
         browser: Browsers.ubuntu('Edge'),
     });
+    
+    // Wrapper für Message Queue
+    newSock = wrapSocketSendMessage(newSock);
 
     newSock.ev.on('creds.update', saveCreds);
 

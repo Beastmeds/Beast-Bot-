@@ -43,7 +43,7 @@ async function startSock(sessionName) {
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
   const { version } = await fetchLatestBaileysVersion();
 
-  const sock = makeWASocket({
+  let sock = makeWASocket({
     version,
     printQRInTerminal: false,
     auth: state,
@@ -52,6 +52,27 @@ async function startSock(sessionName) {
     emitOwnEvents: true,
     browser: Browsers.ubuntu('Edge'),
   });
+  
+  // Wrapper für Message Queue - verhindert Rate-Limits
+  const wrapSocketSendMessage = (sockToWrap) => {
+    const originalSendMessage = sockToWrap.sendMessage.bind(sockToWrap);
+    sockToWrap.sendMessage = async (chatId, messageObject, options) => {
+      return new Promise((resolve) => {
+        const delayMs = 1000; // 1 Sekunde Delay
+        setTimeout(async () => {
+          try {
+            const result = await originalSendMessage(chatId, messageObject, options);
+            resolve(result);
+          } catch (err) {
+            console.error('Message Send Error:', err);
+            resolve(null);
+          }
+        }, delayMs);
+      });
+    };
+    return sockToWrap;
+  };
+  sock = wrapSocketSendMessage(sock);
 
   sock.ev.on('creds.update', saveCreds);
 
