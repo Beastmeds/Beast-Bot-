@@ -490,6 +490,81 @@ async function runYtDlp(args, opts = {}) {
   throw new Error(message);
 }
 
+async function downloadYoutubeAudio(url, outputPath) {
+  const tmpDir = path.dirname(outputPath);
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+  const headers = [
+    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language: en-US,en;q=0.9',
+    'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+  ];
+
+  const extractArgs = ['youtube:player_client=web,player_skip=js'];
+  const baseArgs = [
+    ...getYtDlpJsRuntimeArgs(),
+    ...getYtDlpFfmpegArgs(),
+    '--no-check-certificate',
+    '--no-playlist',
+    '--extractor-args', extractArgs.join(','),
+    '-x',
+    '--audio-format', 'mp3',
+    '--audio-quality', '0',
+    '-o', outputPath,
+    ...headers.flatMap(h => ['--add-header', h]),
+    url
+  ];
+
+  try {
+    await runYtDlp(baseArgs);
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return;
+  } catch (err) {
+    console.log('⚠️ yt-dlp Audio fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
+
+  try {
+    console.log('🔄 Versuche ytdl-core Audio-Fallback...');
+    const ffmpegInfo = loadHeavyDeps().ffmpeg;
+    const ffmpegCmd = ffmpegInfo?.path || 'ffmpeg';
+    const stream = ytdlCore(url, {
+      quality: 'highestaudio',
+      filter: 'audioonly',
+      highWaterMark: 1 << 25,
+      requestOptions: {
+        headers: {
+          'User-Agent': headers[0].split(': ')[1],
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      }
+    });
+
+    await new Promise((resolve, reject) => {
+      const ff = spawn(ffmpegCmd, [
+        '-y',
+        '-i', 'pipe:0',
+        '-vn',
+        '-acodec', 'libmp3lame',
+        '-ab', '192k',
+        '-ar', '44100',
+        outputPath
+      ]);
+      ff.on('error', reject);
+      ff.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited with ${code}`)));
+      stream.on('error', reject);
+      stream.pipe(ff.stdin);
+    });
+
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ ytdl-core Audio-Fallback erfolgreich');
+      return;
+    }
+  } catch (err) {
+    console.log('⚠️ ytdl-core Audio-Fallback fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
+
+  throw new Error('YouTube Audio-Download fehlgeschlagen. Bitte versuche es erneut oder gib einen anderen Link ein.');
+}
+
 function extractSupportedUrl(text) {
   if (!text || typeof text !== 'string') return null;
   const regex = /(https?:\/\/(www\.)?(youtube\.com\/watch\?v=[A-Za-z0-9_-]+|youtu\.be\/[A-Za-z0-9_-]+|instagram\.com\/(reel|reels|p)\/[A-Za-z0-9_-]+(?:\/?\S*)?|tiktok\.com\/@[^\s\/]+\/video\/[0-9]+(?:\/?\S*)?))/i;
@@ -3466,16 +3541,22 @@ sock.ev.on('group-participants.update', async (update) => {
     const db = loadWelcome();
     const groupId = update.id;
 
-    // Debounce-System: Verhindere mehrfaches Versenden innerhalb von 5 Sekunden
+    // Handle participants as a batch to avoid sending the same welcome/goodbye multiple times
+    const participants = (update.participants || []).map(u => (typeof u === 'string' ? u : (u.jid || u.id || String(u))));
+    const uniqueParticipants = [...new Set(participants)];
+
+    // Debounce-System: Verhindere mehrfaches Versenden innerhalb von 5 Sekunden für identische Teilnehmerlisten
     if (!global._welcomeDebounce) global._welcomeDebounce = {};
     const debounceKey = `${groupId}-${update.action}`;
     const now = Date.now();
-    
-    if (global._welcomeDebounce[debounceKey] && (now - global._welcomeDebounce[debounceKey]) < 5000) {
+    const participantKey = [...new Set(uniqueParticipants)].sort().join(',');
+    const previous = global._welcomeDebounce[debounceKey];
+
+    if (previous && (now - previous.timestamp) < 5000 && previous.participants === participantKey) {
       console.log(`[WELCOME/GOODBYE] Debounced - zu schnelle Wiederholung für ${groupId}`);
       return;
     }
-    global._welcomeDebounce[debounceKey] = now;
+    global._welcomeDebounce[debounceKey] = { timestamp: now, participants: participantKey };
 
     // Load per-group feature toggles (default: all off)
     let groupFeatures = {};
@@ -3490,9 +3571,6 @@ sock.ev.on('group-participants.update', async (update) => {
       groupFeatures = {};
     }
 
-    // Handle participants as a batch to avoid sending the same welcome/goodbye multiple times
-    const participants = (update.participants || []).map(u => (typeof u === 'string' ? u : (u.jid || u.id || String(u))));
-    const uniqueParticipants = [...new Set(participants)];
     try {
       // JOIN (send a single welcome message for all new participants)
       if (update.action === 'add') {
@@ -11364,9 +11442,19 @@ case 'topcoins': {
 }
 
 case 'topxp': {
-  const rows = topXpStmt.all(10);
+  const topStmt = dbInstance.prepare('SELECT name, xp, level FROM users ORDER BY xp DESC LIMIT 10');
+  const rows = topStmt.all();
+
   let txt = `⭐ *XP Leaderboard*\n\n`;
-  rows.forEach((r,i)=> txt += `${i+1}. ${r.name} — ${r.xp} XP (Lvl ${r.level})\n`);
+  if (!rows || rows.length === 0) {
+    txt += 'Noch keine Daten vorhanden!';
+  } else {
+    rows.forEach((r, i) => {
+      const name = r.name || 'Unbekannt';
+      txt += `${i + 1}. ${name} — ${r.xp || 0} XP (Lvl ${r.level || 1})\n`;
+    });
+  }
+
   await sock.sendMessage(chatId, { text: txt }, { quoted: msg });
   break;
 }
@@ -11876,6 +11964,7 @@ case 'play': {
   }
 
   try {
+    let tempPlayFilePath = null;
     // Simuliere "schreiben" wie ein Bot
     await sock.sendPresenceUpdate('composing', chatId);
     await sleep(500);
@@ -11956,16 +12045,12 @@ case 'play': {
 	    await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
 	    // === yt-dlp (Audio) ===
-	    const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '').trim();
-	    const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
-	    await runYtDlp([
-	      ...getYtDlpJsRuntimeArgs(),
-	      ...getYtDlpFfmpegArgs(),
-	      '-x',
-	      '--audio-format', 'mp3',
-	      '-o', filePath,
-	      url
-	    ]);
+	    const tmpDir = path.join(__dirname, 'tmp');
+	    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+	    const cleanTitle = title.replace(/[\/:*?"<>|]/g, '').trim();
+	    const filePath = path.join(tmpDir, `${cleanTitle}-${Date.now()}.mp3`);
+    tempPlayFilePath = filePath;
+	    await downloadYoutubeAudio(url, filePath);
 
     const audioBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
@@ -11999,9 +12084,7 @@ case 'play': {
   } finally {
     // Clean up temp file if it exists
     try {
-      const cleanTitle = (args.join(' ') || 'temp').replace(/[\\/:*?"<>|]/g, '').trim();
-      const filePath = path.join(__dirname, `${cleanTitle}.mp3`);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (tempPlayFilePath && fs.existsSync(tempPlayFilePath)) fs.unlinkSync(tempPlayFilePath);
     } catch (e) {
       // ignore cleanup errors
     }
