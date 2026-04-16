@@ -6539,6 +6539,24 @@ case 'join': {
   try {
     const supportGroup = "120363419556165028@g.us"; // Supportgruppe
 
+    // Prüfe Gruppengröße: Mindestens 10 oder 15 Mitglieder erforderlich
+    try {
+      const metadata = await sock.groupMetadata(from);
+      const memberCount = metadata?.participants?.length || 0;
+      const minMembers = 10; // Mindestanzahl: 10 Mitglieder
+      
+      if (memberCount < minMembers) {
+        return await sock.sendMessage(from, {
+          text: `❌ Diese Gruppe hat nicht genug Mitglieder!\n\n👥 Aktuell: ${memberCount} Mitglieder\n📊 Erforderlich: mindestens ${minMembers} Mitglieder\n\n💡 Tipp: Ladet mehr Leute ein und versucht es später erneut.`,
+        });
+      }
+    } catch (err) {
+      console.error('Fehler beim Abrufen der Gruppengröße:', err.message);
+      return await sock.sendMessage(from, {
+        text: "❌ Konnte Gruppengröße nicht überprüfen. Bitte versuche es später erneut.",
+      });
+    }
+
     // Prüfe, ob ein Link angegeben wurde
     if (!args[0]) {
       return await sock.sendMessage(from, {
@@ -11125,6 +11143,13 @@ case 'register': {
   const prem = { jid, isPremium: 0, premiumUntil: 0, premiumLevel: 0, title: '', color: '#FFFFFF', emoji: '👤', autowork: 0, autofish: 0, multidaily: 0, lastSpawnmoney: 0, spawnmoneyToday: 0 };
   setPremium(jid, prem);
   
+  // Setze Standardrang "Nutzer" für neu registrierte User
+  try {
+    ranks.setRank(jid, 'Nutzer', '2');
+  } catch (e) {
+    console.error('Fehler beim Setzen des Standard-Rangs:', e.message);
+  }
+  
   // persist a registration timestamp (small JSON store)
   try {
     const regs = loadRegistrations();
@@ -11843,7 +11868,8 @@ case 'play': {
   if (!q) {
     await sock.sendMessage(chatId, {
       text: `⚠️ Hey, ich brauche schon einen Songnamen oder Link!\n\n` +
-            `💿 Beispiel: /play Hoffnung Schillah\n\n` +
+            `💿 Beispiel: /play Hoffnung Schillah\n` +
+            `🔗 Oder direkt: /play https://youtu.be/xxxxxx\n\n` +
             `> ${botName}`
     }, { quoted: msg });
     break;
@@ -11859,15 +11885,45 @@ case 'play': {
       console.log('Fehler beim Lesen der Nachricht:', readError.message);
     }
 
+    // Prüfe ob URL oder Suche
+    const isYouTubeUrl = /(https?:\/\/)?(?:www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)/i;
+    let url = q;
+    let title = 'YouTube Audio';
+    let timestamp = '00:00';
+    let thumbnail = '';
+    let views = 0;
+    let author = { name: 'YouTube' };
+    let ago = 'Unbekannt';
 
-    const search = await yts.search(q);
-    if (!search.videos.length) {
-      await sock.sendMessage(chatId, { text: `😕 Oh nein… ich habe nichts gefunden.\n> ${botName}`, quoted: msg });
-      break;
+    if (!isYouTubeUrl.test(q)) {
+      const search = await yts.search(q);
+      if (!search.videos.length) {
+        await sock.sendMessage(chatId, { text: `😕 Oh nein… ich habe nichts gefunden.\n> ${botName}`, quoted: msg });
+        break;
+      }
+      const v = search.videos[0];
+      url = v.url;
+      title = v.title;
+      timestamp = v.timestamp;
+      thumbnail = v.thumbnail;
+      views = v.views;
+      author = v.author;
+      ago = v.ago;
+    } else {
+      // Für direkte URLs: Versuche Metadaten zu laden
+      try {
+        const info = await ytdlCore.getInfo(q);
+        title = info.videoDetails.title || 'YouTube Audio';
+        timestamp = Math.floor(info.videoDetails.lengthSeconds / 60) + ':' + String(Math.floor(info.videoDetails.lengthSeconds % 60)).padStart(2, '0');
+        thumbnail = info.videoDetails.thumbnails?.slice(-1)[0]?.url || '';
+        views = parseInt(info.videoDetails.viewCount) || 0;
+        author = { name: info.videoDetails.author?.name || 'YouTube' };
+      } catch (e) {
+        console.log('⚠️ Konnte Metadaten nicht laden, verwende Fallback');
+      }
     }
-
-    const v = search.videos[0];
-    const { title, url, timestamp, views, author, ago, thumbnail } = v;
+    
+    const v = { title, url, timestamp, views, author, ago, thumbnail };
 
     function durationToSeconds(str) {
       if (!str) return 0;
@@ -11979,7 +12035,8 @@ case 'mp4': {
   if (!q) {
     await sock.sendMessage(chatId, {
       text: `⚠️ Bitte gib einen Videonamen oder Link ein!\n\n` +
-            `💿 Beispiel: /mp4 Hoffnung Schillah\n\n` +
+            `💿 Beispiel: /mp4 Hoffnung Schillah\n` +
+            `🔗 Oder direkt: /mp4 https://youtu.be/xxxxxx\n\n` +
             `> ${botName}`
     }, { quoted: msg });
     break;
@@ -11990,10 +12047,8 @@ case 'mp4': {
   let url = q;
   let title = '';
   let thumbnail = '';
-  let useYtdlCore = false;
 
   if (isYouTubeUrl.test(q)) {
-    useYtdlCore = true;
     url = q.split(' ')[0]; // Nur den Link
   }
 
@@ -12006,7 +12061,7 @@ case 'mp4': {
       console.log('Fehler beim Lesen der Nachricht:', readError.message);
     }
 
-    if (!useYtdlCore) {
+    if (!isYouTubeUrl.test(q)) {
       const search = await yts.search(q);
       if (!search.videos.length) {
         await sock.sendMessage(chatId, { text: `😕 Ich habe kein Video gefunden.\n> ${botName}`, quoted: msg });
@@ -12062,7 +12117,16 @@ case 'mp4': {
     const cleanTitle = (title || url).replace(/[\\/:*?"<>|]/g, '').trim();
     const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
 
-    await downloadYoutubeVideo(url, filePath);
+    // Nutze yt-dlp für stabilen Download
+    await runYtDlp([
+      ...getYtDlpJsRuntimeArgs(),
+      ...getYtDlpFfmpegArgs(),
+      '-f', 'best[ext=mp4]/best',
+      '--merge-output-format', 'mp4',
+      '-o', filePath,
+      url
+    ]);
+
     if (!fs.existsSync(filePath)) throw new Error('Download fehlgeschlagen: Datei wurde nicht gefunden.');
 
     const videoBuffer = fs.readFileSync(filePath);
