@@ -172,20 +172,20 @@ async function startSock(sessionName) {
       global.profileLogShown = true;
 
       // 🧩 Hauptmodul laden
-      const mainPath = path.resolve('./2StormBot.js');
+      const mainPath = path.resolve('./2StormBot.cjs');
       if (fs.existsSync(mainPath)) {
         try {
           const mainModule = require(mainPath);
           if (typeof mainModule === 'function') {
             mainModule(sock, sessionName);
           } else {
-            console.log(`${colors.red}❌ 2StormBot.js exportiert keine Funktion!${colors.reset}`);
+            console.log(`${colors.red}❌ 2StormBot.cjs exportiert keine Funktion!${colors.reset}`);
           }
         } catch (err) {
-          console.log(`${colors.red}❌ Fehler beim Laden von 2StormBot.js: ${err.message}${colors.reset}`);
+          console.log(`${colors.red}❌ Fehler beim Laden von 2StormBot.cjs: ${err.message}${colors.reset}`);
         }
       } else {
-        console.log(`${colors.red}❌ 2StormBot.js nicht gefunden!${colors.reset}`);
+        console.log(`${colors.red}❌ 2StormBot.cjs nicht gefunden!${colors.reset}`);
       }
     }
   });
