@@ -565,8 +565,19 @@ async function downloadYoutubeAudio(url, outputPath) {
   try {
     console.log('🔄 Versuche api-dylux Audio-Fallback...');
     const fg = require('api-dylux');
-    const info = await fg.ytmp3(url);
+    const ytaFn =
+      fg?.yta ||
+      fg?.default?.yta ||
+      fg?.ytmp3 ||
+      fg?.default?.ytmp3;
+
+    if (typeof ytaFn !== 'function') {
+      throw new Error('api-dylux hat keine yta/ytmp3 Funktion exportiert');
+    }
+
+    const info = await ytaFn(url, '128k');
     const audioUrl =
+      info?.dl_url ||
       info?.result ||
       info?.audio ||
       info?.dl_link ||
