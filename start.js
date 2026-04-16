@@ -176,8 +176,19 @@ async function startSock(sessionName) {
       const mainPath = path.resolve('./2StormBot.js');
       if (fs.existsSync(mainPath)) {
         try {
-          const mainModule = await import(pathToFileURL(mainPath).href);
-          const mainFn = mainModule?.default ?? mainModule;
+          let loaded = null;
+          try {
+            loaded = require(mainPath);
+          } catch (requireErr) {
+            // If the target is an ES module (or was detected as one), fall back to dynamic import.
+            if (requireErr?.code === 'ERR_REQUIRE_ESM' || /ES module/i.test(String(requireErr?.message))) {
+              loaded = await import(pathToFileURL(mainPath).href);
+            } else {
+              throw requireErr;
+            }
+          }
+
+          const mainFn = loaded?.default ?? loaded;
           if (typeof mainFn === 'function') {
             await mainFn(sock, sessionName);
           } else {
@@ -185,6 +196,7 @@ async function startSock(sessionName) {
           }
         } catch (err) {
           console.log(`${colors.red}❌ Fehler beim Laden von 2StormBot.js: ${err.message}${colors.reset}`);
+          if (err?.stack) console.error(err.stack);
         }
       } else {
         console.log(`${colors.red}❌ 2StormBot.js nicht gefunden!${colors.reset}`);
