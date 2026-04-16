@@ -228,6 +228,8 @@ async function downloadYoutubeVideo(url, outputPath) {
     ...getYtDlpFfmpegArgs(),
     '--no-check-certificate',
     '--socket-timeout', '60',
+    '--retries', '5',
+    '--fragment-retries', '5',
     '--no-playlist',
   ];
 
@@ -243,8 +245,8 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('🔄 Versuche yt-dlp Strategie 1 (skip-hls)...');
     const ytDlpArgs = [
       ...getBaseArgs(),
-      '--extractor-args', 'youtube:skip=hls,player_client=web',
-      '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b',
+      '--extractor-args', 'youtube:skip=hls,player_client=android,web',
+      '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b',
       '-o', outputPath,
       ...headers.flatMap(h => ['--add-header', h]),
       url
@@ -268,7 +270,7 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('🔄 Versuche yt-dlp Strategie 2 (web player)...');
     const ytDlpArgs = [
       ...getBaseArgs(),
-      '--extractor-args', 'youtube:player_client=web,player_skip=js',
+      '--extractor-args', 'youtube:player_client=android,web',
       '-f', 'bv+ba/b',
       '-o', outputPath,
       ...headers.flatMap(h => ['--add-header', h]),
@@ -12250,20 +12252,13 @@ case 'mp4': {
       await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
     }
 
-    const cleanTitle = (title || url).replace(/[\\/:*?"<>|]/g, '').trim();
-    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
-
-    // Nutze yt-dlp für stabilen Download
-    await runYtDlp([
-      ...getYtDlpJsRuntimeArgs(),
-      ...getYtDlpFfmpegArgs(),
-      '-f', 'best[ext=mp4]/best',
-      '--merge-output-format', 'mp4',
-      '-o', filePath,
-      url
-    ]);
-
-    if (!fs.existsSync(filePath)) throw new Error('Download fehlgeschlagen: Datei wurde nicht gefunden.');
+	    const cleanTitle = (title || url).replace(/[\\/:*?"<>|]/g, '').trim();
+	    const filePath = path.join(__dirname, `${cleanTitle}.mp4`);
+	
+	    // Nutze die robuste Multi-Strategie (inkl. Cookies/Fallbacks)
+	    await downloadYoutubeVideo(url, filePath);
+	
+	    if (!fs.existsSync(filePath)) throw new Error('Download fehlgeschlagen: Datei wurde nicht gefunden.');
 
     const videoBuffer = fs.readFileSync(filePath);
     const endTime = Date.now();
