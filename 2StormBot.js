@@ -500,7 +500,7 @@ async function downloadYoutubeAudio(url, outputPath) {
     'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
   ];
 
-  const extractArgs = ['youtube:player_client=web,player_skip=js'];
+  const extractArgs = ['youtube:player_client=web'];
   const baseArgs = [
     ...getYtDlpJsRuntimeArgs(),
     ...getYtDlpFfmpegArgs(),
@@ -560,6 +560,48 @@ async function downloadYoutubeAudio(url, outputPath) {
     }
   } catch (err) {
     console.log('⚠️ ytdl-core Audio-Fallback fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
+
+  try {
+    console.log('🔄 Versuche api-dylux Audio-Fallback...');
+    const fg = require('api-dylux');
+    const info = await fg.ytmp3(url);
+    const audioUrl =
+      info?.result ||
+      info?.audio ||
+      info?.dl_link ||
+      info?.download ||
+      info?.link ||
+      info?.url;
+
+    if (!audioUrl || typeof audioUrl !== 'string') {
+      throw new Error('api-dylux lieferte keine Audio-URL');
+    }
+
+    await new Promise(async (resolve, reject) => {
+      try {
+        const res = await axios.get(audioUrl, {
+          responseType: 'stream',
+          headers: { 'User-Agent': headers[0].split(': ')[1] },
+          maxRedirects: 5,
+          timeout: 60_000
+        });
+        const writer = fs.createWriteStream(outputPath);
+        writer.on('error', reject);
+        writer.on('finish', resolve);
+        res.data.on('error', reject);
+        res.data.pipe(writer);
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ api-dylux Audio-Fallback erfolgreich');
+      return;
+    }
+  } catch (err) {
+    console.log('⚠️ api-dylux Audio-Fallback fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
   throw new Error('YouTube Audio-Download fehlgeschlagen. Bitte versuche es erneut oder gib einen anderen Link ein.');
