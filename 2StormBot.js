@@ -370,7 +370,63 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ play-dl fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
-  // Strategy 6: Invidious proxy service (last resort - uses alternative YouTube frontend)
+  // Strategy 6: api-dylux proxy (ytdown.to) – often works even when YouTube blocks server IPs
+  try {
+    console.log('🔄 Versuche api-dylux Video-Fallback...');
+    const fg = require('api-dylux');
+    const ytvFn = fg?.ytv || fg?.default?.ytv;
+    if (typeof ytvFn !== 'function') throw new Error('api-dylux hat keine ytv Funktion exportiert');
+
+    const qualitiesToTry = ['360p', '480p', '720p'];
+    let info = null;
+    let lastErr = null;
+    for (const q of qualitiesToTry) {
+      try {
+        info = await ytvFn(url, q);
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!info) throw lastErr || new Error('api-dylux ytv fehlgeschlagen');
+
+    const videoUrl =
+      info?.dl_url ||
+      info?.url ||
+      info?.download ||
+      info?.link;
+
+    if (!videoUrl || typeof videoUrl !== 'string') throw new Error('api-dylux lieferte keine Video-URL');
+
+    await new Promise(async (resolve, reject) => {
+      try {
+        const res = await axios.get(videoUrl, {
+          responseType: 'stream',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          },
+          maxRedirects: 5,
+          timeout: 120_000
+        });
+        const writer = fs.createWriteStream(outputPath);
+        writer.on('error', reject);
+        writer.on('finish', resolve);
+        res.data.on('error', reject);
+        res.data.pipe(writer);
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+      console.log('✅ Download erfolgreich via api-dylux');
+      return;
+    }
+  } catch (err) {
+    console.log('⚠️ api-dylux Video-Fallback fehlgeschlagen:', (err.message || '').split('\n')[0]);
+  }
+
+  // Strategy 7: Invidious proxy service (last resort - uses alternative YouTube frontend)
   try {
     console.log('🔄 Versuche Invidious (YouTube-Alternative)...');
     const invidiousInstances = [
@@ -407,7 +463,7 @@ async function downloadYoutubeVideo(url, outputPath) {
     console.log('⚠️ Invidious fehlgeschlagen:', (err.message || '').split('\n')[0]);
   }
 
-  // Strategy 7: Direct ffmpeg fallback - try to extract and download audio only
+  // Strategy 8: Direct ffmpeg fallback - try to extract and download audio only
   try {
     console.log('🔄 Versuche Audio-only Fallback via ffmpeg...');
     const videoId = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
@@ -688,21 +744,50 @@ async function downloadAndSendUrl(sock, url, chatId, msg, opts = {}) {
     }
   }
 
-  await runYtDlp([
-    ...getYtDlpJsRuntimeArgs(),
-    ...getYtDlpFfmpegArgs(),
-    '--no-check-certificates',
-    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    '--no-playlist',
-    '-f', 'best[ext=mp4]/best',
-    '--merge-output-format', 'mp4',
-    '-o', outputPath,
-    ...igArgs,
-    url,
-  ]);
+  try {
+    await runYtDlp([
+      ...getYtDlpJsRuntimeArgs(),
+      ...getYtDlpFfmpegArgs(),
+      '--no-check-certificates',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      '--no-playlist',
+      '-f', 'best[ext=mp4]/best',
+      '--merge-output-format', 'mp4',
+      '-o', outputPath,
+      ...igArgs,
+      url,
+    ]);
 
-  if (!fs.existsSync(outputPath)) {
-    throw new Error('Download fehlgeschlagen, Datei wurde nicht gefunden.');
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Download fehlgeschlagen, Datei wurde nicht gefunden.');
+    }
+  } catch (ytErr) {
+    console.log('⚠️ yt-dlp Download fehlgeschlagen:', (ytErr.message || '').split('\n')[0]);
+    // Try fallback: use downloadYoutubeAudio if it's a YouTube URL
+    if (isYouTube) {
+      console.log('🔄 Versuche Video-Audio-Fallback...');
+      const audioOut = path.join(tmpDir, `autodownload_audio_${Date.now()}.mp3`);
+      try {
+        await downloadYoutubeAudio(url, audioOut);
+        if (fs.existsSync(audioOut)) {
+          // Send as audio instead of video
+          const audioBuffer = fs.readFileSync(audioOut);
+          const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
+          await sock.sendMessage(chatId, {
+            audio: audioBuffer,
+            mimetype: 'audio/mpeg',
+            ptt: false,
+            fileName: `autodownload_audio.mp3`,
+            caption: `⚠️ Video nicht verfügbar, Autodownload als Audio in ${timeTaken}s\n> ${botName}`
+          }, { quoted: msg });
+          fs.unlinkSync(audioOut);
+          return;
+        }
+      } catch (audioErr) {
+        console.log('⚠️ Audio-Fallback auch fehlgeschlagen:', (audioErr.message || '').split('\n')[0]);
+      }
+    }
+    throw ytErr;
   }
 
   const videoBuffer = fs.readFileSync(outputPath);
