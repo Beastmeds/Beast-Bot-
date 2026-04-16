@@ -1,10 +1,3 @@
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = require('path').dirname(__filename);
-
 const tttGames = {}; // { jid: { board: ['','','','','','','','',''], turn: 'X'|'O', status: 'playing' } }
 const bjGames = {}; // { jid: { hand: [], dealer: [], status: 'playing'|'stand', bet: Zahl } }
 let spamInterval = 0; // Intervall zwischen Nachrichten in ms für Spam-Funktion
@@ -1888,7 +1881,7 @@ function saveFarewellData() {
   fs.writeFileSync(farewellFilePath, JSON.stringify(farewellGroups, null, 2));
 }
 //=================================================================//
-export default async function (sock, sessionName) {
+module.exports = async function (sock, sessionName) {
   // Legacy Fallback: Direkter Login-Code ohne botCommand
   async function generateLoginCodeLegacy(whatsapp_number, username) {
     try {
