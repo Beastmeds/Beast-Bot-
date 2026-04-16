@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Pfad zur Bot-Datei
-const botFile = path.join(__dirname, '2StormBot.cjs');
+const botFile = path.join(__dirname, '2StormBot.js');
 // Pfad zur Ausgabedatei
 const outFile = path.join(__dirname, 'commandsList.txt');
 

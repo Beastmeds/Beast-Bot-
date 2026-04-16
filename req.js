@@ -1,15 +1,15 @@
 // check-required.js
-// Dieses Skript durchsucht die Datei 2StormBot.cjs nach eingebundenen Dateien
+// Dieses Skript durchsucht die Datei 2StormBot.js nach eingebundenen Dateien
 // und schreibt alle gefundenen Dateinamen in req.txt
 
 const fs = require('fs');
 const path = require('path');
 
-const targetFile = path.join(process.cwd(), '2StormBot.cjs');
+const targetFile = path.join(process.cwd(), '2StormBot.js');
 const outputFile = path.join(process.cwd(), 'req.txt');
 
 if (!fs.existsSync(targetFile)) {
-  console.error('❌ Datei 2StormBot.cjs wurde nicht gefunden!');
+  console.error('❌ Datei 2StormBot.js wurde nicht gefunden!');
   process.exit(1);
 }
 
