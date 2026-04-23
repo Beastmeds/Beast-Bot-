@@ -4450,13 +4450,8 @@ case 'team': {
       if (!groups[role].includes(uid)) groups[role].push(uid);
     }
 
-    // Sicherstellen, dass Owner aus settings enthalten ist
-    const ownerNum = settings && settings.owner && settings.owner.number ? settings.owner.number.replace(/[^0-9]/g, '') : null;
-    if (ownerNum) {
-      const ownerJid = ownerNum + '@s.whatsapp.net';
-      groups['Inhaber'] = groups['Inhaber'] || [];
-      if (!groups['Inhaber'].includes(ownerJid)) groups['Inhaber'].unshift(ownerJid);
-    }
+    // Hinweis: Owner-Nummer wird hier absichtlich nicht hinzugefügt
+    // (Der Benutzer wollte nur Rollen anzeigen, keine Nummern/Owner-JIDs)
 
     // Reihenfolge der Rollen, wie angezeigt werden soll
     const order = [
@@ -4469,48 +4464,25 @@ case 'team': {
     ];
 
     let text = '👥 *Teamübersicht*\n\n';
-    const mentions = [];
 
-    const makeDisplay = async (u) => {
-      try {
-        const user = getUser(u);
-        if (user && user.name) return `${user.name}`;
-        const contact = await sock.onWhatsApp(u).catch(() => null);
-        if (contact && contact[0] && contact[0].notify) return `${contact[0].notify}`;
-      } catch (e) {}
-      return u.split('@')[0];
-    };
-
+    // Nur die Rollen und deren Anzahl anzeigen — keine Nutzernamen oder JIDs
     for (const role of order) {
       const arr = groups[role] || [];
       if (!arr.length) continue;
-      text += `*${role}* (${arr.length}):\n`;
-      for (const u of arr) {
-        const display = await makeDisplay(u);
-        text += `• ${display}\n`;
-        mentions.push(u);
-      }
-      text += '\n';
+      text += `*${role}* (${arr.length})\n`;
     }
 
-    // Sonstige Rollen
+    // Sonstige Rollen (ohne Auflistung der Mitglieder)
     const otherRoles = Object.keys(groups).filter(r => !order.includes(r));
     for (const role of otherRoles) {
       const arr = groups[role] || [];
       if (!arr.length) continue;
-      text += `*${role}* (${arr.length}):\n`;
-      for (const u of arr) {
-        const display = await makeDisplay(u);
-        text += `• ${display}\n`;
-        mentions.push(u);
-      }
-      text += '\n';
+      text += `*${role}* (${arr.length})\n`;
     }
 
-    if (mentions.length === 0) text = '⚠️ Keine Team-Mitglieder gefunden.';
+    // Falls keine Rollen vorhanden sind
+    if (Object.keys(groups).length === 0) text = '⚠️ Keine Team-Rollen gefunden.';
 
-    // Sende die Teamliste OHNE das `mentions`-Array, damit in Clients
-    // keine rohen JIDs/Nummern als Erwähnung neben Namen angezeigt werden.
     await sock.sendMessage(chatId, { text }, { quoted: msg });
   } catch (e) {
     console.error('Fehler bei /team:', e);
