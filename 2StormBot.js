@@ -4473,23 +4473,57 @@ case 'team': {
 
     let text = '👥 *Teamübersicht*\n\n';
 
-    // Nur die Rollen und deren Anzahl anzeigen — keine Nutzernamen oder JIDs
+    const makeDisplay = async (u) => {
+      try {
+        const user = getUser(u);
+        if (user && user.name) return `${user.name}`;
+        const contact = await sock.onWhatsApp(u).catch(() => null);
+        if (contact && contact[0] && contact[0].notify) return `${contact[0].notify}`;
+      } catch (e) {}
+      const fallback = u.split('@')[0];
+      // Vermeide rohe Nummern als Anzeige
+      if (/^\d{6,}$/.test(fallback)) return null;
+      return fallback;
+    };
+
+    let anyShown = false;
+
+    // Zeige zuerst die vordefinierte Reihenfolge mit Namen
     for (const role of order) {
       const arr = groups[role] || [];
       if (!arr.length) continue;
-      text += `*${role}* (${arr.length})\n`;
+      const displayed = [];
+      for (const u of arr) {
+        const display = await makeDisplay(u);
+        if (!display) continue;
+        displayed.push(display);
+      }
+      if (!displayed.length) continue;
+      anyShown = true;
+      text += `*${role}* (${displayed.length}):\n`;
+      for (const d of displayed) text += `• ${d}\n`;
+      text += '\n';
     }
 
-    // Sonstige Rollen (ohne Auflistung der Mitglieder)
+    // Sonstige Rollen
     const otherRoles = Object.keys(groups).filter(r => !order.includes(r));
     for (const role of otherRoles) {
       const arr = groups[role] || [];
       if (!arr.length) continue;
-      text += `*${role}* (${arr.length})\n`;
+      const displayed = [];
+      for (const u of arr) {
+        const display = await makeDisplay(u);
+        if (!display) continue;
+        displayed.push(display);
+      }
+      if (!displayed.length) continue;
+      anyShown = true;
+      text += `*${role}* (${displayed.length}):\n`;
+      for (const d of displayed) text += `• ${d}\n`;
+      text += '\n';
     }
 
-    // Falls keine Rollen vorhanden sind
-    if (Object.keys(groups).length === 0) text = '⚠️ Keine Team-Rollen gefunden.';
+    if (!anyShown) text = '⚠️ Keine Team-Mitglieder gefunden.';
 
     await sock.sendMessage(chatId, { text }, { quoted: msg });
   } catch (e) {
