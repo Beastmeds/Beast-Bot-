@@ -4444,8 +4444,16 @@ case 'team': {
     const ranksMap = ranks.list() || {};
     const groups = {};
 
+    // Bestimme Owner-JID (falls in settings gesetzt) — wird ausgeblendet
+    const ownerNum = settings && settings.owner && settings.owner.number ? settings.owner.number.replace(/[^0-9]/g, '') : null;
+    const ownerJid = ownerNum ? ownerNum + '@s.whatsapp.net' : null;
+
     for (const [uid, role] of Object.entries(ranksMap)) {
       if (!role) continue;
+      // Ausblenden: Rolle 'Nutzer' soll nicht angezeigt werden
+      if (role === 'Nutzer') continue;
+      // Ausblenden: Owner-JID nicht listen
+      if (ownerJid && uid === ownerJid) continue;
       groups[role] = groups[role] || [];
       if (!groups[role].includes(uid)) groups[role].push(uid);
     }
