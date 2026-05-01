@@ -1669,9 +1669,9 @@ function setEconomy(jid, econ) {
     const lastWeekly = econ.lastWeekly || 0;
     const lastWork = econ.lastWork || 0;
     const lastBeg = econ.lastBeg || 0;
-    const jailedUntil = econ.jailedUntil || 0;
+    const lastInterest = econ.lastInterest || 0;
     
-    setEconomyStmt.run(jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil);
+    setEconomyStmt.run(jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil, lastInterest);
   } catch (err) {
     console.error('Fehler in setEconomy:', err);
   }
@@ -2244,7 +2244,7 @@ CREATE TABLE IF NOT EXISTS inventory (
 
   // Economy Statements
   getEconomyStmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
-  setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil, lastInterest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
   // Datenbank-Migrationen: Füge lastHuntTime hinzu falls nicht vorhanden
   try {
@@ -2253,6 +2253,18 @@ CREATE TABLE IF NOT EXISTS inventory (
     if (!hasLastHuntTime) {
       dbInstance.prepare('ALTER TABLE users ADD COLUMN lastHuntTime INTEGER DEFAULT 0').run();
       console.log('✅ Migration: lastHuntTime Spalte hinzugefügt');
+    }
+  } catch (migrationErr) {
+    console.error('Migration Fehler (ignoriert):', migrationErr.message);
+  }
+
+  // Migration für lastInterest in economy Tabelle
+  try {
+    const pragmaEcon = dbInstance.pragma('table_info(economy)');
+    const hasLastInterest = pragmaEcon && pragmaEcon.some(col => col.name === 'lastInterest');
+    if (!hasLastInterest) {
+      dbInstance.prepare('ALTER TABLE economy ADD COLUMN lastInterest INTEGER DEFAULT 0').run();
+      console.log('✅ Migration: lastInterest Spalte zur economy Tabelle hinzugefügt');
     }
   } catch (migrationErr) {
     console.error('Migration Fehler (ignoriert):', migrationErr.message);
@@ -3581,7 +3593,7 @@ const commandsList = [
   '1', 'sock', '2',
 
   
-  'reload', 'leaveall', 'leavegrp', 'grouplist', 'grouplist2',
+  'reload', 'leaveall', 'leavegrp', 'grouplist', 'grouplist2', 'grpteam',
   'addme', 'addadmin', 'setrank', 'delrank', 'ranks', 'listsessions',
   'lid', 'killsession', 'newpair', 'newqr', 'newqr1', 'newqr2',
   'startmc', 'stopmc', 'tok', 'tok2',
@@ -12656,6 +12668,79 @@ case 'grouplist': {
 
 // ...existing code...
 
+case 'grpteam': {
+  const senderForRank = (msg.key.participant || chatId || '').toString();
+  const senderRank = ranks.getRank(senderForRank) || ranks.getRank((senderForRank || '').split('@')[0]) || ranks.getRank((senderForRank || '').split('@')[0] + '@s.whatsapp.net') || ranks.getRank((senderForRank || '').split('@')[0] + '@lid');
+  // Erlaubte Ränge (Owner, Stellvertreter, Moderatoren, Supporter)
+  const allowedRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator', 'Supporter'];
+
+  if (!allowedRanks.includes(senderRank)) {
+    await sendReaction(from, msg, '🔒');
+    return await sock.sendMessage(from, { text: `⛔ *Zugriff verweigert!*\n\nNur folgende Rollen dürfen diesen Befehl nutzen:\n\n• 👑 Inhaber\n• 🛡️ Stellvertreter Inhaber\n• 🛡️ Moderatoren\n• 🧰 Supporter` }, { quoted: msg });
+  }
+
+  try {
+    // Alle Chats abrufen
+    const chats = sock.chats || sock.store?.chats;
+    if (!chats) throw new Error('Keine Chats gefunden.');
+
+    const groups = Object.values(chats).filter(c => c.id.endsWith('@g.us'));
+
+    if (groups.length === 0) {
+      return await sock.sendMessage(from, { text: '📭 Der Bot ist aktuell in keiner Gruppe.' });
+    }
+
+    let listText = '👥 *Gruppen-Team Übersicht*\n\n';
+
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      const groupId = g.id;
+      const groupName = g.name || 'Unbekannt';
+
+      // Mitgliederanzahl und Team-Check
+      let memberCount = 0;
+      let hasTeamMember = false;
+      try {
+        const metadata = await sock.groupMetadata(groupId);
+        memberCount = metadata.participants.length;
+        // Prüfe ob ein Teammitglied in der Gruppe ist
+        const teamRanks = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator', 'Supporter', 'Entwickler', 'Admin'];
+        for (const p of metadata.participants) {
+          const pRank = ranks.getRank(p.id) || ranks.getRank(p.id.split('@')[0]) || ranks.getRank(p.id.split('@')[0] + '@s.whatsapp.net');
+          if (teamRanks.includes(pRank)) {
+            hasTeamMember = true;
+            break;
+          }
+        }
+      } catch (metaErr) {
+        memberCount = '?';
+        hasTeamMember = false;
+      }
+
+      const teamStatus = hasTeamMember ? '✅ Team anwesend' : '❌ Kein Team';
+
+      // Invite-Link nur, wenn Bot Admin
+      let invite = '';
+      try {
+        const code = await sock.groupInviteCode(groupId);
+        invite = `\n🔗 https://chat.whatsapp.com/${code}`;
+      } catch {
+        invite = '';
+      }
+
+      listText += `${i + 1}. *${groupName}*\n👥 Mitglieder: ${memberCount}\n${teamStatus}${invite}\n\n`;
+    }
+
+    await sock.sendMessage(from, { text: listText });
+
+  } catch (err) {
+    console.error('Fehler bei grpteam:', err);
+    await sock.sendMessage(from, { text: '❌ Fehler beim Abrufen der Gruppen-Team Übersicht.\n' + err.message });
+  }
+
+  break;
+}
+
 case 'warns': {
   // Prüfen ob es ein Gruppenchat ist
   const isGroup = from.endsWith('@g.us');
@@ -15346,7 +15431,7 @@ case 'device': {
      const subCmd = args[0]?.toLowerCase();
      
      if (!subCmd) {
-       await sock.sendMessage(chatId, { text: '🏦 *Bank Commands:*\n\n*/bank deposit <Betrag>* - Cash zur Bank\n*/bank withdraw <Betrag>* - Cash abheben\n*/bank interest* - Zinsen abholen\n*/bank balance* - Kontostand' }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: '🏦 *Bank Commands:*\n\n*/bank deposit <Betrag>* - Cash zur Bank\n*/bank withdraw <Betrag>* - Cash abheben\n*/bank interest* - Zinsen abholen (1x/Monat)\n*/bank balance* - Kontostand' }, { quoted: msg });
        break;
      }
      
@@ -15392,14 +15477,29 @@ case 'device': {
        await sock.sendMessage(chatId, { text: `✅ *Abhebung erfolgreich!*\n\n💸 +${formatMoney(amount)} abgehoben\n\n💵 Cash: ${formatMoney(econ.cash)}\n🏦 Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
        break;
      } else if (subCmd === 'interest') {
+       const now = Date.now();
+       const lastClaim = econ.lastInterest || 0;
+       const lastClaimDate = new Date(lastClaim);
+       const currentDate = new Date(now);
+       
+       // Prüfe ob bereits in diesem Monat abgeholt wurde
+       if (lastClaimDate.getFullYear() === currentDate.getFullYear() && lastClaimDate.getMonth() === currentDate.getMonth()) {
+         const nextClaim = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+         const timeUntilNext = nextClaim.getTime() - now;
+         const daysLeft = Math.ceil(timeUntilNext / (1000 * 60 * 60 * 24));
+         await sock.sendMessage(chatId, { text: `⏳ Du kannst Zinsen nur einmal pro Monat abholen!\n\n📅 Nächste Abholung in ${daysLeft} Tagen.` }, { quoted: msg });
+         break;
+       }
+       
        const interest = Math.floor((econ.bank || 0) * 0.01);
        econ.cash = (econ.cash || 100) + interest;
        econ.bank = Math.max(0, (econ.bank || 0) - 10);
+       econ.lastInterest = now;
        setEconomy(senderJid, econ);
        await sock.sendMessage(chatId, { text: `💰 *Monatliche Zinsen*\n\n✅ +${formatMoney(interest)} Zinsen erhalten\n❌ -10 Kontoführungsgebühr\n\n💵 Neuer Cash: ${formatMoney(econ.cash)}\n🏦 Neue Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
        break;
      } else {
-       await sock.sendMessage(chatId, { text: '❌ Unbekannter Bank-Befehl!\n\n*/bank balance* - Kontostand\n*/bank deposit <Betrag>* - Einzahlen\n*/bank withdraw <Betrag>* - Abheben\n*/bank interest* - Zinsen' }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: '❌ Unbekannter Bank-Befehl!\n\n*/bank balance* - Kontostand\n*/bank deposit <Betrag>* - Einzahlen\n*/bank withdraw <Betrag>* - Abheben\n*/bank interest* - Zinsen (1x/Monat)' }, { quoted: msg });
        break;
      }
      break;
