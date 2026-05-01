@@ -12663,7 +12663,7 @@ case 'grouplist': {
 
     for (const g of groups) {
       const groupId = g.id;
-      const groupName = g.name || 'Unbekannt';
+      const groupName = g.subject || g.name || 'Unbekannt';
 
       // Invite-Link nur, wenn Bot Admin
       let invite = '';
@@ -12716,7 +12716,7 @@ case 'grpteam': {
     for (let i = 0; i < groups.length; i++) {
       const g = groups[i];
       const groupId = g.id;
-      const groupName = g.name || 'Unbekannt';
+      const groupName = g.subject || g.name || 'Unbekannt';
 
       // Mitgliederanzahl und Team-Check
       let memberCount = 0;
