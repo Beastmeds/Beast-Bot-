@@ -12704,7 +12704,7 @@ case 'grpteam': {
 
   try {
     // Alle Chats abrufen
-    const chats = sock.store?.chats;
+    const chats = sock.chats || sock.store?.chats;
     if (!chats) throw new Error('Keine Chats gefunden.');
 
     const groups = Object.values(chats).filter(c => c.id.endsWith('@g.us'));
