@@ -2263,7 +2263,30 @@ CREATE TABLE IF NOT EXISTS inventory (
       console.log('✅ Migration: lastInterest Spalte zur economy Tabelle hinzugefügt');
     }
   } catch (migrationErr) {
-    console.error('Migration Fehler (ignoriert):', migrationErr.message);
+    console.error('Migration Fehler für lastInterest (ignoriert):', migrationErr.message);
+    // Fallback: Versuche die Tabelle neu zu erstellen falls Migration fehlschlägt
+    try {
+      dbInstance.exec(`
+        CREATE TABLE IF NOT EXISTS economy_new (
+          jid TEXT PRIMARY KEY,
+          cash INTEGER DEFAULT 100,
+          bank INTEGER DEFAULT 0,
+          gems INTEGER DEFAULT 0,
+          lastDaily INTEGER DEFAULT 0,
+          lastWeekly INTEGER DEFAULT 0,
+          lastWork INTEGER DEFAULT 0,
+          lastBeg INTEGER DEFAULT 0,
+          jailedUntil INTEGER DEFAULT 0,
+          lastInterest INTEGER DEFAULT 0
+        );
+        INSERT OR IGNORE INTO economy_new SELECT jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil, 0 FROM economy;
+        DROP TABLE economy;
+        ALTER TABLE economy_new RENAME TO economy;
+      `);
+      console.log('✅ Migration: economy Tabelle neu erstellt mit lastInterest');
+    } catch (fallbackErr) {
+      console.error('Fallback Migration fehlgeschlagen:', fallbackErr.message);
+    }
   }
 
   // Economy Statements
@@ -12681,7 +12704,7 @@ case 'grpteam': {
 
   try {
     // Alle Chats abrufen
-    const chats = sock.chats || sock.store?.chats;
+    const chats = sock.store?.chats;
     if (!chats) throw new Error('Keine Chats gefunden.');
 
     const groups = Object.values(chats).filter(c => c.id.endsWith('@g.us'));
