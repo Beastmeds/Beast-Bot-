@@ -12703,12 +12703,9 @@ case 'grpteam': {
   }
 
   try {
-    // Alle Chats abrufen
-    const chats = sock.chats || sock.store?.chats;
-    console.log('grpteam: sock.chats exists:', !!sock.chats, 'sock.store?.chats exists:', !!sock.store?.chats);
-    if (!chats) throw new Error('Keine Chats gefunden.');
-
-    const groups = Object.values(chats).filter(c => c.id.endsWith('@g.us'));
+    // Alle Gruppen abrufen
+    const allGroups = await sock.groupFetchAllParticipating();
+    const groups = Object.values(allGroups);
 
     if (groups.length === 0) {
       return await sock.sendMessage(from, { text: '📭 Der Bot ist aktuell in keiner Gruppe.' });
