@@ -2242,10 +2242,6 @@ CREATE TABLE IF NOT EXISTS inventory (
   topCoinsStmt = dbInstance.prepare('SELECT name, balance FROM users ORDER BY balance DESC LIMIT ?');
   topXpStmt = dbInstance.prepare('SELECT name, xp, level FROM users ORDER BY xp DESC LIMIT ?');
 
-  // Economy Statements
-  getEconomyStmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
-  setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil, lastInterest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-
   // Datenbank-Migrationen: Füge lastHuntTime hinzu falls nicht vorhanden
   try {
     const pragma = dbInstance.pragma('table_info(users)');
@@ -2269,6 +2265,10 @@ CREATE TABLE IF NOT EXISTS inventory (
   } catch (migrationErr) {
     console.error('Migration Fehler (ignoriert):', migrationErr.message);
   }
+
+  // Economy Statements
+  getEconomyStmt = dbInstance.prepare('SELECT * FROM economy WHERE jid = ?');
+  setEconomyStmt = dbInstance.prepare('INSERT OR REPLACE INTO economy (jid, cash, bank, gems, lastDaily, lastWeekly, lastWork, lastBeg, jailedUntil, lastInterest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
   // Prefix storage (per-chat)
   const prefixesFile = path.join(__dirname, 'prefixes.json');
