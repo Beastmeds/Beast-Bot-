@@ -2444,6 +2444,13 @@ function getPlainMessageText(message) {
   ).toString();
 }
 
+function getMessageType(message) {
+  if (!message || typeof message !== 'object') return 'unknown';
+  const keys = Object.keys(message);
+  const msgKey = keys.find((key) => key.endsWith('Message'));
+  return msgKey || keys.join(',') || 'unknown';
+}
+
 function logInteraction(entry) {
   try {
     const logDir = ensureLogsDir();
@@ -2612,6 +2619,20 @@ sock.ev.on('messages.upsert', async (m) => {
     senderNumber = chatId.split('@')[0];
   }
   const cleanedSenderNumber = senderNumber.replace(/[^0-9]/g, '');
+
+  const messageType = getMessageType(earlyContent);
+  const messageText = getPlainMessageText(msg.message) || '[no-text]';
+  logInteraction({
+    type: 'message',
+    chatId,
+    senderId: cleanedSenderNumber,
+    details: {
+      messageType,
+      messageText,
+      isGroup: isGroupChat,
+      fromMe: !!msg.key.fromMe
+    }
+  });
 
   // Log replies to quoted messages and UI interactions
   const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
