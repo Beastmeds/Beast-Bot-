@@ -14733,17 +14733,6 @@ case '2': {
 
 case 'frage': {
 
-const sender =
-    m?.sender ||
-    m?.key?.participant ||
-    m?.participant ||
-    m?.key?.remoteJid ||
-    '0@s.whatsapp.net'
-
-const fixedSender = sender.includes('@lid')
-    ? sender.replace('@lid', '@s.whatsapp.net')
-    : sender
-
 const msg = generateWAMessageFromContent(
     m.chat,
     proto.Message.fromObject({
@@ -14752,7 +14741,7 @@ const msg = generateWAMessageFromContent(
         }
     }),
     {
-        userJid: sock.user.id.replace(/:\d+@/g, '@')
+        userJid: '1234567890@s.whatsapp.net'
     }
 )
 
@@ -14760,7 +14749,6 @@ await sock.relayMessage(
     m.chat,
     msg.message,
     {
-        participant: fixedSender,
         messageId: msg.key.id
     }
 )
