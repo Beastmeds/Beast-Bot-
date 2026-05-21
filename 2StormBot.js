@@ -14790,298 +14790,385 @@ case 'main': {
     }]
   }
 },
-    // ===== OWNER PANEL =====
-    {
-      header: { title: "👑 Owner Panel 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ OWNER PANEL ❍─╮
+// ===== OWNER PANEL =====
+{
+  header: { title: "👑 Owner Panel 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `╭─❍ OWNER PANEL ❍─╮
 👤 Name: ${owner.name}  
 🤖 Bot: ${bot.name} (v${bot.version})  
 📅 Release: ${bot.releaseDate}   
 
-💻 Multi-Bot System  
-🎮 Games & Casino  
-📸 TikTok Downloader & Scraper  
-📷 Instagram Scraper  
+🧰 Server Controls  
+💻 Multi QR System  
+🔐 Rank Verwaltung  
+🪪 Advanced Tools  
 ╰────────────────╯` },
-      footer: { text: "©️DeadClient | Owner Panel" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "🄾🅆🄽🄴🅁 Actions",
-            sections: [
-              {
-                title: "───────── Owner Info ─────────",
-                highlight_label: "📄 Owner Info",
-                rows: [
-                  { title: "📄 Owner Info", description: "📝 Details anzeigen", id: "$owner" }
-                ]
-              },
-              {
-	                title: "───────── Ping ─────────",
-	                highlight_label: "🏓 Ping",
-	                rows: [
-	                  { title: "🏓 Ping", description: "⏱ Latenz testen", id: "$ping" }
-	                ]
-	              },
-              {
-                title: "───────── Main Menu ─────────",
-                highlight_label: "📂 Menu",
-                rows: [
-                  { title: "📂 Menu", description: "📋 Hauptmenü anzeigen", id: "$menu" }
-                ]
-              },
-              {
-                title: "───────── Cards Module ─────────",
-                highlight_label: "🃏 Cards",
-                rows: [
-                  { title: "🃏 Cards1", description: "🎴 Zeige Karten Modul", id: "$cards1" }
-                ]
-              },
-              {
-                title: "───────── Instagram Lookup ─────────",
-                highlight_label: "📸 IG User",
-                rows: [
-                  { title: "📸 IG User", description: "🔎 Instagram Lookup", id: "$iguser @deadsclient" }
-                ]
-              }
+  footer: { text: "©️DeadClient | Owner Panel" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "🄾🅆🄽🄴🅁 Actions",
+        sections: [
+          {
+            title: "───────── System ─────────",
+            highlight_label: "⚙️ System",
+            rows: [
+              { title: "⚙️ Reload", description: "Bot neu laden", id: "$reload" },
+              { title: "💣 Leave All", description: "Alle Gruppen verlassen", id: "$leaveall" },
+              { title: "🧰 Server", description: "Server Informationen", id: "$server" },
+              { title: "📡 Broadcast", description: "Nachricht an alle senden", id: "$broadcast" }
             ]
-          })
-        }]
-      }
-    },
+          },
+          {
+            title: "───────── Group Lists ─────────",
+            highlight_label: "📜 Groups",
+            rows: [
+              { title: "📜 Group List", description: "Alle Gruppen anzeigen", id: "$grouplist" },
+              { title: "📜 Group List 2", description: "Alternative Gruppenliste", id: "$grouplist2" },
+              { title: "🧍 Add Me", description: "Bot fügt dich hinzu", id: "$addme" }
+            ]
+          },
+          {
+            title: "───────── Rank System ─────────",
+            highlight_label: "🔐 Ranks",
+            rows: [
+              { title: "🔐 Set Rank", description: "Rang vergeben", id: "$setrank" },
+              { title: "🧹 Delete Rank", description: "Rang entfernen", id: "$delrank" },
+              { title: "🧱 Ranks", description: "Alle Ränge anzeigen", id: "$ranks" }
+            ]
+          },
+          {
+            title: "───────── Sessions ─────────",
+            highlight_label: "💻 Sessions",
+            rows: [
+              { title: "🧾 List Sessions", description: "Alle Sessions anzeigen", id: "$listsessions" },
+              { title: "🆕 New Pair", description: "Neue Pair Session", id: "$newpair" },
+              { title: "💻 New QR", description: "Neue QR Session", id: "$newqr" },
+              { title: "💻 New QR1", description: "Neue QR1 Session", id: "$newqr1" },
+              { title: "💻 New QR2", description: "Neue QR2 Session", id: "$newqr2" },
+              { title: "🔪 Kill Session", description: "Session löschen", id: "$killsession" }
+            ]
+          },
+          {
+            title: "───────── Minecraft Control ─────────",
+            highlight_label: "🚀 Minecraft",
+            rows: [
+              { title: "🚀 Start MC", description: "Minecraft Server starten", id: "$startmc" },
+              { title: "🛑 Stop MC", description: "Minecraft Server stoppen", id: "$stopmc" }
+            ]
+          },
+          {
+            title: "───────── Extra Tools ─────────",
+            highlight_label: "🪪 Extras",
+            rows: [
+              { title: "🪪 LID", description: "User LID anzeigen", id: "$lid" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
 
-    // ===== GAME & DRAGON CARD =====
-    {
-      header: { title: "🎲 Game Hub & Dragon RPG 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ GAME HUB ❍─╮
-🎰 Slots  
-🎯 Darts  
-🐉 Dragon RPG  
-🏆 Rewards  
-🌟 Extras  
-╰────────────────╯` },
-      footer: { text: "©️DeadClient | Game Hub" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "🎮 Game Hub",
-            sections: [
-              {
-                title: "───────── Slots Menu ─────────",
-                highlight_label: "🎰 Slots",
-                rows: [
-                  { title: "🎰 Slots", description: "Öffne das Slots Spiel", id: "$slot" }
-                ]
-              },
-              {
-                title: "───────── Darts Menu ─────────",
-                highlight_label: "🎯 Darts",
-                rows: [
-                  { title: "🎯 Darts Menu", description: "Starte Darts Spiel", id: "$dartsmenu" }
-                ]
-              },
-              {
-                title: "───────── Dragon RPG ─────────",
-                highlight_label: "🐉 Dragon",
-                rows: [
-                  { title: "🐉 Dragon Menu", description: "Öffne dein Dragon RPG", id: "$dragonmenu" }
-                ]
-              },
-              {
-                title: "───────── Rewards ─────────",
-                highlight_label: "🏆 Rewards",
-                rows: [
-                  { title: "🏆 Daily Rewards", description: "Sammle deine Belohnungen", id: "$rewards" }
-                ]
-              },
-              {
-                title: "───────── Extras ─────────",
-                highlight_label: "🌟 Extras",
-                rows: [
-                  { title: "🌟 Extras Menu", description: "Zusatzfunktionen & Boni", id: "$extras" }
-                ]
-              }
-            ]
-          })
-        }]
-      }
-    },
+    // ===== FUN PANEL =====
+{
+  header: { title: "🎮 Fun Panel 🎉", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `╭─❍ FUN PANEL ❍─╮
+😂 Fun & Roleplay Commands  
+💬 Interactive Aktionen  
+🎣 Fishing & Economy System  
+🪙 Coins & Payments  
 
-    // ===== IP PANEL =====
-    {
-      header: { title: "🌐 IP Tools 🖧", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ IP TOOLS ❍─╮
-🌐 Track & Analyse  
-📍 Standort & Daten  
-🔒 Security Checks  
+🐾 Pet Hunt Features  
+👥 User Verwaltung  
+🎮 Community Unterhaltung  
+✨ Anime & Fun Actions  
 ╰────────────────╯` },
-      footer: { text: "©️DeadClient | IP Tools" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "🌐 IP Actions",
-            sections: [
-              {
-                title: "───────── Track IP ─────────",
-                highlight_label: "🔍 Track IP",
-                rows: [
-                  { title: "🔍 Track IP", id: "$trackip 88.69.87.35" }
-                ]
-              },
-              {
-                title: "───────── Reverse DNS ─────────",
-                highlight_label: "🔁 Reverse DNS",
-                rows: [
-                  { title: "🔁 Reverse DNS", id: "$reversedns 88.69.87.35" }
-                ]
-              },
-              {
-                title: "───────── Domain → IP ─────────",
-                highlight_label: "🌐 Domain → IP",
-                rows: [
-                  { title: "🌐 Domain → IP", id: "$domainip example.com" }
-                ]
-              },
-              {
-                title: "───────── Port Scan ─────────",
-                highlight_label: "🧠 Port Scan",
-                rows: [
-                  { title: "🧠 Port Scan", id: "$portscan 8.8.8.8" }
-                ]
-              },
-              {
-                title: "───────── Abuse Check ─────────",
-                highlight_label: "🚨 Abuse Check",
-                rows: [
-                  { title: "🚨 Abuse Check", id: "$abusecheck 88.69.87.35" }
-                ]
-              }
+  footer: { text: "©️DeadClient | Fun Panel" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "🄵🅄🄽 Actions",
+        sections: [
+          {
+            title: "───────── Fun Chat ─────────",
+            highlight_label: "💬 Fun",
+            rows: [
+              { title: "💬 Tok", description: "Fun Antwort senden", id: "$tok" },
+              { title: "🌀 Tok2", description: "Alternative Fun Antwort", id: "$tok2" },
+              { title: "😈 Horny", description: "Horny Meter anzeigen", id: "$horny" },
+              { title: "🍆 Penis", description: "Fun Größe anzeigen", id: "$penis" }
             ]
-          })
-        }]
-      }
-    },
+          },
+          {
+            title: "───────── Roleplay ─────────",
+            highlight_label: "🥰 RP",
+            rows: [
+              { title: "🥰 Hug", description: "Jemanden umarmen", id: "$hug" },
+              { title: "😘 Kiss", description: "Jemanden küssen", id: "$kiss" },
+              { title: "👋 Slap", description: "Jemanden schlagen", id: "$slap" },
+              { title: "🖐️ Pat", description: "Jemanden tätscheln", id: "$pat" },
+              { title: "👉 Poke", description: "Jemanden anstupsen", id: "$poke" },
+              { title: "🛌 Cuddle", description: "Mit jemandem kuscheln", id: "$cuddle" }
+            ]
+          },
+          {
+            title: "───────── Dark Fun ─────────",
+            highlight_label: "💀 Chaos",
+            rows: [
+              { title: "🍑 Fuck", description: "Chaos RP Command", id: "$fuck" },
+              { title: "🔪 Kill", description: "Fun Kill Aktion", id: "$kill" },
+              { title: "💀 Goon", description: "Goon Status anzeigen", id: "$goon" }
+            ]
+          },
+          {
+            title: "───────── Economy ─────────",
+            highlight_label: "🪙 Economy",
+            rows: [
+              { title: "🪙 Add Coins", description: "Coins hinzufügen", id: "$addcoins" },
+              { title: "❌ Del Coins", description: "Coins entfernen", id: "$delcoins" },
+              { title: "🔄 Pay", description: "Coins senden", id: "$pay <@User|LID> <Betrag>" }
+            ]
+          },
+          {
+            title: "───────── Fishing & Pets ─────────",
+            highlight_label: "🎣 Fishing",
+            rows: [
+              { title: "🐟 Fish", description: "Fischen gehen", id: "$fish" },
+              { title: "🐾 Pet Hunt", description: "Pets sammeln", id: "$pethunt" },
+              { title: "🎣 Fish List", description: "Alle Fische anzeigen", id: "$fishlist" }
+            ]
+          },
+          {
+            title: "───────── User System ─────────",
+            highlight_label: "👥 Users",
+            rows: [
+              { title: "👥 User List", description: "Alle registrierten Benutzer", id: "$user" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
 
-    // ===== SCRAPER PANEL =====
-    {
-      header: { title: "📥 Scraper Tools 🛠", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ SCRAPER TOOLS ❍─╮
-📱 TikTok & Instagram  
-🛒 Amazon Produkte  
-🌐 Webseiten Analyse  
-╰────────────────╯` },
-      footer: { text: "©️DeadClient | Scraper Hub" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "🛠 Scraper Hub",
-            sections: [
-              {
-                title: "───────── Amazon Search ─────────",
-                highlight_label: "📦 Amazon",
-                rows: [
-                  { title: "📦 Amazon Search", description: "Produkte suchen", id: "$Amazon i phone 17 pro max" }
-                ]
-              },
-              {
-                title: "───────── Instagram User ─────────",
-                highlight_label: "📸 Instagram",
-                rows: [
-                  { title: "📸 Instagram User", description: "Benutzer suchen", id: "$iguser @deadsclient" }
-                ]
-              },
-              {
-                title: "───────── TikTok User ─────────",
-                highlight_label: "🎵 TikTok",
-                rows: [
-                  { title: "🎵 TikTok User", description: "Benutzer suchen", id: "$ttuser @keineahnung" }
-                ]
-              },
-              {
-                title: "───────── Webseiten Analyse ─────────",
-                highlight_label: "🌐 Web",
-                rows: [
-                  { title: "🌐 Analyse", description: "Webseiten prüfen & Daten sammeln", id: "$webanalyse" }
-                ]
-              },
-              {
-                title: "───────── Extras ─────────",
-                highlight_label: "🌟 Extras",
-                rows: [
-                  { title: "🌟 Tools Menu", description: "Zusatzfunktionen & Boni", id: "$extras" }
-                ]
-              }
-            ]
-          })
-        }]
-      }
-    },
+// ===== PREMIUM PANEL =====
+{
+  header: { title: "👑 Premium Hub 💎", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `╭─❍ PREMIUM SYSTEM ❍─╮
+👑 Premium Features & Economy Boost  
+💎 Customization & Styling  
+🎰 High Stakes Casino  
+🏢 Business & Crypto System  
 
-    // ===== WEATHER PANEL =====
-    {
-      header: { title: "🌦 Weather Panel 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ WEATHER PANEL ❍─╮
-🌍 Worldwide locations  
-☁️ Live weather data  
-🌡️ Forecast system  
-🌧️ Rain alerts  
+✨ Exclusive Commands Access  
+🚀 OP Money Tools  
+📈 Investment System  
 ╰────────────────╯` },
-      footer: { text: "©️DeadClient | Weather" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "🌦 Weather Actions",
-            sections: [
-              {
-                title: "───────── Baden-Württemberg ─────────",
-                highlight_label: "🌤 Baden-Württemberg",
-                rows: [
-                  { title: "🌤 Baden-Württemberg", id: "$wetter Baden-Württemberg" }
-                ]
-              },
-              {
-                title: "───────── Bayern ─────────",
-                highlight_label: "🌤 Bayern",
-                rows: [
-                  { title: "🌤 Bayern", id: "$wetter Bayern" }
-                ]
-              },
-              {
-                title: "───────── Berlin ─────────",
-                highlight_label: "🌤 Berlin",
-                rows: [
-                  { title: "🌤 Berlin", id: "$wetter Berlin" }
-                ]
-              },
-              {
-                title: "───────── Brandenburg ─────────",
-                highlight_label: "🌤 Brandenburg",
-                rows: [
-                  { title: "🌤 Brandenburg", id: "$wetter Brandenburg" }
-                ]
-              },
-              {
-                title: "───────── Hamburg ─────────",
-                highlight_label: "🌤 Hamburg",
-                rows: [
-                  { title: "🌤 Hamburg", id: "$wetter Hamburg" }
-                ]
-              }
+  footer: { text: "©️BeastBot | Premium Module" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "👑 Premium Actions",
+        sections: [
+          {
+            title: "───────── Premium Status ─────────",
+            highlight_label: "👑 Status",
+            rows: [
+              { title: "👑 Premium Info", description: "Premium Status anzeigen", id: "$premium" },
+              { title: "✨ Add Premium", description: "User Premium geben", id: "$premium add @user <Tage>" },
+              { title: "✨ Spawn Money", description: "Geld generieren", id: "$spawnmoney <Betrag>" }
             ]
-          })
-        }]
-      }
-    },
+          },
+          {
+            title: "───────── Customization ─────────",
+            highlight_label: "🎨 Style",
+            rows: [
+              { title: "🏷️ Set Title", description: "Titel setzen", id: "$settitle <Titel>" },
+              { title: "🎨 Set Color", description: "Farbe setzen", id: "$setcolor <Farbe>" },
+              { title: "😊 Set Emoji", description: "Emoji setzen", id: "$setemoji <Emoji>" }
+            ]
+          },
+          {
+            title: "───────── Premium Casino ─────────",
+            highlight_label: "🎰 Casino",
+            rows: [
+              { title: "🎲 High Roller", description: "High Stakes Spiel", id: "$highroller <Betrag>" },
+              { title: "🏆 Jackpot", description: "Jackpot versuchen", id: "$jackpot <Betrag>" },
+              { title: "2️⃣ Double", description: "Double or Nothing", id: "$double <Betrag>" }
+            ]
+          },
+          {
+            title: "───────── Business ─────────",
+            highlight_label: "🏢 Business",
+            rows: [
+              { title: "🏢 Business Info", description: "Geschäft Infos", id: "$business" },
+              { title: "🏭 Buy Business", description: "Geschäft kaufen", id: "$buybusiness <Typ>" },
+              { title: "💵 Collect", description: "Einnahmen sammeln", id: "$collect" }
+            ]
+          },
+          {
+            title: "───────── Crypto ─────────",
+            highlight_label: "📈 Crypto",
+            rows: [
+              { title: "📈 Crypto Portfolio", description: "Dein Krypto anzeigen", id: "$crypto" },
+              { title: "📊 Buy Crypto", description: "Krypto kaufen", id: "$buycrypto <Symbol> <Betrag>" },
+              { title: "📉 Sell Crypto", description: "Krypto verkaufen", id: "$sellcrypto <Symbol> <Betrag>" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
+
+// ===== GROUP & UTILITY PANEL =====
+{
+  header: { title: "🧩 Group & Utility ⚙️", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `╭─❍ GROUP & UTILITY ❍─╮
+🧾 Group Tools & Info  
+🔗 Link & Security System  
+📢 Broadcast & Tags  
+🤖 AI & Utilities  
+
+🎨 Image & QR Tools  
+⚡ Voltra AI Integration  
+🚪 Group Exit Tools  
+🪞 ViewOnce Tools  
+╰────────────────╯` },
+  footer: { text: "©️DeadClient | Utility Panel" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "🧩 Utility Actions",
+        sections: [
+          {
+            title: "───────── Group Info ─────────",
+            highlight_label: "🧾 Info",
+            rows: [
+              { title: "🧾 Group Info", description: "Gruppeninformationen anzeigen", id: "$grpinfo" },
+              { title: "📎 Group Link", description: "Einladungslink anzeigen", id: "$grouplink" },
+              { title: "🪪 ID", description: "Gruppen/User ID anzeigen", id: "$id" }
+            ]
+          },
+          {
+            title: "───────── Security ─────────",
+            highlight_label: "🔗 Security",
+            rows: [
+              { title: "🚫 AntiLink", description: "Link Schutz aktivieren", id: "$antilink" },
+              { title: "🔗 Link Bypass", description: "Link Filter umgehen", id: "$linkbypass" },
+              { title: "🪓 Unlink Bypass", description: "Bypass entfernen", id: "$unlinkbypass" }
+            ]
+          },
+          {
+            title: "───────── Group Control ─────────",
+            highlight_label: "🚪 Control",
+            rows: [
+              { title: "📢 Broadcast", description: "Nachricht an alle senden", id: "$broadcast" },
+              { title: "🧍 Tag All", description: "Alle markieren", id: "$tagall" },
+              { title: "⚔️ HideTag", description: "Unsichtbar taggen", id: "$hidetag" },
+              { title: "🚪 Leave", description: "Gruppe verlassen", id: "$leave" },
+              { title: "🚪 Leave2", description: "Alternative Leave", id: "$leave2" },
+              { title: "🚪 Leave Group", description: "Gruppe verlassen (force)", id: "$leavegrp" }
+            ]
+          },
+          {
+            title: "───────── AI & Tools ─────────",
+            highlight_label: "🤖 AI",
+            rows: [
+              { title: "🤖 AI Chat", description: "Frage die AI", id: "$ai <Frage>" },
+              { title: "⚡ Voltra", description: "Voltra AI Chat", id: "$vol <Frage>" },
+              { title: "⚡ Voltra Alias", description: "Voltra alternative", id: "$voltra <Frage>" },
+              { title: "⚡ Coltra", description: "Voltra Alias", id: "$coltra <Frage>" }
+            ]
+          },
+          {
+            title: "───────── Media Tools ─────────",
+            highlight_label: "🎨 Media",
+            rows: [
+              { title: "🎨 Imagine", description: "Bild generieren", id: "$imagine <Beschreibung>" },
+              { title: "📱 QR Code", description: "QR-Code erstellen", id: "$qrcode <Text|Nachricht>" },
+              { title: "📖 QR Read", description: "QR aus Bild lesen", id: "$qrread" },
+              { title: "🪞 ViewOnce", description: "ViewOnce öffnen", id: "$viewonce" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
+
+// ===== ENCRYPTION PANEL =====
+{
+  header: { title: "🔐 Encryption Hub 🧠", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `━━ ❮ BeastBot ❯ ━━
+╭─❍ VERSCHLÜSSELUNG ❍─╮
+🔐 Encode & Decode System  
+🧠 Text Transformation Tools  
+🌐 URL & Base Encoding  
+🤖 Crypto & Cipher Tools  
+╰────────────────╯` },
+  footer: { text: "©️BeastBot | Encryption Module" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "🔐 Encryption Tools",
+        sections: [
+          {
+            title: "───────── Encode / Decode ─────────",
+            highlight_label: "🔐 Basic",
+            rows: [
+              { title: "🔐 Encode", description: "Text verschlüsseln", id: "$encode <Text>" },
+              { title: "🔓 Decode", description: "Text entschlüsseln", id: "$decode <Text>" }
+            ]
+          },
+          {
+            title: "───────── Hex Tools ─────────",
+            highlight_label: "🔑 HEX",
+            rows: [
+              { title: "🔑 Encode HEX", description: "Text zu HEX", id: "$encodehex <Text>" },
+              { title: "🗝️ Decode HEX", description: "HEX zu Text", id: "$decodehex <Text>" }
+            ]
+          },
+          {
+            title: "───────── Cipher ─────────",
+            highlight_label: "🌀 Crypto",
+            rows: [
+              { title: "🌀 ROT13", description: "ROT13 Verschlüsselung", id: "$rot13 <Text>" },
+              { title: "📜 Caesar", description: "Caesar Cipher mit Shift", id: "$caesar <Shift> <Text>" },
+              { title: "••— Morse", description: "Text zu Morse Code", id: "$morse <Text>" }
+            ]
+          },
+          {
+            title: "───────── Web Encoding ─────────",
+            highlight_label: "🌐 URL",
+            rows: [
+              { title: "🔗 URL Encode", description: "URL codieren", id: "$urlencode <Text>" },
+              { title: "🌐 URL Decode", description: "URL decodieren", id: "$urldecode <Text>" }
+            ]
+          },
+          {
+            title: "───────── Binary ─────────",
+            highlight_label: "🤖 Binary",
+            rows: [
+              { title: "🤖 Binary", description: "Text in Binär umwandeln", id: "$binary <Text>" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
 
     // ===== SYSTEM PANEL =====
     {
@@ -15132,60 +15219,170 @@ case 'main': {
       }
     },
 
-    // ===== Economy PANEL =====
-    {
-      header: { title: "🪙 Economy 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ ECONOMY PANEL ❍─╮
-💻 ${system.os} | ⚡ ${system.nodeVersion}  
-🕒 Uptime: ${Math.floor(process.uptime())}s  
+    // ===== ECONOMY PANEL =====
+{
+  header: { title: "💰 Economy System 💎", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `╭─❍ ECONOMY HUB ❍─╮
+💰 Economy & Banking System  
+🎰 Gambling & Games  
+💼 Jobs & Work System  
+🚨 Risk & Crime Mode  
+
+📊 Rankings & Leaderboards  
+🏦 Bank Integration  
+💳 Player Progression  
+💎 Daily Rewards System  
 ╰────────────────╯` },
-      footer: { text: "©️Beastmeds | Economy" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "🪙 Economy Actions",
-            sections: [
-              {
-                title: "───────── Economy Menu 1 ─────────",
-                highlight_label: "📊 Economy Menu 1",
-                rows: [
-                  { title: "📊 Economy Menu 1", id: "$menu 5" }
-                ]
-              },
-              {
-                title: "───────── Economy Menu 2 ─────────",
-                highlight_label: "📊 Economy Menu 2",
-                rows: [
-                  { title: "📊 Economy Menu 2", id: "$menu 13" }
-                ]
-              },
-              {
-                title: "───────── Bank ─────────",
-                highlight_label: "🏦 Bank",
-                rows: [
-                  { title: "🏦 Bank", id: "$bank" }
-                ]
-              },
-              {
-                title: "───────── Balance ─────────",
-                highlight_label: "� Balance",
-                rows: [
-                  { title: " Balance", id: "$balance" }
-                ]
-              }
+  footer: { text: "©️BeastBot | Economy Module" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "💰 Economy Actions",
+        sections: [
+          {
+            title: "───────── Economy Basics ─────────",
+            highlight_label: "💳 Basic",
+            rows: [
+              { title: "💳 Register", description: "Account erstellen", id: "$register" },
+              { title: "🧍 Me", description: "Profil anzeigen", id: "$me" },
+              { title: "💰 Balance", description: "Kontostand prüfen", id: "$balance" },
+              { title: "🎁 Daily", description: "Täglicher Bonus", id: "$daily" },
+              { title: "📅 Weekly", description: "Wöchentlicher Bonus", id: "$weekly" },
+              { title: "✂️ Work", description: "Arbeiten gehen", id: "$work" },
+              { title: "🙏 Beg", description: "Betteln", id: "$beg" }
             ]
-          })
-        }]
-      }
-    }
+          },
+          {
+            title: "───────── Gambling ─────────",
+            highlight_label: "🎰 Casino",
+            rows: [
+              { title: "🎰 Slots", description: "Spielautomat", id: "$slots <Betrag>" },
+              { title: "🎲 Roulette", description: "Roulette spielen", id: "$roulette <Betrag>" },
+              { title: "🃏 Dice", description: "Würfelspiel", id: "$dice <Betrag>" }
+            ]
+          },
+          {
+            title: "───────── Jobs ─────────",
+            highlight_label: "💼 Work",
+            rows: [
+              { title: "⛏️ Mine", description: "Im Berg arbeiten", id: "$mine" },
+              { title: "🏹 Hunt", description: "Jagen gehen", id: "$hunt" },
+              { title: "🌾 Farm", description: "Landwirtschaft", id: "$farm" }
+            ]
+          },
+          {
+            title: "───────── Crime System ─────────",
+            highlight_label: "🚨 Risk",
+            rows: [
+              { title: "🔫 Rob", description: "User ausrauben", id: "$rob <@user|LID>" },
+              { title: "🕵️ Crime", description: "Verbrechen begehen", id: "$crime" },
+              { title: "🚔 Jail", description: "User ins Gefängnis", id: "$jail <@user|LID>" }
+            ]
+          },
+          {
+            title: "───────── Bank & Stats ─────────",
+            highlight_label: "🏦 Bank",
+            rows: [
+              { title: "🏦 Bank", description: "Bank Optionen öffnen", id: "$bank" },
+              { title: "👑 Top Balance", description: "Reichste Spieler", id: "$topbalance" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
+// ===== DEATH NOTE ROLEPLAY PANEL =====
+{
+  header: { title: "☠️ Death Note RP 📖", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
+  body: { text: `───❍ DEATH NOTE ROLEPLAY ❍───╮
+📖 Kira vs L Investigation System  
+👹 Shinigami & Death Mechanics  
+🕵️ Detective Roleplay Mode  
+⚖️ Judgement & Cases  
+
+🎮 Events & Games  
+🔥 Custom Death Rules  
+📈 Ranking System  
+╰────────────────────────────╯` },
+  footer: { text: "©️BeastBot | Death Note Module" },
+  nativeFlowMessage: {
+    messageParamsJson,
+    buttons: [{
+      name: "single_select",
+      buttonParamsJson: JSON.stringify({
+        title: "☠️ Death Note Actions",
+        sections: [
+          {
+            title: "───────── Death Note ─────────",
+            highlight_label: "📖 Note",
+            rows: [
+              { title: "🖊️ Death Note", description: "Name ins Death Note schreiben", id: "$deathnote [Name]" },
+              { title: "👹 Shinigami", description: "Dein Shinigami anzeigen", id: "$shinigami" },
+              { title: "⏳ Lifespan", description: "Lebenszeit checken", id: "$lifespan @user" },
+              { title: "👁️ Eyes", description: "Shinigami Eyes aktivieren", id: "$eyes" }
+            ]
+          },
+          {
+            title: "───────── L Investigation ─────────",
+            highlight_label: "🕵️ L",
+            rows: [
+              { title: "🕵️ Investigate", description: "User untersuchen", id: "$investigate @user" },
+              { title: "📋 Suspect List", description: "Verdächtige anzeigen", id: "$suspectlist" },
+              { title: "🎲 Case", description: "Zufälliger Kriminalfall", id: "$case" },
+              { title: "🧩 Solve", description: "Fall lösen", id: "$solve" }
+            ]
+          },
+          {
+            title: "───────── Kira System ─────────",
+            highlight_label: "👤 Kira",
+            rows: [
+              { title: "👤 Kira Check", description: "Bist du Kira?", id: "$kira" },
+              { title: "⚖️ Judgement", description: "User verurteilen", id: "$judgement @user" },
+              { title: "🌍 New World", description: "Kira Monolog", id: "$newworld" }
+            ]
+          },
+          {
+            title: "───────── Shinigami ─────────",
+            highlight_label: "👹 Death Gods",
+            rows: [
+              { title: "🍎 Apple", description: "Ryuk Apfel geben", id: "$apple" },
+              { title: "👻 Shinigami List", description: "Alle Shinigami anzeigen", id: "$shinigamilist" },
+              { title: "👹 Summon Ryuk", description: "Ryuk beschwören", id: "$summonryuk" }
+            ]
+          },
+          {
+            title: "───────── Events ─────────",
+            highlight_label: "🎮 Games",
+            rows: [
+              { title: "🎯 Kira Event", description: "Zufälliger wird Kira", id: "$kiraevent" },
+              { title: "🕹️ Death Note Game", description: "Wer ist Kira?", id: "$deathnote-game" },
+              { title: "📈 Rank", description: "Dein Ermittler Rang", id: "$rank" },
+              { title: "🏆 Top Detectives", description: "Beste Spieler", id: "$topdetectives" }
+            ]
+          },
+          {
+            title: "───────── Special ─────────",
+            highlight_label: "🔥 Extra",
+            rows: [
+              { title: "✍️ Write", description: "Custom Death erstellen", id: "$write [Name] [Todesart]" },
+              { title: "📜 Rule", description: "Random Death Note Regel", id: "$rule" },
+              { title: "🎬 Episode", description: "Random Episode", id: "$episode" }
+            ]
+          }
+        ]
+      })
+    }]
+  }
+},
 
   ];
 
   await sock.sendjsonv3(from, {
     interactiveMessage: {
-      body: { text: "Main Menu\n\n Codet by DeadClient" },
+      body: { text: "✨Main Menu👋\n\n Codet by 👑DeadClient🍀" },
       carouselMessage: { cards }
     }
   }, { quoted: msg });
