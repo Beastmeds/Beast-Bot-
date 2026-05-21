@@ -10,6 +10,9 @@ const autoPremiumState = {
   boost: new Map()
 };
 
+// Counting Game: { groupId: { count: number, lastUser: string, active: boolean } }
+const countingGames = {};
+
 // Message Queue System - verhindert Rate-Limits durch Delays
 const messageQueue = {
   queue: [],
@@ -3631,6 +3634,53 @@ if (!messageBody.startsWith(pfx) && groupFeature.autodownload) {
   }
 }
 
+// === COUNTING GAME: Number-only detection ===
+const countingGame = countingGames[chatId];
+if (countingGame && countingGame.active && !messageBody.startsWith(pfx)) {
+  const num = parseInt(messageBody.trim());
+  if (!isNaN(num) && num > 0 && num <= 10000) {
+    const expected = countingGame.count + 1;
+    if (num === expected) {
+      if (countingGame.lastUser === sender) {
+        countingGame.active = false;
+        countingGame.count = 0;
+        countingGame.lastUser = null;
+        await sock.sendMessage(chatId, { text: `❌ *COUNTING GAME ZURÜCKGESETZT!*\n\n👤 ${pushName || sender.split('@')[0]} hat zweimal hintereinander gezählt!\n\n📊 Nächste Runde startet mit */countig*` }, { quoted: msg });
+        return;
+      }
+      countingGame.count = num;
+      countingGame.lastUser = sender;
+      if (num === 10000) {
+        const winnerText = `🎉 *GLÜCKWUNSCH! COUNTING GAME GEWONNEN!*\n\n🏆 ${pushName || sender.split('@')[0]} hat die 10000 erreicht!\n💰 *ALLE in der Gruppe bekommen 10000 Coins!*`;
+        await sock.sendMessage(chatId, { text: winnerText, mentions: [sender] }, { quoted: msg });
+        try {
+          const meta = await sock.groupMetadata(chatId);
+          const participants = meta?.participants || [];
+          for (const p of participants) {
+            const jid = p.id || p;
+            const econ = getEconomy(jid);
+            econ.cash = (econ.cash || 100) + 10000;
+            setEconomy(jid, econ);
+          }
+        } catch (e) {
+          console.error('Counting: Fehler beim Auszahlen:', e.message);
+        }
+        countingGame.active = false;
+        countingGame.count = 0;
+        countingGame.lastUser = null;
+        return;
+      }
+      return;
+    } else {
+      countingGame.active = false;
+      countingGame.count = 0;
+      countingGame.lastUser = null;
+      await sock.sendMessage(chatId, { text: `❌ *COUNTING GAME ZURÜCKGESETZT!*\n\n👤 ${pushName || sender.split('@')[0]} hat ${num} statt ${expected} gesagt!\n\n📊 Nächste Runde startet mit */countig*` }, { quoted: msg });
+      return;
+    }
+  }
+}
+
 if (!messageBody.startsWith(pfx)) return;
 
 const commandBody = messageBody.slice(pfx.length).trim();
@@ -3780,7 +3830,7 @@ const commandsList = [
   // ECONOMY - Crime
   'rob', 'crime', 'heist', 'jail',
   // ECONOMY - Bank
-  'bank', 'deposit', 'withdraw',
+  'bank', 'deposit', 'withdraw', 'countig',
   // ECONOMY - Leaderboards
   'topbalance', 'topbank',
   // PREMIUM ECONOMY
@@ -16037,6 +16087,48 @@ case 'device': {
 //=============ECONOMY: HEIST============================//
    case 'heist': {
      await sock.sendMessage(chatId, { text: '⚠️ *Heist-System* ist noch in Entwicklung!\n\nDieser Command wird bald verfügbar sein.' }, { quoted: msg });
+     break;
+   }
+
+//=============COUNTING GAME============================//
+   case 'countig': {
+     if (!isGroupChat) {
+       await sock.sendMessage(chatId, { text: '❌ Counting Game funktioniert nur in Gruppen!' }, { quoted: msg });
+       break;
+     }
+     const game = countingGames[chatId] || { count: 0, lastUser: null, active: false };
+     const sub = args[0]?.toLowerCase();
+
+     if (sub === 'reset') {
+       const senderRank = ranks.getRank(sender);
+       const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+       if (!allowed.includes(senderRank)) {
+         await sock.sendMessage(chatId, { text: '⛔ Nur das Team kann das Spiel zurücksetzen.' }, { quoted: msg });
+         break;
+       }
+       countingGames[chatId] = { count: 0, lastUser: null, active: false };
+       await sock.sendMessage(chatId, { text: '🔄 *Counting Game* wurde zurückgesetzt!' }, { quoted: msg });
+       break;
+     }
+
+     if (sub === 'stop') {
+       const senderRank = ranks.getRank(sender);
+       const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
+       if (!allowed.includes(senderRank)) {
+         await sock.sendMessage(chatId, { text: '⛔ Nur das Team kann das Spiel stoppen.' }, { quoted: msg });
+         break;
+       }
+       countingGames[chatId] = { count: 0, lastUser: null, active: false };
+       await sock.sendMessage(chatId, { text: '⏹️ *Counting Game* gestoppt!' }, { quoted: msg });
+       break;
+     }
+
+     if (!game.active) {
+       countingGames[chatId] = { count: 0, lastUser: null, active: true };
+       await sock.sendMessage(chatId, { text: `🔢 *COUNTING GAME GESTARTET!*\n\n📝 Zählt von 1 bis 10000!\n⚠️ Ihr dürft nicht zweimal hintereinander zählen!\n💰 Bei 10000 gibt es *10000 Coins* für ALLE!\n\n▶️ Startet mit *1*` }, { quoted: msg });
+     } else {
+       await sock.sendMessage(chatId, { text: `🔢 *COUNTING GAME*\n\n📊 Aktueller Count: *${game.count}*/10000\n👤 Letzter: @${(game.lastUser || '').split('@')[0] || '—'}\n✅ Nächste Zahl: *${game.count + 1}*\n\n💡 */countig stop* - Spiel beenden\n💡 */countig reset* - Zurücksetzen`, mentions: game.lastUser ? [game.lastUser] : [] }, { quoted: msg });
+     }
      break;
    }
 
