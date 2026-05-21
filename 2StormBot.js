@@ -142,7 +142,6 @@ if (!fs.existsSync(blockedFile)) fs.writeFileSync(blockedFile, JSON.stringify({ 
 const loadBlocked = () => JSON.parse(fs.readFileSync(blockedFile));
 const saveBlocked = (data) => fs.writeFileSync(blockedFile, JSON.stringify(data, null, 2));
 
-const path = require('path');
 // load optional environment variables (can live in config.env or a .env file)
 // this allows you to keep sensitive API keys out of the repo and/or override
 // the values that are stored in `apiConfig.json`.
