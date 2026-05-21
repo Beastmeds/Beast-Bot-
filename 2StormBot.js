@@ -14729,6 +14729,27 @@ case '2': {
   }
   break;
 }
+case 'frage': {
+    const teks = 'Das ist eine QuestionMessage 🚀'
+
+    await sock.sendMessage(m.chat, {
+        text: "Antwort auf eine QuestionMessage"
+    }, {
+        quoted: {
+            key: {
+                fromMe: false,
+                participant: '0@s.whatsapp.net',
+                remoteJid: m.chat
+            },
+            message: {
+                questionMessage: {
+                    text: teks
+                }
+            }
+        }
+    })
+}
+break
 case 'main': {
   const from = msg.key.remoteJid;
   const { owner, bot, admins, system, features } = settings;
