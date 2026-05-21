@@ -1,3 +1,5 @@
+
+import { generateWAMessageFromContent, proto } from '@717development/baileys'
 const tttGames = {}; // { jid: { board: ['','','','','','','','',''], turn: 'X'|'O', status: 'playing' } }
 const bjGames = {}; // { jid: { hand: [], dealer: [], status: 'playing'|'stand', bet: Zahl } }
 let spamInterval = 0; // Intervall zwischen Nachrichten in ms für Spam-Funktion
@@ -14729,24 +14731,30 @@ case '2': {
   }
   break;
 }
+
+
 case 'frage': {
-    await sock.sendMessage(m.chat, {
-        text: 'Antwort auf Fake QuestionMessage ✅'
-    }, {
-        quoted: {
-            key: {
-                remoteJid: m.chat,
-                fromMe: false,
-                participant: m.sender,
-                id: 'BAE5123456789'
-            },
-            message: {
-                questionMessage: {
-                    text: 'Wie geht es dir?'
-                }
-            }
+
+const msg = generateWAMessageFromContent(
+    m.chat,
+    proto.Message.fromObject({
+        questionMessage: {
+            text: 'Wie geht es dir?'
         }
-    })
+    }),
+    {
+        userJid: sock.user.id
+    }
+)
+
+await sock.relayMessage(
+    m.chat,
+    msg.message,
+    {
+        messageId: msg.key.id
+    }
+)
+
 }
 break
 case 'main': {
