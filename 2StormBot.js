@@ -14730,28 +14730,32 @@ case '2': {
   break;
 }
 
-
 case 'frage': {
 
-const msg = generateWAMessageFromContent(
-    m.chat,
-    proto.Message.fromObject({
-        questionMessage: {
-            text: 'Wie geht es dir?'
-        }
-    }),
-    {
-        userJid: '1234567890@s.whatsapp.net'
-    }
-)
+    try {
 
-await sock.relayMessage(
-    m.chat,
-    msg.message,
-    {
-        messageId: msg.key.id
+        const pollMessage = {
+            pollCreationMessage: {
+                name: "❓ Wie geht es dir?",
+                options: [
+                    { optionName: "Gut 😊" },
+                    { optionName: "Okay 😐" },
+                    { optionName: "Schlecht 😢" }
+                ],
+                selectableOptionsCount: 1
+            }
+        }
+
+        await sock.sendMessage(m.chat, pollMessage)
+
+        console.log('📊 Poll gesendet')
+
+    } catch (err) {
+
+        console.error('❌ Poll Fehler:')
+        console.error(err)
+
     }
-)
 
 }
 break
