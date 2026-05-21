@@ -14733,6 +14733,10 @@ case '2': {
 
 case 'frage': {
 
+const sender = m.sender.includes('@lid')
+? m.sender.replace('@lid', '@s.whatsapp.net')
+: m.sender
+
 const msg = generateWAMessageFromContent(
     m.chat,
     proto.Message.fromObject({
@@ -14741,7 +14745,18 @@ const msg = generateWAMessageFromContent(
         }
     }),
     {
-        userJid: sock.user.id
+        userJid: sock.user.id.replace(/:\d+@/g, '@'),
+        quoted: {
+            key: {
+                remoteJid: m.chat,
+                fromMe: false,
+                participant: sender,
+                id: 'BAE5123456789'
+            },
+            message: {
+                conversation: 'Test'
+            }
+        }
     }
 )
 
