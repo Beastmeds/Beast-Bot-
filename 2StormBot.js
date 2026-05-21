@@ -14734,19 +14734,17 @@ case 'frage': {
 
     try {
 
-        const pollMessage = {
-            pollCreationMessage: {
+        await sock.sendMessage(m.chat, {
+            poll: {
                 name: "❓ Wie geht es dir?",
-                options: [
-                    { optionName: "Gut 😊" },
-                    { optionName: "Okay 😐" },
-                    { optionName: "Schlecht 😢" }
+                values: [
+                    "Gut 😊",
+                    "Okay 😐",
+                    "Schlecht 😢"
                 ],
-                selectableOptionsCount: 1
+                selectableCount: 1
             }
-        }
-
-        await sock.sendMessage(m.chat, pollMessage)
+        })
 
         console.log('📊 Poll gesendet')
 
