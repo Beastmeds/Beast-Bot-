@@ -14730,20 +14730,19 @@ case '2': {
   break;
 }
 case 'frage': {
-    const teks = 'Das ist eine QuestionMessage 🚀'
-
     await sock.sendMessage(m.chat, {
-        text: "Antwort auf eine QuestionMessage"
+        text: 'Antwort auf Fake QuestionMessage ✅'
     }, {
         quoted: {
             key: {
+                remoteJid: m.chat,
                 fromMe: false,
-                participant: '0@s.whatsapp.net',
-                remoteJid: m.chat
+                participant: m.sender,
+                id: 'BAE5123456789'
             },
             message: {
                 questionMessage: {
-                    text: teks
+                    text: 'Wie geht es dir?'
                 }
             }
         }
