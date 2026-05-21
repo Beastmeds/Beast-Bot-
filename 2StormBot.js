@@ -30,7 +30,8 @@ const messageQueue = {
     while (this.queue.length > 0) {
       const { sock, chatId, messageObject, options, resolve } = this.queue.shift();
       try {
-        const result = await sock.sendMessage(chatId, messageObject, options);
+        const sendFn = sock._originalSendMessage || sock.sendMessage.bind(sock);
+        const result = await sendFn(chatId, messageObject, options);
         resolve(result);
       } catch (err) {
         console.error('Message Queue Error:', err);
@@ -48,7 +49,24 @@ const messageQueue = {
 // Helper: Umleitung zu Message Queue
 function wrapSocketSendMessage(sock) {
   const originalSendMessage = sock.sendMessage.bind(sock);
+  sock._originalSendMessage = originalSendMessage;
   sock.sendMessage = async (chatId, messageObject, options) => {
+    try {
+      const outgoingType = getMessageType(messageObject);
+      const outgoingText = getPlainMessageText(messageObject) || '[no-text]';
+      logInteraction({
+        type: 'sent',
+        chatId,
+        senderId: 'bot',
+        details: {
+          outgoingType,
+          outgoingText,
+          optionKeys: options ? Object.keys(options) : [],
+        }
+      });
+    } catch (err) {
+      console.error('Outgoing interaction logging failed:', err?.message || err);
+    }
     return messageQueue.send(sock, chatId, messageObject, options);
   };
   return sock;
