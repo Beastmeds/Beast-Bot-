@@ -37,7 +37,7 @@ function printLogo() {
 // Globale Flags – damit Profilname & Bild nur einmal geloggt werden
 global.profileLogShown = false;
 
-async function startSock(sessionName) {
+async function startSock(sessionName, mode = 'qr', phone = null) {
   const sessionFolder = `./sessions/${sessionName}`;
   fs.mkdirSync(sessionFolder, { recursive: true });
 

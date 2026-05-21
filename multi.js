@@ -73,7 +73,7 @@ async function startSock(sessionName) {
   });
 
   // Hier wird die Bot-Logik aus StormBot.js eingebunden:
-  const stormBotPath = path.resolve('./StormBot.js');
+  const stormBotPath = path.resolve('./2StormBot.js');
   let stormBot = require(stormBotPath);
 
   stormBot(sock, sessionName); // sock + sessionName an StormBot übergeben

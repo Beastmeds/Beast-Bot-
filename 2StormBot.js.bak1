@@ -76,11 +76,11 @@ const pino = require('pino');
 const axios = require('axios');
 const { Buffer } = require('buffer');
 const STATS_FILE = "./botStats.json";
-const { getAudioBuffer, saveTempAudio } = require('./audioHelper.js');
+const { getAudioBuffer, saveTempAudio } = require('./audioHelper');
 const FormData = require('form-data');
 const ranks = require('./rangsystem/ranks.js');
-const { isGroupLocked, lockGroup, unlockGroup } = require('./lib/lockedGroups.js');
-const { initNyxion, handleNyxionMessage, sendNyxionResponse, isNyxionCommand } = require('./lib/nyxion.js');
+const { isGroupLocked, lockGroup, unlockGroup } = require('./lib/lockedGroups');
+const { initNyxion, handleNyxionMessage, sendNyxionResponse, isNyxionCommand } = require('./lib/nyxion');
 
 // Lazy load heavy dependencies
 let ffmpeg, fetch, getPreview;
@@ -1215,12 +1215,12 @@ const { exec } = require('child_process');
 
 const os = require('os');
 const weatherCooldowns = new Map();
-const { ytdl, ttdl, igdl, fbdl, twdl, ytdown, instagram } = require("./lib/mediaDownloader.js");
+const { ytdl, ttdl, igdl, fbdl, twdl, ytdown, instagram } = require("./lib/mediaDownloader");
 const { handleYT, handleIG, handleFB, handleTW } = require("./downloaders.js");
 const yts = require("yt-search");
-const { sticker: convertToSticker } = require('./lib/sticker.js');
+const { sticker: convertToSticker } = require('./lib/sticker');
 const playdl = require("play-dl");
-const neeledownloader = require("./lib/mediaDownloader.js");
+const neeledownloader = require("./lib/mediaDownloader");
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 //=================AntiDelete=================//
 const nsfwFile = './antinsfw.json';
@@ -14498,207 +14498,6 @@ case 'main': {
 
   const cards = [
 
-    // =====Main Commands=====
-
-    {
-      header: { title: "*Main Commands*", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-      body: { text: `╭─❍ *Main Commands* ❍─╮
-👤 Name: ${owner.name}  
-🤖 Bot: ${bot.name} (v${bot.version})  
-📅 Release: ${bot.releaseDate}   
-
-💻 Multi-Bot System  
-🎮 Games & Casino  
-📸 TikTok Downloader & Instagram 
-📷 Instagram Scraper  
-╰────────────────╯` },
-      footer: { text: "©️Beastmeds | *Main Commands*" },
-      nativeFlowMessage: {
-        messageParamsJson,
-        buttons: [{
-          name: "single_select",
-          buttonParamsJson: JSON.stringify({
-            title: "*Main Commands*",
-            sections: [
-              {
-                title: "───────── Ping ─────────",
-                highlight_label: "🏓 Ping",
-                rows: [
-                  { title: "🏓 Ping", description: "🏓 Ping checken", id: "$ping" }
-                ]
-              },
-              {
-	                title: "───────── Owner ─────────",
-	                highlight_label: "👑 Owner",
-	                rows: [
-	                  { title: "👑 Owner", description: "👑 Owner Informationen", id: "$owner" }
-	                ]
-	              },
-              {
-                title: "───────── Menu ─────────",
-                highlight_label: "📂 Menu",
-                rows: [
-                  { title: "📂 Menu", description: "📋 Hauptmenü anzeigen", id: "$menu" }
-                ]
-              },
-              {
-                title: "───────── Cards Module ─────────",
-                highlight_label: " Nayvy ",
-                rows: [
-                  { title: "Nayvy", description: "Infos zu Nayvex", id: "$nayvy" }
-                ]
-              },
-              {
-                title: "───────── Play ─────────",
-                highlight_label: "Play",
-                rows: [
-                  { title: "Play", description: "Musik spielen", id: "$play" }
-                ]
-              },
-              {
-                title: "───────── Runtime ─────────",
-                highlight_label: "Runtime",
-                rows: [
-                  { title: "Runtime", description: "Laufzeit anzeigen", id: "$runtime" }
-                ]
-              },
-              {
-                title: "───────── Support ─────────",
-                highlight_label: "Support",
-                rows: [
-                  { title: "Support", description: "Hilfe und Support", id: "$support" }
-                ]
-              },
-              {
-                title: "───────── Community ─────────",
-                highlight_label: "Community",
-                rows: [
-                  { title: "Community", description: " Gemeinschaft & Chats", id: "$community" }
-                ]
-              },
-            ]
-          })
-        }]
-      }
-    },
-
-    // ===== Admin Commands =====
-
-    {
-  title: "───────── Admin Commands ─────────",
-  highlight_label: "🛡️ Admin Panel",
-  rows: [
-    { title: "🛠️ Set Description", description: "Gruppenbeschreibung ändern", id: "$setdesc" },
-    { title: "🧾 Set Name", description: "Gruppenname ändern", id: "$setname" },
-    { title: "🛠️ Setup", description: "Bot Setup starten", id: "$setup" },
-    { title: "👋 Welcome", description: "Welcome Nachrichten einstellen", id: "$welcome" },
-    { title: "🗑️ Anti Delete", description: "Gelöschte Nachrichten erkennen", id: "$antidelete" },
-    { title: "⚠️ Warn", description: "User verwarnen", id: "$warn @user" },
-    { title: "🔁 Reset Warn", description: "Warns zurücksetzen", id: "$resetwarn @user" },
-    { title: "📜 Warns", description: "Warnliste anzeigen", id: "$warns" },
-    { title: "🔇 Mute", description: "User muten", id: "$mute @user" },
-    { title: "🔊 Unmute", description: "User entmuten", id: "$unmute @user" },
-    { title: "📋 Muted List", description: "Gemutete User anzeigen", id: "$mutedlist" },
-    { title: "🧩 Group Info", description: "Gruppeninformationen", id: "$grpinfo" },
-    { title: "🚫 Kick", description: "User kicken", id: "$kick @user" },
-    { title: "♻️ Revoke", description: "Gruppenlink zurücksetzen", id: "$revoke" },
-    { title: "❌ Delete", description: "Nachricht löschen", id: "$del" },
-    { title: "🏷️ Tag All", description: "Alle Mitglieder markieren", id: "$tagall" },
-    { title: "🙈 Hide Tag", description: "Unsichtbares Taggen", id: "$hidetag" },
-    { title: "🔗 Anti Link", description: "Links blockieren", id: "$antilink on/off" },
-    { title: "➕ Add", description: "User hinzufügen", id: "$add" },
-    { title: "🧩 Link Bypass", description: "Link Bypass aktivieren", id: "$linkbypass" },
-    { title: "🪓 Unlink Bypass", description: "Link Bypass entfernen", id: "$unlinkbypass" },
-    { title: "🔼 Promote", description: "User zum Admin machen", id: "$promote @user" },
-    { title: "🔽 Demote", description: "Adminrechte entfernen", id: "$demote @user" },
-    { title: "📤 Broadcast", description: "Nachricht an alle senden", id: "$broadcast" },
-    { title: "🔍 View Once", description: "ViewOnce Nachricht öffnen", id: "$viewonce" }
-  ]
-},
-
-
-// ===== ADMIN PANEL =====
-{
-  header: { title: "🛡️ Admin Panel ⚙️", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
-  body: { text: `╭─❍ ADMIN PANEL ❍─╮
-👤 Admin Tools Aktiv  
-🛡️ Gruppen Verwaltung  
-⚠️ Moderation System  
-🔇 Mute & Warn System  
-
-📋 Gruppen Features  
-🔗 Anti-Link Protection  
-🏷️ Tag & HideTag System  
-📤 Broadcast Funktionen  
-╰────────────────╯` },
-  footer: { text: "©️DeadClient | Admin Panel" },
-  nativeFlowMessage: {
-    messageParamsJson,
-    buttons: [{
-      name: "single_select",
-      buttonParamsJson: JSON.stringify({
-        title: "🄰🄳🄼🄸🄽 Actions",
-        sections: [
-          {
-            title: "───────── Group Settings ─────────",
-            highlight_label: "⚙️ Group Settings",
-            rows: [
-              { title: "🛠️ Set Description", description: "Gruppenbeschreibung ändern", id: "$setdesc" },
-              { title: "🧾 Set Name", description: "Gruppenname ändern", id: "$setname" },
-              { title: "🛠️ Setup", description: "Bot Setup starten", id: "$setup" },
-              { title: "👋 Welcome", description: "Welcome Nachrichten einstellen", id: "$welcome" },
-              { title: "🔗 Anti Link", description: "Links blockieren", id: "$antilink on/off" }
-            ]
-          },
-          {
-            title: "───────── Moderation ─────────",
-            highlight_label: "🛡️ Moderation",
-            rows: [
-              { title: "⚠️ Warn", description: "User verwarnen", id: "$warn @user" },
-              { title: "🔁 Reset Warn", description: "Warns zurücksetzen", id: "$resetwarn @user" },
-              { title: "📜 Warns", description: "Warnliste anzeigen", id: "$warns" },
-              { title: "🔇 Mute", description: "User muten", id: "$mute @user" },
-              { title: "🔊 Unmute", description: "User entmuten", id: "$unmute @user" },
-              { title: "📋 Muted List", description: "Gemutete User anzeigen", id: "$mutedlist" }
-            ]
-          },
-          {
-            title: "───────── Group Management ─────────",
-            highlight_label: "👥 Members",
-            rows: [
-              { title: "🚫 Kick", description: "User kicken", id: "$kick @user" },
-              { title: "➕ Add", description: "User hinzufügen", id: "$add" },
-              { title: "🔼 Promote", description: "User zum Admin machen", id: "$promote @user" },
-              { title: "🔽 Demote", description: "Adminrechte entfernen", id: "$demote @user" }
-            ]
-          },
-          {
-            title: "───────── Group Tools ─────────",
-            highlight_label: "🧩 Tools",
-            rows: [
-              { title: "🧩 Group Info", description: "Gruppeninformationen", id: "$grpinfo" },
-              { title: "♻️ Revoke", description: "Gruppenlink zurücksetzen", id: "$revoke" },
-              { title: "❌ Delete", description: "Nachricht löschen", id: "$del" },
-              { title: "🏷️ Tag All", description: "Alle Mitglieder markieren", id: "$tagall" },
-              { title: "🙈 Hide Tag", description: "Unsichtbares Taggen", id: "$hidetag" }
-            ]
-          },
-          {
-            title: "───────── Extra Features ─────────",
-            highlight_label: "✨ Extras",
-            rows: [
-              { title: "🗑️ Anti Delete", description: "Gelöschte Nachrichten erkennen", id: "$antidelete" },
-              { title: "🧩 Link Bypass", description: "Link Bypass aktivieren", id: "$linkbypass" },
-              { title: "🪓 Unlink Bypass", description: "Link Bypass entfernen", id: "$unlinkbypass" },
-              { title: "📤 Broadcast", description: "Nachricht an alle senden", id: "$broadcast" },
-              { title: "🔍 View Once", description: "ViewOnce Nachricht öffnen", id: "$viewonce" }
-            ]
-          }
-        ]
-      })
-    }]
-  }
-},
     // ===== OWNER PANEL =====
     {
       header: { title: "👑 Owner Panel 🍀", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
@@ -18362,7 +18161,7 @@ case 'nl': {
         }, { quoted: msg });
 
     // Ziel – dein Newsletter aus settings.js
-    const settings = require('./settings.js');
+    const settings = require('./settings');
     const newsletterJid = settings.forwardedNewsletter.jid;
     const newsletterName = settings.forwardedNewsletter.name;
 
@@ -18453,7 +18252,7 @@ ${msgText.split('\n').map(line => `║  ${line}`).join('\n')}
         let sentCount = 0;
         
         // Alle bekannten Gruppen durchsuchen und Eilmeldung versenden
-        const settings = require('./settings.js');
+        const settings = require('./settings');
         const groupFeaturesFile = './data/groupFeatures.json';
         let groupFeaturesData = {};
         

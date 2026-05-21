@@ -198,6 +198,7 @@ async function startSock(sessionName, mode) {
       } catch (e) {
         console.error('Warn: could not wrap sendMessage:', e.message || e);
       }
+      const mainPath = path.resolve('./2StormBot.js');
       let mainModule = require(mainPath);
       mainModule(sock, sessionName);
 
