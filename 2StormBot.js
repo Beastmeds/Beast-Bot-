@@ -13,6 +13,18 @@ const autoPremiumState = {
 // Counting Game: { groupId: { count: number, lastUser: string, active: boolean } }
 const countingGames = {};
 
+// Session Setup Wizard: { userId: { step: 'name'|'mode'|'phone', name: string, mode: string } }
+const sessionSetup = {};
+const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 Minuten
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of Object.entries(sessionSetup)) {
+    if (val.step !== 'done' && now - (val.timestamp || 0) > SESSION_TIMEOUT) {
+      delete sessionSetup[key];
+    }
+  }
+}, 60_000);
+
 // Message Queue System - verhindert Rate-Limits durch Delays
 const messageQueue = {
   queue: [],
@@ -3634,6 +3646,81 @@ if (!messageBody.startsWith(pfx) && groupFeature.autodownload) {
   }
 }
 
+// === SESSION SETUP HELPER ===
+async function startNewSession(sock, from, msg, name, mode, phone, sender) {
+  try {
+    const baileys = require('@717development/baileys');
+    const { state, saveCreds } = await baileys.useMultiFileAuthState(`./sessions/${name}`);
+    const { version } = await baileys.fetchLatestBaileysVersion();
+    const pino = require('pino');
+
+    const newSock = baileys.default({
+      version,
+      printQRInTerminal: false,
+      auth: state,
+      logger: pino({ level: 'silent' }),
+      browser: baileys.Browsers.ubuntu('Edge'),
+    });
+
+    newSock.ev.on('creds.update', saveCreds);
+
+    let qrSent = false;
+    let qrTimeout = null;
+
+    newSock.ev.on('connection.update', async (update) => {
+      const { connection, qr, lastDisconnect } = update;
+
+      if (qr && mode === 'qr' && !qrSent) {
+        qrSent = true;
+        try {
+          const qrBuf = await require('qrcode').toBuffer(qr);
+          await sock.sendMessage(from, { image: qrBuf, caption: `📲 QR-Code für Session *${name}* — Einmalig, nicht ablaufen lassen!` }, { quoted: msg });
+        } catch (e) {
+          await sock.sendMessage(from, { text: `📲 QR-Code für *${name}*:\n${qr}` }, { quoted: msg });
+        }
+        qrTimeout = setTimeout(async () => {
+          if (qrSent && !connection) {
+            await sock.sendMessage(from, { text: `⏱️ QR-Code für *${name}* wurde nicht gescannt. Setup abgebrochen.` }, { quoted: msg });
+            try { newSock.end(); } catch (e) {}
+          }
+        }, 60000);
+      }
+
+      if (connection === 'open') {
+        if (qrTimeout) clearTimeout(qrTimeout);
+        await sock.sendMessage(from, { text: `✅ Session *${name}* erfolgreich verbunden!` }, { quoted: msg });
+        global.activeSessions = global.activeSessions || {};
+        global.activeSessions[name] = newSock;
+      }
+
+      if (connection === 'close') {
+        if (qrTimeout) clearTimeout(qrTimeout);
+        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.message || 'Unbekannt';
+        if (reason !== 'abort') {
+          await sock.sendMessage(from, { text: `❌ Session *${name}* geschlossen.\nGrund: ${reason}` }, { quoted: msg });
+        }
+      }
+    });
+
+    if (mode === 'pair' && phone) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (!newSock.authState?.creds?.registered) {
+        try {
+          const codeRaw = await newSock.requestPairingCode(phone);
+          const codeFmt = codeRaw?.match(/.{1,4}/g)?.join('-') || codeRaw;
+          await sock.sendMessage(from, { text: `🔑 *Pairing-Code* für *${name}* (${phone}):\n\n\`\`\`${codeFmt}\`\`\`\n\n👉 In WhatsApp unter *Gerät koppeln* eingeben.\n⏱️ Gültig für 60 Sekunden.` }, { quoted: msg });
+        } catch (e) {
+          await sock.sendMessage(from, { text: `❌ Fehler beim Pairing: ${e.message}` }, { quoted: msg });
+        }
+      }
+    }
+
+    await sock.sendMessage(from, { text: `🛰️ Session *${name}* wird erstellt (${mode === 'qr' ? 'QR-Code' : 'Pairing-Code'})...` }, { quoted: msg });
+  } catch (e) {
+    await sock.sendMessage(from, { text: `❌ Fehler beim Erstellen der Session: ${e.message}` }, { quoted: msg });
+  }
+}
+
 // === COUNTING GAME: Number-only detection ===
 const countingGame = countingGames[chatId];
 if (countingGame && countingGame.active && !messageBody.startsWith(pfx)) {
@@ -3645,7 +3732,7 @@ if (countingGame && countingGame.active && !messageBody.startsWith(pfx)) {
         countingGame.active = false;
         countingGame.count = 0;
         countingGame.lastUser = null;
-        await sock.sendMessage(chatId, { text: `❌ *COUNTING GAME ZURÜCKGESETZT!*\n\n👤 ${pushName || sender.split('@')[0]} hat zweimal hintereinander gezählt!\n\n📊 Nächste Runde startet mit */countig*` }, { quoted: msg });
+        await sock.sendMessage(chatId, { text: `❌ *COUNTING GAME ZURÜCKGESETZT!*\n\n👤 ${pushName || sender.split('@')[0]} hat zweimal hintereinander gezählt!\n\n📊 Nächste Runde startet mit */counting*` }, { quoted: msg });
         return;
       }
       countingGame.count = num;
@@ -3675,7 +3762,7 @@ if (countingGame && countingGame.active && !messageBody.startsWith(pfx)) {
       countingGame.active = false;
       countingGame.count = 0;
       countingGame.lastUser = null;
-      await sock.sendMessage(chatId, { text: `❌ *COUNTING GAME ZURÜCKGESETZT!*\n\n👤 ${pushName || sender.split('@')[0]} hat ${num} statt ${expected} gesagt!\n\n📊 Nächste Runde startet mit */countig*` }, { quoted: msg });
+      await sock.sendMessage(chatId, { text: `❌ *COUNTING GAME ZURÜCKGESETZT!*\n\n👤 ${pushName || sender.split('@')[0]} hat ${num} statt ${expected} gesagt!\n\n📊 Nächste Runde startet mit */counting*` }, { quoted: msg });
       return;
     }
   }
@@ -3793,7 +3880,7 @@ const commandsList = [
   '1', 'sock', '2',
 
   
-  'reload', 'leaveall', 'leavegrp', 'grouplist', 'grouplist2', 'grpteam',
+  'reload', 'newsession', 'leaveall', 'leavegrp', 'grouplist', 'grouplist2', 'grpteam',
   'addme', 'addadmin', 'setrank', 'delrank', 'ranks', 'listsessions',
   'lid', 'killsession', 'newpair', 'newqr', 'newqr1', 'newqr2',
   'startmc', 'stopmc', 'tok', 'tok2',
@@ -3830,7 +3917,7 @@ const commandsList = [
   // ECONOMY - Crime
   'rob', 'crime', 'heist', 'jail',
   // ECONOMY - Bank
-  'bank', 'deposit', 'withdraw', 'countig',
+  'bank', 'deposit', 'withdraw', 'counting',
   // ECONOMY - Leaderboards
   'topbalance', 'topbank',
   // PREMIUM ECONOMY
@@ -16091,7 +16178,7 @@ case 'device': {
    }
 
 //=============COUNTING GAME============================//
-   case 'countig': {
+   case 'counting': {
      if (!isGroupChat) {
        await sock.sendMessage(chatId, { text: '❌ Counting Game funktioniert nur in Gruppen!' }, { quoted: msg });
        break;
@@ -16127,7 +16214,7 @@ case 'device': {
        countingGames[chatId] = { count: 0, lastUser: null, active: true };
        await sock.sendMessage(chatId, { text: `🔢 *COUNTING GAME GESTARTET!*\n\n📝 Zählt von 1 bis 10000!\n⚠️ Ihr dürft nicht zweimal hintereinander zählen!\n💰 Bei 10000 gibt es *10000 Coins* für ALLE!\n\n▶️ Startet mit *1*` }, { quoted: msg });
      } else {
-       await sock.sendMessage(chatId, { text: `🔢 *COUNTING GAME*\n\n📊 Aktueller Count: *${game.count}*/10000\n👤 Letzter: @${(game.lastUser || '').split('@')[0] || '—'}\n✅ Nächste Zahl: *${game.count + 1}*\n\n💡 */countig stop* - Spiel beenden\n💡 */countig reset* - Zurücksetzen`, mentions: game.lastUser ? [game.lastUser] : [] }, { quoted: msg });
+       await sock.sendMessage(chatId, { text: `🔢 *COUNTING GAME*\n\n📊 Aktueller Count: *${game.count}*/10000\n👤 Letzter: @${(game.lastUser || '').split('@')[0] || '—'}\n✅ Nächste Zahl: *${game.count + 1}*\n\n💡 */counting stop* - Spiel beenden\n💡 */counting reset* - Zurücksetzen`, mentions: game.lastUser ? [game.lastUser] : [] }, { quoted: msg });
      }
      break;
    }
@@ -17781,29 +17868,69 @@ case 'server': {
   }
   break;
 }
-const { spawn } = require('child_process');
-
-case '/newsession':
-  const parts = body.trim().split(' ');
-  const sessionName = parts[1];
-
-  if (!sessionName) {
-    await sock.sendMessage(msg.key.remoteJid, {
-      text: '❌ Bitte gib einen Namen für die neue Session an.\n\nBeispiel: `/newsession Lorenz`'
-    });
-    return;
+case 'newsession': {
+  const senderRank = ranks.getRank(sender);
+  const allowed = ['Inhaber', 'Stellvertreter Inhaber'];
+  if (!allowed.includes(senderRank)) {
+    await sock.sendMessage(from, { text: '⛔ Nur Inhaber oder Stellvertreter dürfen neue Sessions erstellen.' }, { quoted: msg });
+    break;
   }
 
-  // CMD-Fenster öffnen mit node . /newsession Lorenz
-  spawn('cmd.exe', ['/c', `start cmd /k "node . /newsession ${sessionName}"`], {
-    cwd: __dirname
-  });
+  const setup = sessionSetup[sender] || { step: 'name', name: '', mode: '' };
 
-  await sock.sendMessage(msg.key.remoteJid, {
-    text: `🛠️ Neue Session *${sessionName}* wird gestartet...\nScanne den QR-Code gleich, wenn er dir geschickt wird!`
-  });
+  // Step 1: Name angeben
+  if (setup.step === 'name') {
+    if (!q) {
+      sessionSetup[sender] = { step: 'name', name: '', mode: '', timestamp: Date.now() };
+      await sock.sendMessage(from, { text: `🔧 *Session Setup gestartet!*\n\nSchritt 1/3: Wie soll die Session heißen?\nSende *${pfx}newsession <Name>*` }, { quoted: msg });
+      break;
+    }
+    setup.name = q.trim();
+    setup.step = 'mode';
+    sessionSetup[sender] = setup;
+    await sock.sendMessage(from, { text: `✅ Name *${setup.name}* gespeichert!\n\nSchritt 2/3: QR-Code oder Pairing-Code?\nSende *${pfx}newsession qr* oder *${pfx}newsession pair*` }, { quoted: msg });
+    break;
+  }
+
+  // Step 2: Modus wählen
+  if (setup.step === 'mode') {
+    const mode = q.toLowerCase();
+    if (mode !== 'qr' && mode !== 'pair') {
+      await sock.sendMessage(from, { text: '❌ Bitte wähle *qr* oder *pair*.\nSende ${pfx}newsession qr oder ${pfx}newsession pair' }, { quoted: msg });
+      break;
+    }
+    setup.mode = mode;
+
+    if (mode === 'qr') {
+      setup.step = 'done';
+      sessionSetup[sender] = setup;
+      await startNewSession(sock, from, msg, setup.name, 'qr', null, sender);
+      delete sessionSetup[sender];
+      break;
+    }
+
+    setup.step = 'phone';
+    sessionSetup[sender] = setup;
+    await sock.sendMessage(from, { text: `✅ Modus *Pairing-Code* gewählt!\n\nSchritt 3/3: Sende deine Telefonnummer mit Ländervorwahl:\n*${pfx}newsession <Telefonnummer>*` }, { quoted: msg });
+    break;
+  }
+
+  // Step 3: Telefonnummer für Pairing
+  if (setup.step === 'phone') {
+    const phone = q.replace(/[^\d]/g, '');
+    if (!phone || phone.length < 5) {
+      await sock.sendMessage(from, { text: '❌ Ungültige Nummer. Sende die Nummer mit Ländervorwahl, z.B. *49123456789*' }, { quoted: msg });
+      break;
+    }
+    setup.step = 'done';
+    sessionSetup[sender] = setup;
+    await startNewSession(sock, from, msg, setup.name, 'pair', phone, sender);
+    delete sessionSetup[sender];
+    break;
+  }
 
   break;
+}
 
 case 'kick': {
   const senderId = msg.key.participant || msg.key.remoteJid;
