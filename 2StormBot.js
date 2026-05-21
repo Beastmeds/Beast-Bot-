@@ -14582,41 +14582,6 @@ case 'main': {
       }
     },
 
-    // ===== Admin Commands =====
-
-    {
-  title: "───────── Admin Commands ─────────",
-  highlight_label: "🛡️ Admin Panel",
-  rows: [
-    { title: "🛠️ Set Description", description: "Gruppenbeschreibung ändern", id: "$setdesc" },
-    { title: "🧾 Set Name", description: "Gruppenname ändern", id: "$setname" },
-    { title: "🛠️ Setup", description: "Bot Setup starten", id: "$setup" },
-    { title: "👋 Welcome", description: "Welcome Nachrichten einstellen", id: "$welcome" },
-    { title: "🗑️ Anti Delete", description: "Gelöschte Nachrichten erkennen", id: "$antidelete" },
-    { title: "⚠️ Warn", description: "User verwarnen", id: "$warn @user" },
-    { title: "🔁 Reset Warn", description: "Warns zurücksetzen", id: "$resetwarn @user" },
-    { title: "📜 Warns", description: "Warnliste anzeigen", id: "$warns" },
-    { title: "🔇 Mute", description: "User muten", id: "$mute @user" },
-    { title: "🔊 Unmute", description: "User entmuten", id: "$unmute @user" },
-    { title: "📋 Muted List", description: "Gemutete User anzeigen", id: "$mutedlist" },
-    { title: "🧩 Group Info", description: "Gruppeninformationen", id: "$grpinfo" },
-    { title: "🚫 Kick", description: "User kicken", id: "$kick @user" },
-    { title: "♻️ Revoke", description: "Gruppenlink zurücksetzen", id: "$revoke" },
-    { title: "❌ Delete", description: "Nachricht löschen", id: "$del" },
-    { title: "🏷️ Tag All", description: "Alle Mitglieder markieren", id: "$tagall" },
-    { title: "🙈 Hide Tag", description: "Unsichtbares Taggen", id: "$hidetag" },
-    { title: "🔗 Anti Link", description: "Links blockieren", id: "$antilink on/off" },
-    { title: "➕ Add", description: "User hinzufügen", id: "$add" },
-    { title: "🧩 Link Bypass", description: "Link Bypass aktivieren", id: "$linkbypass" },
-    { title: "🪓 Unlink Bypass", description: "Link Bypass entfernen", id: "$unlinkbypass" },
-    { title: "🔼 Promote", description: "User zum Admin machen", id: "$promote @user" },
-    { title: "🔽 Demote", description: "Adminrechte entfernen", id: "$demote @user" },
-    { title: "📤 Broadcast", description: "Nachricht an alle senden", id: "$broadcast" },
-    { title: "🔍 View Once", description: "ViewOnce Nachricht öffnen", id: "$viewonce" }
-  ]
-},
-
-
 // ===== ADMIN PANEL =====
 {
   header: { title: "🛡️ Admin Panel ⚙️", hasMediaAttachment: true, imageMessage: mediaImage.imageMessage },
