@@ -1,5 +1,3 @@
-
-import { generateWAMessageFromContent, proto } from '@717development/baileys'
 const tttGames = {}; // { jid: { board: ['','','','','','','','',''], turn: 'X'|'O', status: 'playing' } }
 const bjGames = {}; // { jid: { hand: [], dealer: [], status: 'playing'|'stand', bet: Zahl } }
 let spamInterval = 0; // Intervall zwischen Nachrichten in ms für Spam-Funktion
