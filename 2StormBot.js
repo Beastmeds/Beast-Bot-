@@ -1668,10 +1668,11 @@ function getEconomy(jid) {
         lastWeekly: result.lastWeekly || 0,
         lastWork: result.lastWork || 0,
         lastBeg: result.lastBeg || 0,
-        jailedUntil: result.jailedUntil || 0
+        jailedUntil: result.jailedUntil || 0,
+        lastInterest: result.lastInterest || 0
       };
     }
-    return { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+    return { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0, lastInterest: 0 };
   } catch (err) {
     console.error('Fehler in getEconomy:', err);
     return { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
@@ -5815,7 +5816,7 @@ case 'accept': {
 }
 
 // ========== SUPPORTGROUP (set/show/remove) ==========
-case 'supportgroup': {
+case 'supportgroup2': {
   try {
     const senderRank = ranks.getRank(sender);
     const allowed = ['Inhaber', 'Stellvertreter Inhaber', 'Moderator'];
@@ -6610,7 +6611,7 @@ case 'imagine': {
 }
 
 
-case 'video': {
+case 'aivideo': {
   try {
     const sender = msg.key.participant || msg.key.remoteJid || msg.sender;
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
@@ -6927,7 +6928,7 @@ case 'tts': {
 }
 
 
-case 'join': {
+case 'joinsupport': {
   try {
     const supportGroup = "120363419556165028@g.us"; // Supportgruppe
 
@@ -11535,7 +11536,7 @@ case 'register': {
 
   ensureUser(jid, name);
   // Initialize Economy
-  const econ = { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0 };
+  const econ = { jid, cash: 100, bank: 0, gems: 0, lastDaily: 0, lastWeekly: 0, lastWork: 0, lastBeg: 0, jailedUntil: 0, lastInterest: 0 };
   setEconomy(jid, econ);
   
   // Initialize Premium
@@ -14599,8 +14600,6 @@ case 'main': {
   const currentTime = `${now.getHours().toString().padStart(2,"0")}:${now.getMinutes().toString().padStart(2,"0")}`;
 
   const process = require('process');
-  const start = Date.now();
-  const latency = Date.now() - start;
 
   const mediaImage = await prepareWAMessageMedia(
     { image: fs.readFileSync('/root/Beast-Bot-/bot/bot.png') },
@@ -15947,12 +15946,14 @@ case 'device': {
      const subCmd = args[0]?.toLowerCase();
      
      if (!subCmd) {
-       await sock.sendMessage(chatId, { text: '🏦 *Bank Commands:*\n\n*/bank deposit <Betrag>* - Cash zur Bank\n*/bank withdraw <Betrag>* - Cash abheben\n*/bank interest* - Zinsen abholen (1x/Monat)\n*/bank balance* - Kontostand' }, { quoted: msg });
+        const bRate = isPremium(senderJid) ? '93.4% (Premium)' : '0.5%';
+        await sock.sendMessage(chatId, { text: `🏦 *Bank Commands:*\n\n*/bank deposit <Betrag>* - Cash zur Bank\n*/bank withdraw <Betrag>* - Cash abheben\n*/bank interest* - Zinsen abholen (1x/Monat, ${bRate})\n*/bank balance* - Kontostand` }, { quoted: msg });
        break;
      }
      
-     if (subCmd === 'balance') {
-       await sock.sendMessage(chatId, { text: `🏦 *Bankkontostand:*\n\n💵 Cash: ${formatMoney(econ.cash || 100)}\n🏦 Bank: ${formatMoney(econ.bank || 0)}\n📊 Zinsrate: 1%` }, { quoted: msg });
+      if (subCmd === 'balance') {
+        const rate = isPremium(senderJid) ? 93.4 : 0.5;
+        await sock.sendMessage(chatId, { text: `🏦 *Bankkontostand:*\n\n💵 Cash: ${formatMoney(econ.cash || 100)}\n🏦 Bank: ${formatMoney(econ.bank || 0)}\n📊 Zinsrate: ${rate}%` }, { quoted: msg });
        break;
      } else if (subCmd === 'deposit') {
        if (!args[1]) {
@@ -16007,12 +16008,24 @@ case 'device': {
          break;
        }
        
-       const interest = Math.floor((econ.bank || 0) * 0.01);
-       econ.cash = (econ.cash || 100) + interest;
-       econ.bank = Math.max(0, (econ.bank || 0) - 10);
-       econ.lastInterest = now;
-       setEconomy(senderJid, econ);
-       await sock.sendMessage(chatId, { text: `💰 *Monatliche Zinsen*\n\n✅ +${formatMoney(interest)} Zinsen erhalten\n❌ -10 Kontoführungsgebühr\n\n💵 Neuer Cash: ${formatMoney(econ.cash)}\n🏦 Neue Bank: ${formatMoney(econ.bank)}` }, { quoted: msg });
+        const isPrem = isPremium(senderJid);
+        const rate = isPrem ? 0.934 : 0.005;
+        const interest = Math.floor((econ.bank || 0) * rate);
+        econ.cash = (econ.cash || 100) + interest;
+        if (!isPrem) {
+          econ.bank = Math.max(0, (econ.bank || 0) - 10);
+        }
+        econ.lastInterest = now;
+        setEconomy(senderJid, econ);
+        
+        let msgText = `💰 *Monatliche Zinsen*\n\n✅ +${formatMoney(interest)} Zinsen (${(rate * 100).toFixed(1)}%)`;
+        if (!isPrem) {
+          msgText += `\n❌ -10 Kontoführungsgebühr`;
+        } else {
+          msgText += `\n👑 Premium-Bonus: keine Gebühren!`;
+        }
+        msgText += `\n\n💵 Neuer Cash: ${formatMoney(econ.cash)}\n🏦 Neue Bank: ${formatMoney(econ.bank)}`;
+        await sock.sendMessage(chatId, { text: msgText }, { quoted: msg });
        break;
      } else {
        await sock.sendMessage(chatId, { text: '❌ Unbekannter Bank-Befehl!\n\n*/bank balance* - Kontostand\n*/bank deposit <Betrag>* - Einzahlen\n*/bank withdraw <Betrag>* - Abheben\n*/bank interest* - Zinsen (1x/Monat)' }, { quoted: msg });
@@ -16043,19 +16056,13 @@ case 'device': {
    case 'premium': {
      const subcommand = args[0]?.toLowerCase();
      
-     // /premium add - Owner/CoOwner/Premium können Premium vergeben
-     if (subcommand === 'add') {
-       // Check ob Sender Owner/CoOwner/Premium ist
-       const senderPrem = getPremium(senderJid);
-       const senderRank = ranks.getRank(senderJid);
-       const isOwner = senderRank === 'Inhaber';
-       const isCoOwner = senderRank === 'Stellvertreter Inhaber';
-       const canGivePremium = isOwner || isCoOwner || (senderPrem && senderPrem.isPremium && Date.now() < senderPrem.premiumUntil);
-       
-       if (!canGivePremium) {
-         await sock.sendMessage(chatId, { text: `❌ Nur Owner, CoOwner oder Premium-Nutzer können Premium vergeben!` }, { quoted: msg });
-         break;
-       }
+      // /premium add - Nur Owner (Inhaber) kann Premium vergeben
+      if (subcommand === 'add') {
+        const senderRank = ranks.getRank(senderJid);
+        if (senderRank !== 'Inhaber') {
+          await sock.sendMessage(chatId, { text: `❌ Nur der Owner kann Premium vergeben!` }, { quoted: msg });
+          break;
+        }
        
        // Zielbenutzer auslesen - versuche Mentions oder args
        let targetJid = null;
@@ -19913,7 +19920,8 @@ case 'ranksssssssssssssssssssss': {
             
             case 'mcsetserver': {
                 // Nur für Owner
-                if (!isOwner(sender)) {
+                const mcRank = ranks.getRank(sender);
+                if (mcRank !== 'Inhaber') {
                     return sock.sendMessage(from, { text: '❌ Nur der Owner darf diesen Command verwenden!' }, { quoted: msg });
                 }
 
@@ -20143,7 +20151,8 @@ case 'ranksssssssssssssssssssss': {
 
             case 'mcserver': {
                 // Nur für Owner
-                if (!isOwner(sender)) {
+                const mcRank2 = ranks.getRank(sender);
+                if (mcRank2 !== 'Inhaber') {
                     return sock.sendMessage(from, { text: '❌ Nur der Owner darf diesen Command verwenden!' }, { quoted: msg });
                 }
 
