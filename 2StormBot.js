@@ -64,6 +64,7 @@ const settings = require('./settings.js');
 const { spawn } = require('child_process');
 
 const fs = require('fs');
+const path = require('path');
 const ytdlCore = require('ytdl-core');
 const { downloadMediaMessage } = require('@717development/baileys');
 const chalkModule = require('chalk');
@@ -2424,6 +2425,60 @@ async function downloadAudioMessage(msg, sock) {
   }
 }
 
+function ensureLogsDir() {
+  const logDir = path.join(__dirname, 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  return logDir;
+}
+
+function getPlainMessageText(message) {
+  if (!message || typeof message !== 'object') return '';
+  return (
+    message.conversation ||
+    message.extendedTextMessage?.text ||
+    message.imageMessage?.caption ||
+    message.videoMessage?.caption ||
+    message.buttonsMessage?.contentText ||
+    message.listMessage?.description ||
+    message.templateMessage?.hydratedTemplate?.hydratedContentText ||
+    ''
+  ).toString();
+}
+
+function logInteraction(entry) {
+  try {
+    const logDir = ensureLogsDir();
+    const filePath = path.join(logDir, 'interactions.log');
+    const line = `[${new Date().toISOString()}] [${entry.type}] chat=${entry.chatId} sender=${entry.senderId} details=${JSON.stringify(entry.details)}\n`;
+    fs.appendFileSync(filePath, line, 'utf8');
+  } catch (e) {
+    console.error('Interaction logging failed:', e?.message || e);
+  }
+}
+
+function getUiInteractionDetail(content) {
+  if (!content || typeof content !== 'object') return null;
+  const result = { uiType: 'unknown', id: '', label: '' };
+  if (content.interactiveResponseMessage) {
+    result.uiType = 'interactiveResponseMessage';
+    result.id = content.interactiveResponseMessage?.selectedButtonId || content.interactiveResponseMessage?.selectedRowId || '';
+    result.label = content.interactiveResponseMessage?.selectedDisplayText || content.interactiveResponseMessage?.selectedRowTitle || '';
+  } else if (content.buttonsResponseMessage) {
+    result.uiType = 'buttonsResponseMessage';
+    result.id = content.buttonsResponseMessage?.selectedButtonId || '';
+    result.label = content.buttonsResponseMessage?.selectedDisplayText || '';
+  } else if (content.listResponseMessage) {
+    result.uiType = 'listResponseMessage';
+    result.id = content.listResponseMessage?.selectedRowId || '';
+    result.label = content.listResponseMessage?.title || content.listResponseMessage?.selectedRowTitle || '';
+  } else if (content.templateButtonReplyMessage) {
+    result.uiType = 'templateButtonReplyMessage';
+    result.id = content.templateButtonReplyMessage?.selectedId || '';
+    result.label = content.templateButtonReplyMessage?.selectedDisplayText || '';
+  }
+  return result;
+}
+
 // 🟢 Bot-Startup-Info
 console.log('');
 console.log('╔════════════════════════════════════════════════════════════╗');
@@ -2558,6 +2613,39 @@ sock.ev.on('messages.upsert', async (m) => {
     senderNumber = chatId.split('@')[0];
   }
   const cleanedSenderNumber = senderNumber.replace(/[^0-9]/g, '');
+
+  // Log replies to quoted messages and UI interactions
+  const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  if (quoted) {
+    const quotedText = getPlainMessageText(quoted);
+    const replyText = body || '[non-text reply]';
+    logInteraction({
+      type: 'reply',
+      chatId,
+      senderId: cleanedSenderNumber,
+      details: {
+        replyText,
+        quotedText,
+        quotedType: Object.keys(quoted).filter((k) => k.endsWith('Message')).join(',') || 'unknown'
+      }
+    });
+  }
+
+  if (isUiReplyEarly) {
+    const uiDetail = getUiInteractionDetail(earlyContent);
+    const uiText = getPlainMessageText(msg.message) || body || '';
+    logInteraction({
+      type: 'button',
+      chatId,
+      senderId: cleanedSenderNumber,
+      details: {
+        uiType: uiDetail?.uiType || 'unknown',
+        uiId: uiDetail?.id || '',
+        uiLabel: uiDetail?.label || '',
+        rawBody: uiText
+      }
+    });
+  }
 
   const prefix = getPrefixForChat(chatId);
 
